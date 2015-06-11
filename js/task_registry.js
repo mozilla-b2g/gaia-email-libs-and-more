@@ -95,8 +95,12 @@ TaskRegistry.prototype = {
         if (!meta.persistentState) {
           meta.persistentState = taskImpl.initPersistentState();
         }
-        meta.memoryState = taskImpl.deriveMemoryStateFromPersistentState(
-          meta.persistentState);
+        let { memoryState, markers } =
+          taskImpl.deriveMemoryStateFromPersistentState(
+            meta.persistentState);
+        meta.memoryState = memoryState;
+
+        
       }
 
       taskMetas.set(taskType, meta);

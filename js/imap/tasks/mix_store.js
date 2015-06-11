@@ -3,8 +3,20 @@ define(function(require) {
 
 let co = require('co');
 
+let { numericUidFromMessageId } = require('../../id_conversions');
+
+let churnConversation = require('app_logic/conv_churn');
+
+
 /**
- * @typedef {Map<MixStoreAggrString, MixStoreChangeAggr>} MixStorePersistentState
+ * @typedef {} MixStorePersistentState
+ * @prop {Number} nextId
+ *   The next number to combine with our task type/name and the account id to
+ *   produce a marker id.  Practically speaking, we could use the aggregating
+ *   string instead of this, but labels/flags are potentially very-private and
+ *   so it is not safe to encode them into the id's given how we want to be able
+ *   to safely log those ids.
+ * @prop {Map<MixStoreAggrString, MixStoreChangeAggr>} aggrChanges
  *
  * We aggregate the manipulations we want to perform to leverage IMAP's ability
  * to batch things.  If two separate store requests would issue the same IMAP
@@ -20,16 +32,20 @@ let co = require('co');
 /**
  * @typedef {Object} MixStoreChangeAggr
  *
+ * @property {String} id
+ *   The marker identifier for this job, made up of our task type/name, the
+ *   account id for this state instance, and the `nextId` in our persistent
+ *   state.
  * @property {Array<String>} add
  *   The flags/labels to add.
  * @property {Array<String>} remove
  *   The flags/labels to remove.
- * @property {Array<SUID>} messages
+ * @property {Array<ImapUid>} uids
  *   The messages we want to perform this operation on.
  */
 
 /**
- * @typedef {Map<SUID, MixStoreAggrString>} MixStoreMemoryState
+ * @typedef {Map<ImapUid, MixStoreAggrString>} MixStoreMemoryState
  *
  * Maps tracked SUIDs to their current aggregation string so we can easily
  * find what we want to do with them when unifying or mooting.
@@ -39,12 +55,17 @@ let co = require('co');
 /**
  * @typedef {Object} MixStoreRequest
  *
+ * @property {AccountId} accountId
+ *   Account identifier, required for all tasks for binning purposes.
+ * @property {ConversationId} conversationId
+ *   The conversation to be manipulated
+ * @property {Array<MessageId>} [onlyMessages]
+ *   If this shouldn't be applied to the entire conversation, the list of
+ *   messages to manipulate.  Null if no filtering is needed.
  * @property {Array<String>} add
  *   The flags/labels to add.
  * @property {Array<String>} remove
  *   The flags/labels to remove.
- * @property {Array<SUID>} messages
- *   The messages this request is being targeted for.
  */
 
 /**
@@ -155,13 +176,26 @@ let GmailStoreTaskMixin = {
   initPersistentState: function() {
     return {
       nextId: 1,
-
+      aggrChanges: new Map()
     };
   },
 
   deriveMemoryStateFromPersistentState: function(persistentState) {
     let markers = [];
-    return markers;
+    let idToAggrString = new Map();
+
+    for (let [aggrString, change] of persistentState.aggrChanges) {
+      for (let uid of change.uids) {
+        idToAggrString.set(uid, aggrString);
+      }
+    }
+
+    return {
+      memoryState: {
+        idToAggrString
+      },
+      markers
+    };
   },
 
   /**
@@ -172,19 +206,35 @@ let GmailStoreTaskMixin = {
    * escape using JSON.stringify since that most resembles what imap-handler
    * does for atom escaping.
    *
+   * @param {Array<String>} [add]
+   *   The strings being added.  This array will be sorted in-place, so callers
+   *   need to be aware of that.  Which our internal callers are.
+   * @param {Array<String>} [remove]
+   *   The strings being removed.  Same mutating sort deal as for `add`.
+   *
    * @return {FlagStoreAggrString}
    */
-  _deriveMixStoreAggrString: function(req) {
+  _deriveMixStoreAggrString: function(add, remove) {
     var s = '';
-    s += req.add.map(x => '+' + JSON.stringify(x)).join(' ');
-    if (req.add.length && req.remove.length) {
-      s += ' ';
+    if (add && add.length) {
+      add.sort();
+      s += add.map(x => '+' + JSON.stringify(x)).join(' ');
     }
-    s += req.remove.map(x => 'x' + JSON.stringify(x)).join(' ');
+    if (remove && remove.length) {
+      // add delimiting whitespace for sanity if we have both types
+      if (add && add.length) {
+        s += ' ';
+      }
+      s += remove.map(x => 'x' + JSON.stringify(x)).join(' ');
+    }
     return s;
   },
 
-  plan: co.wrap(function*(ctx, persistentState, memoryState, request) {
+  plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+    let filterMessages = req.onlyMessages;
+    let { aggrChanges } = persistentState;
+    let { idToAggrString } = memoryState;
+
     // -- Load the conversation and messages
     let fromDb = yield ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
@@ -193,9 +243,112 @@ let GmailStoreTaskMixin = {
 
     let loadedMessages = fromDb.messagesByConversation.get(req.convId);
     let modifiedMessagesMap = new Map();
+    let modifyTaskMarkers = new Map();
+    let anyMessageChanged = false;
 
+    let attrName = this.attrName;
+    let toAdd = req.add;
+    let toRemove = req.remove;
     // -- Per message, compute the changes required and issue/update markers
     for (let message of loadedMessages) {
+      // Skip messages if we're filtering and this message is not named.
+      if (filterMessages && filterMessages.indexOf(message.id) === -1) {
+        continue;
+      }
+
+      // NB: mutation of the value in-place
+      let attrVal = message[attrName];
+      let actuallyAdded = null;
+      let actuallyRemoved = null;
+      if (toAdd) {
+        for (let addend of toAdd) {
+          if (attrVal.indexOf(addend === -1)) {
+            if (!actuallyAdded) {
+              actuallyAdded = [];
+            }
+            attrVal.push(addend);
+            actuallyAdded.push(addend);
+          }
+        }
+      }
+      if (toRemove) {
+        for (let subtrahend of toRemove) { // (wiktionary consulted...)
+          let index = attrVal.indexOf(subtrahend);
+          if (index !== -1) {
+            if (!actuallyRemoved) {
+              actuallyRemoved = [];
+            }
+            attrVal.splice(index, 1);
+            actuallyRemoved.push(subtrahend);
+          }
+        }
+      }
+
+      if (actuallyAdded || actuallyRemoved) {
+        modifiedMessagesMap.set(message.id, message);
+        anyMessageChanged = true;
+
+        // TODO: this data needs to be accumulated and emitted as the "undo"
+        // byproduct
+
+        let uid = numericUidFromMessageId(message.id);
+        // - Unify with existing requests
+        // If the change is already pending, then we need to remove it from that
+        // bucket, merging the already pending changes when determining our new
+        // bucket.
+        if (idToAggrString.has(uid)) {
+          let pendingAggrString = idToAggrString.get(uid);
+          let pendingChanges = aggrChanges.get(pendingAggrString);
+          actuallyAdded =
+            actuallyAdded ? actuallyAdded.concat(pendingChanges.add) :
+              pendingChanges.add;
+          actuallyRemoved =
+            actuallyRemoved ? actuallyRemoved.concat(pendingChanges.remove) :
+              pendingChanges.remove;
+
+          // remove from pending changes (possibly wiping the entry)
+          pendingChanges.uids.splice(pendingChanges.uids.indexOf(uid));
+          if (pendingChanges.uids.length === 0) {
+            aggrChanges.delete(pendingAggrString);
+            // mark the marker for removal
+            modifyTaskMarkers.set(pendingChanges.id, null);
+          }
+        }
+
+        // - Bucket it.
+        let newAggrString = this._deriveMixStoreAggrString(
+          actuallyAdded, actuallyRemoved);
+        let newChanges = {
+          id: this.name + ':' + req.accountId + persistentState.nextId++,
+          add: actuallyAdded,
+          remove: actuallyRemoved,
+          uids: [uid]
+        };
+        aggrChanges.set(newAggrString, newChanges);
+        idToAggrString.set(uid, newAggrString);
+        modifyTaskMarkers.set(
+          newChanges.id,
+          {
+            type: this.name,
+            id: newChanges.id,
+            accountId: req.accountId,
+            aggrString: newAggrString
+          });
+      }
+
+      let conversationsMap = null;
+      if (anyMessageChanged) {
+        let oldConvInfo = fromDb.conversations.get(req.conversationId);
+        let convInfo = churnConversation(
+          req.conversationId, oldConvInfo, loadedMessages);
+        conversationsMap = new Map([[convInfo.id, convInfo]]);
+      }
+
+      yield ctx.finishTask({
+        conversations: conversationsMap,
+        messages: modifiedMessagesMap,
+        taskMarkers: modifyTaskMarkers
+      });
     }
     // (The local database state will already include any accumulated changes
     // requested by the user but not yet reflected to the server.  There is no
@@ -205,6 +358,14 @@ let GmailStoreTaskMixin = {
 
     // See
   }),
+
+  /**
+   * Exposed helper API for sync logic that wants the list of flags/labels
+   * fixed-up to account for things we have not yet reflected to the server.
+   */
+  applyPendingTransforms: function(uid, value) {
+
+  },
 
   execute: function(ctx, persistentState, memoryState, marker) {
     let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);

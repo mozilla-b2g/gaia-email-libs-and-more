@@ -110,13 +110,16 @@ TaskManager.prototype = {
     this._accountsTOC.getAllItems().forEach((accountInfo) => {
       // TODO: implement concept of 'gelamType' or something to convey the
       // correct super-specific implementation type in use (at least for tasks).
-      this._registry.accountExists(accountInfo.id, 'gmail');
+      let markers = this._registry.accountExists(accountInfo.id, 'gmail');
+      this._prioritizeTasksOrMarkers(markers);
     });
     this._accountsTOC.on('add', (accountInfo) => {
-      this._registry.accountExists(accountInfo.id, 'gmail');
+      let markers = this._registry.accountExists(accountInfo.id, 'gmail');
+      this._prioritizeTasksOrMarkers(markers);
     });
     this._accountsTOC.on('remove', (accountInfo) => {
       this._registry.accountRemoved(accountInfo.id);
+      // TODO: we need to reap the markers
     });
 
     // -- Trigger processing
@@ -322,6 +325,12 @@ TaskManager.prototype = {
       prioritizedTasks.delete(node);
       prioritizedTasks.insert(newKey, taskThing);
     } // we intentionally do nothing for a delta of 0
+  },
+
+  _prioritizeTasksOrMarkers: function(tasksOrThings) {
+    for (let i = 0; i < tasksOrThings.length; i++) {
+      this.__prioritizeTaskOrMarker(tasksOrThings[i]);
+    }
   },
 
   /**

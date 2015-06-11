@@ -50,6 +50,33 @@ TaskContext.prototype = {
     }
   },
 
+  /**
+   * Synchronously ask a (complex) task implementation something.  This is
+   * primarily intended for situations where a task that is synchronizing with
+   * a server needs to compensate for offline operations that have not yet been
+   * played against the server.  For example synchronizing messages needs to
+   * compensate for manipulations of flags and labels not yet told to the
+   * server.
+   *
+   * Note that this could alternately have been addressed by ensuring that
+   * offline operations are run against the server in a strict order that avoids
+   * this, it's arguably simpler to reason about things this way.  The downside,
+   * of course, is that logic that fails to consult other tasks potentially runs
+   * into trouble.  However, synchronization logic is tightly coupled and it's
+   * hard to avoid that.
+   *
+   * @param {Object} consultWhat
+   *   Characterizes the task we want to talk to.
+   * @param {AccountId} accountId
+   * @param {String} name
+   *   The task name.
+   * @param {Object} argDict
+   *   The argument object to be passed to the complex task.
+   */
+  synchronouslyConsultOtherTask: function(consultWhat, argDict) {
+
+  },
+
   read: function(what) {
     return this.universe.db.read(this, what);
   },

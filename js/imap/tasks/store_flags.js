@@ -7,6 +7,7 @@ return TaskDefiner.defineComplexTask([
   require('./mix_store'),
   {
     name: 'store_flags',
+    attrName: 'flags'
   }
 ]);
 

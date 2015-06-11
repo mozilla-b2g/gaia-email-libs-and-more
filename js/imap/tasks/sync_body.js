@@ -86,12 +86,12 @@ return TaskDefiner.defineComplexTask([
     },
 
     /**
-     * Returns no task markers because we have no persistent state.
-     *
-     * @return {Array<ComplexTaskMarker>}
      */
     deriveMemoryStateFromPersistentState: function(persistentState) {
-      return [];
+      return {
+        memoryState: new Map(),
+        markers: []
+      };
     },
 
     plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
