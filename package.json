@@ -34,8 +34,8 @@
   "volo": {
     "baseDir": "js/ext",
     "dependencies": {
-      "browserbox": "github:whiteout-io/browserbox/v0.8.1",
-      "browserbox-imap": "github:whiteout-io/browserbox/v0.8.1#src/browserbox-imap.js",
+      "browserbox": "github:whiteout-io/browserbox/gm-labels",
+      "browserbox-imap": "github:whiteout-io/browserbox/gm-labels#src/browserbox-imap.js",
       "utf7": "github:whiteout-io/utf7/v2.0.2",
       "imap-handler": "github:whiteout-io/imap-handler/v0.1.14",
       "mimefuncs": "github:whiteout-io/mimefuncs/e37b8f7d976d83d6ae126a33c1b9adeef880332a",

@@ -103,8 +103,22 @@ MailConversation.prototype = evt.mix({
    */
   getKnownLabels: function() {
     let accountId = accountIdFromConvId(this.id);
-    let account = this._api.getAccountById(accountId);
+    let account = this._api.accounts.getAccountById(accountId);
     return account.folders.items.concat();
+  },
+
+  /**
+   * Add the label identified by the given folder to this conversation.
+   *
+   * Under the hood, this is implemented by us applying the label to all the
+   * messages in the conversation at the time the task is planned.
+   */
+  addLabels: function(folders) {
+    this._api.modifyConversationLabels([this], folders);
+  },
+
+  removeLabels: function(folders) {
+    this._api.modifyConversationLabels([this], null, folders);
   },
 
   _forgetPeeps: function() {

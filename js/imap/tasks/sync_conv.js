@@ -12,7 +12,7 @@ let expandGmailConvId = a64.decodeUI64;
 
 let { encodedGmailConvIdFromConvId } = require('../../id_conversions');
 
-let { chewMessageStructure } = require('../imapchew');
+let { valuesOnly, chewMessageStructure } = require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
@@ -139,10 +139,30 @@ return TaskDefiner.defineSimpleTask([
           { byUid: true }
         );
 
-        for (let rawMessage of rawMessages) {
+        for (let msg of rawMessages) {
+          // Convert the imap-parser tagged { type: STRING, value } for to just
+          // values.
+          // (Note this is a different set of types from the header parser, and
+          // different from flags which are automatically normalized.)
+          let rawGmailLabels = valuesOnly(msg['x-gm-labels']);
+          let flags = msg.flags || [];
+
+          // Have store_labels apply any (offline) requests that have not yet
+          // been replayed to the server.
+          ctx.synchronouslyConsultOtherTask(
+            { name: 'store_labels', accountId: account.id },
+            { uid: msg.uid, value: rawGmailLabels });
+          // same with store_flags
+          ctx.synchronouslyConsultOtherTask(
+            { name: 'store_flags', accountId: account.id },
+            { uid: msg.uid, value: flags });
+
+          let folderIds = labelMapper.labelsToFolderIds(rawGmailLabels);
+
           let messageInfo = chewMessageStructure(
-            rawMessage,
-            labelMapper,
+            msg,
+            folderIds,
+            flags,
             convId
           );
           messages.push(messageInfo);

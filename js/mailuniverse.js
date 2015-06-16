@@ -550,7 +550,7 @@ MailUniverse.prototype = {
   },
 
   syncFolderList: function(accountId, why) {
-    this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTasks([
       {
         type: 'sync_folder_list',
         accountId: accountId
@@ -560,7 +560,7 @@ MailUniverse.prototype = {
 
   syncGrowFolder: function(folderId, why) {
     let accountId = folderId.split(/\./g)[0];
-    this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTasks([
       {
         type: 'sync_grow',
         accountId: accountId,
@@ -571,7 +571,7 @@ MailUniverse.prototype = {
 
   syncRefreshFolder: function(folderId, why) {
     let accountId = folderId.split(/\./g)[0];
-    this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTasks([
       {
         type: 'sync_refresh',
         accountId: accountId,
@@ -589,11 +589,11 @@ MailUniverse.prototype = {
         amount: 'snippet',
       };
     });
-    this.taskManager.scheduleTasks(tasks, why);
+    return this.taskManager.scheduleTasks(tasks, why);
   },
 
   fetchMessageBody: function(messageId, messageDate, why) {
-    this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTasks([
       {
         type: 'sync_body',
         accountId: accountIdFromMessageId(messageId),
@@ -603,60 +603,17 @@ MailUniverse.prototype = {
     ], why);
   },
 
-  /**
-   * Download entire bodyRep(s) representation.
-   */
-  downloadMessageBodyReps: function(suid, date, callback) {
-    var account = this.getAccountForMessageSuid(suid);
-    this._queueAccountOp(
-      account,
+  storeLabels: function(conversationId, messageIds, addLabels, removeLabels) {
+    return this.taskManager.scheduleTasks([
       {
-        type: 'downloadBodyReps',
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: 'done',
-        serverStatus: null,
-        tryCount: 0,
-        humanOp: 'downloadBodyReps',
-        messageSuid: suid,
-        messageDate: date
-      },
-      callback
-    );
-  },
-
-  downloadBodies: function(messages, options, callback) {
-    if (typeof(options) === 'function') {
-      callback = options;
-      options = null;
-    }
-
-    var self = this;
-    var pending = 0;
-
-    function next() {
-      if (!--pending) {
-        callback();
+        type: 'store_labels',
+        accountId: accountIdFromConvId(conversationId),
+        convId: conversationId,
+        onlyMessages: messageIds || null,
+        add: addLabels,
+        remove: removeLabels
       }
-    }
-    this._partitionMessagesByAccount(messages, null).forEach(function(x) {
-      pending++;
-      self._queueAccountOp(
-        x.account,
-        {
-          type: 'downloadBodies',
-          longtermId: 'session', // don't persist this job.
-          lifecycle: 'do',
-          localStatus: 'done',
-          serverStatus: null,
-          tryCount: 0,
-          humanOp: 'downloadBodies',
-          messages: x.messages,
-          options: options
-        },
-        next
-      );
-    });
+    ]);
   },
 
   /**

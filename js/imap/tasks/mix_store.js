@@ -235,6 +235,10 @@ let GmailStoreTaskMixin = {
     let { aggrChanges } = persistentState;
     let { idToAggrString } = memoryState;
 
+    // (only needed in the labels case currently, but )
+    let normalizeHelper =
+      yield this.prepNormalizationLogic(ctx, req.accountId);
+
     // -- Load the conversation and messages
     let fromDb = yield ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
@@ -285,6 +289,14 @@ let GmailStoreTaskMixin = {
       }
 
       if (actuallyAdded || actuallyRemoved) {
+        // Normalize to server-name space from our local name-space.  AKA
+        // convert folder id's to gmail labels in the label case and do nothing
+        // in the flags case.
+        actuallyAdded =
+          this.normalizeLocalToServer(normalizeHelper, actuallyAdded);
+        actuallyRemoved =
+          this.normalizeLocalToServer(normalizeHelper, actuallyRemoved);
+
         modifiedMessagesMap.set(message.id, message);
         anyMessageChanged = true;
 
@@ -318,13 +330,20 @@ let GmailStoreTaskMixin = {
         // - Bucket it.
         let newAggrString = this._deriveMixStoreAggrString(
           actuallyAdded, actuallyRemoved);
-        let newChanges = {
-          id: this.name + ':' + req.accountId + persistentState.nextId++,
-          add: actuallyAdded,
-          remove: actuallyRemoved,
-          uids: [uid]
-        };
-        aggrChanges.set(newAggrString, newChanges);
+        let newChanges;
+        if (aggrChanges.has(newAggrString)) {
+          newChanges = aggrChanges.get(newAggrString);
+          newChanges.uids.push(uid);
+        }
+        else {
+          newChanges = {
+            id: this.name + ':' + req.accountId + persistentState.nextId++,
+            add: actuallyAdded,
+            remove: actuallyRemoved,
+            uids: [uid]
+          };
+          aggrChanges.set(newAggrString, newChanges);
+        }
         idToAggrString.set(uid, newAggrString);
         modifyTaskMarkers.set(
           newChanges.id,
@@ -332,7 +351,9 @@ let GmailStoreTaskMixin = {
             type: this.name,
             id: newChanges.id,
             accountId: req.accountId,
-            aggrString: newAggrString
+            aggrString: newAggrString,
+            priorityTags: [],
+            exclusiveResources: []
           });
       }
 
@@ -345,8 +366,10 @@ let GmailStoreTaskMixin = {
       }
 
       yield ctx.finishTask({
-        conversations: conversationsMap,
-        messages: modifiedMessagesMap,
+        mutations: {
+          conversations: conversationsMap,
+          messages: modifiedMessagesMap
+        },
         taskMarkers: modifyTaskMarkers
       });
     }
@@ -363,15 +386,76 @@ let GmailStoreTaskMixin = {
    * Exposed helper API for sync logic that wants the list of flags/labels
    * fixed-up to account for things we have not yet reflected to the server.
    */
-  applyPendingTransforms: function(uid, value) {
+  consult: function(askingCtx, persistentState, memoryState, argDict) {
+    let { uid, value } = argDict;
 
+    let { aggrChanges } = persistentState;
+    let { idToAggrString } = memoryState;
+
+    if (idToAggrString.has(uid)) {
+      let aggrString = idToAggrString.get(uid);
+      let changes = aggrChanges.get(aggrString);
+
+      if (changes.add) {
+        for (let addend of changes.add) {
+          if (value.indexOf(addend) === -1) {
+            value.push(addend);
+          }
+        }
+      }
+      if (changes.remove) {
+        for (let subtrahend of changes.remove) {
+          let index = value.indexOf(subtrahend);
+          if (index !== -1) {
+            value.splice(subtrahend, 1);
+          }
+        }
+      }
+    }
   },
 
-  execute: function(ctx, persistentState, memoryState, marker) {
-    let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
-    let allMailFolderInfo = account.getFirstFolderWithType('all');
+  execute: co.wrap(function*(ctx, persistentState, memoryState,
+                             marker) {
+    let { aggrChanges } = persistentState;
+    let { idToAggrString } = memoryState;
 
-  }
+    let changes = aggrChanges.get(marker.aggrString);
+
+    let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+    // TODO: spam and trash folder handling would demand that we perform
+    // further normalization of the UIDs and pick the appropriate folder here.
+    let allMailFolderInfo = account.getFirstFolderWithType('all');
+    let uidSet = changes.uids;
+
+    // -- Issue the manipulations to the server
+    if (changes.add && changes.add.length) {
+      yield account.pimap.store(
+        allMailFolderInfo,
+        uidSet,
+        '+' + this.imapDataName,
+        changes.add,
+        { byUid: true });
+    }
+    if (changes.remove && changes.remove.length) {
+      yield account.pimap.store(
+        allMailFolderInfo,
+        uidSet,
+        '-' + this.imapDataName,
+        changes.remove,
+        { byUid: true });
+    }
+
+    // - Success, clean up state.
+    aggrChanges.delete(marker.aggrString);
+    for (let uid of changes.uids) {
+      idToAggrString.delete(uid);
+    }
+
+    // - Return / finalize
+    yield ctx.finishTask({
+      complexTaskState: persistentState
+    });
+  })
 };
 
 return GmailStoreTaskMixin;

@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 43;
+const CUR_VERSION = 44;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -519,7 +519,30 @@ MailDB.prototype = evt.mix({
    *   this would be for debugging, and maybe should just be removed.
    */
   _considerCachePressure: function(why, ctx) {
-
+    // XXX memory-backed Blobs are being a real pain.  So let's start
+    // aggressively dropping the cache.  But because of how promises work and
+    // when we trigger this, we really want to use a setTimeout with a fixed
+    // delay so we don't nuke the cache out from under a read() caller before
+    // they are able to handle the data.
+    // TODO: potentially consider allowing some concept of providing a promise
+    // as a cache-nuking barrier.  We would accept the promise and a blame label
+    // and create a racing timer (promise?) that would generate an error and
+    // then perform the flush despite the promise.  (The primary goal is to
+    // avoid infinite read() loops like was happening without this setTimeout
+    // where list view logic was being defeated given its ordering assumptions
+    // and steady-state design that relies on the cache.)
+    if (this._emptyingCache) {
+      return;
+    }
+    this._emptyingCache = window.setTimeout(
+      () => {
+        this._emptyingCache = null;
+        this.emptyCache();
+      },
+      // This need not actually be 100. But just doing Promise.resolve().then
+      // here would not be sufficient for correctness.  setTimeout(0) would
+      // probably be okay.  This here give us some locality, however.
+      100);
   },
 
   emptyCache: function() {
@@ -1116,6 +1139,12 @@ MailDB.prototype = evt.mix({
           trans, ctx._preMutateStates.messages, mutations.messages);
       }
 
+      if (mutations.complexTaskStates) {
+        for (let [key, complexTaskState] of mutations.complexTaskStates) {
+          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState, key);
+        }
+      }
+
       if (mutations.accounts) {
         // (This intentionally comes after all other mutation types and newData
         // so that our deletions should clobber new introductions of data,
@@ -1193,6 +1222,7 @@ MailDB.prototype = evt.mix({
 
     return wrapTrans(trans).then(() => {
       logic(this, 'finishMutate:end');
+      this._considerCachePressure('mutate', ctx);
     });
   },
 });

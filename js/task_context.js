@@ -30,6 +30,16 @@ TaskContext.prototype = {
     }
   },
 
+  // Convenience helpers to help us get at these without redundantly storing.
+  // Underscored since tasks should not be directly accessing these on their
+  // own.  Instead they should be using helpers on this object.
+  get _taskManager() {
+    return this.universe.taskManager;
+  },
+  get _taskRegistry() {
+    return this.universe.taskRegistry;
+  },
+
   /**
    * Asynchronously acquire a resource and track that we are using it so that
    * when the task completes or is terminated we can automatically release all
@@ -74,7 +84,8 @@ TaskContext.prototype = {
    *   The argument object to be passed to the complex task.
    */
   synchronouslyConsultOtherTask: function(consultWhat, argDict) {
-
+    this._taskRegistry.__synchronouslyConsultOtherTask(
+      this, consultWhat, argDict);
   },
 
   read: function(what) {
@@ -107,11 +118,21 @@ TaskContext.prototype = {
    *   is ignored if the task is in the execute state because the task is
    *   considered concluded for now.  XXX in the future, we will let tasks
    *   re-queue themselves, etc. as part of the error handling logic.
+   * @param {Object} [finishData.complexTaskState]
+   *   Syntactic sugar for a complex task that wants to update its aggregate
+   *   task state.  `finishData.mutations.complexTaskStates` should be used
+   *   directly if the data is divided up further.  (And if the state lives
+   *   elsewhere in the database, that should be used.)
+   * @param {TaskMarker[]} [finishData.taskMarkers]
+   *   Task markers (for complex tasks), analogous to planned tasks for
+   *   scheduling/prioritization purposes.  It's not under `newData` like
+   *   `newData.tasks` because these are not directly pesisted.
    */
   finishTask: function(finishData) {
     this.state = 'finishing';
 
     let revisedTaskInfo;
+    // - Simple Task-Specific
     if (this.isTask) {
       if (finishData.taskState) {
         // (Either this was the planning stage or an execution stage that didn't
@@ -130,11 +151,33 @@ TaskContext.prototype = {
         };
       }
     }
+    // - Complex Task-Specific
+    else {
+      // Apply the helpful record aliasing that task_registry understands.
+      if (finishData.complexTaskState) {
+        // [AccountId, ComplexTaskName]
+        if (!finishData.mutations) {
+          finishData.mutations = {};
+        }
+        let taskThing = this._taskThing;
+        finishData.mutations.complexTaskStates =
+          new Map([[[taskThing.accountId, taskThing.type],
+                    finishData.complextaskState]]);
+      }
+    }
 
     // (Complex) task markers can be immediately prioritized.
     if (finishData.taskMarkers) {
-      for (let taskMarker of finishData.taskMarkers.values()) {
-        this.universe.taskManager.__prioritizeTaskOrMarker(taskMarker);
+      for (let [markerId, taskMarker] of finishData.taskMarkers) {
+        // create / update marker
+        if (taskMarker) {
+          this.universe.taskManager.__prioritizeTaskOrMarker(
+            taskMarker);
+        }
+        // nuke the marker
+        else {
+          this.universe.taskManager.__removeMarker(markerId);
+        }
       }
     }
 

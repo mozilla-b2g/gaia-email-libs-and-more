@@ -27,7 +27,7 @@ var MessagesListView = require('./clientapi/messages_list_view');
 
 var MessageComposition = require('./clientapi/message_composition');
 
-var { accountIdFromConvId, accountIdFromMessageId } =
+var { accountIdFromConvId, accountIdFromMessageId, convIdFromMessageId } =
   require('./id_conversions');
 
 var Linkify = require('./clientapi/bodies/linkify');
@@ -988,6 +988,57 @@ MailAPI.prototype = evt.mix({
                                   beStarred ? ['\\Flagged'] : null,
                                   beStarred ? null : ['\\Flagged'],
                                   beStarred ? 'star' : 'unstar');
+  },
+
+  /**
+   * Add/remove labels on all the messages in conversation(s) at once.  If you
+   * want to only manipulate the labels on some of the messages, use
+   * `modifyConversationMessageLabels`.
+   *
+   * Note that the back-end is smart and won't do redundant things; so you
+   * need not attempt to be clever.
+   *
+   * TODO: undo support
+   */
+  modifyConversationLabels: function(conversations, addLabels, removeLabels) {
+    let normalizeFoldersToIds = (folders) => {
+      if (!folders) {
+        return folders;
+      }
+      return folders.map(folder => folder.id);
+    };
+    this.__bridgeSend({
+      type: 'store_labels',
+      conversations: conversations.map((x) => { return { id: x.id }; }),
+      add: normalizeFoldersToIds(addLabels),
+      remove: normalizeFoldersToIds(removeLabels)
+    });
+  },
+
+  /**
+   * Add/remove labels on specific messages within a conversation.  All of the
+   * messages you pass to this method must be from a single conversation.  If
+   * you want to manipulate all of the messages in the conversation, use
+   * `modifyConversationLabels`, not this method.
+   *
+   * TODO: undo support
+   */
+  modifyConversationMessageLabels: function(messages, addLabels, removeLabels) {
+    let normalizeFoldersToIds = (folders) => {
+      if (!folders) {
+        return folders;
+      }
+      return folders.map(folder => folder.id);
+    };
+    this.__bridgeSend({
+      type: 'store_labels',
+      conversations: {
+        id: convIdFromMessageId(messages[0]),
+        messageIds: messages.map(x => x.id)
+      },
+      add: normalizeFoldersToIds(addLabels),
+      remove: normalizeFoldersToIds(removeLabels)
+    });
   },
 
   modifyMessageTags: function ma_modifyMessageTags(messages, addTags,

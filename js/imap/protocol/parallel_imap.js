@@ -66,7 +66,7 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
 
 /**
  * Wrap a promise-returning function so that we invoke it when we have a
- * connetion.  The first argument we provide is the connection, the second is
+ * connection.  The first argument we provide is the connection, the second is
  * the precheck function that should be passed in as part of the options dict
  * to the browserbox function so it can ensure the correct folder is currently
  * used.
@@ -173,7 +173,9 @@ ParallelIMAP.prototype = {
   listMailboxes: simpleWithConn('listMailboxes'),
   listMessages: inFolderWithConn('listMessages', 3),
   listNamespaces: simpleWithConn('listNamespaces'),
-  search: inFolderWithConn('search', 2),
+  search: inFolderWithConn('search', 3),
+
+  store: inFolderWithConn('store', 3),
 
   /**
    * This is a temporary non-streaming mechanism that fetches a single body part

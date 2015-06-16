@@ -71,6 +71,8 @@ TaskRegistry.prototype = {
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
 
+    let accountMarkers = [];
+
     // Get any pre-existing state for the account
     let dataByTaskType = this._dbDataByAccount.get(accountId);
     if (!dataByTaskType) {
@@ -95,16 +97,20 @@ TaskRegistry.prototype = {
         if (!meta.persistentState) {
           meta.persistentState = taskImpl.initPersistentState();
         }
-        let { memoryState, markers } =
+        let { memoryState, markers: taskMarkers } =
           taskImpl.deriveMemoryStateFromPersistentState(
             meta.persistentState);
         meta.memoryState = memoryState;
 
-        
+        if (taskMarkers) {
+          accountMarkers = accountMarkers.concat(taskMarkers);
+        }
       }
 
       taskMetas.set(taskType, meta);
     }
+
+    return accountMarkers;
   },
 
   accountRemoved: function(accountId) {
@@ -158,7 +164,24 @@ TaskRegistry.prototype = {
       return taskMeta.impl.execute(
         ctx, taskMeta.persistentState, taskMeta.memoryState, taskThing);
     }
+  },
 
+  __synchronouslyConsultOtherTask: function(ctx, consultWhat, argDict) {
+    let taskType = consultWhat.name;
+    let taskMeta;
+    if (this._globalTaskRegistry.has(taskType)) {
+      taskMeta = this._globalTaskRegistry.get(taskType);
+    } else {
+      let accountId = consultWhat.accountId;
+      taskMeta = this._perAccountIdTaskRegistry.get(accountId).get(taskType);
+    }
+
+    if (!taskMeta.impl.consult) {
+      throw new Error('implementation has no consult method');
+    }
+
+    return taskMeta.impl.consult(
+      ctx, taskMeta.persistentState, taskMeta.memoryState, argDict);
   },
 };
 

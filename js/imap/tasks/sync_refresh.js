@@ -115,6 +115,18 @@ return TaskDefiner.defineSimpleTask([
         // were a singular value that wasn't a list it would automatically be
         // unwrapped.)
         let rawLabels = msg['x-gm-labels'].map(x => x.value);
+        let flags = msg.flags;
+
+        // Have store_labels apply any (offline) requests that have not yet been
+        // replayed to the server.
+        ctx.synchronouslyConsultOtherTask(
+          { name: 'store_labels', accountId: req.accountId },
+          { uid: uid, value: rawLabels });
+        // same with store_flags
+        ctx.synchronouslyConsultOtherTask(
+          { name: 'store_flags', accountId: req.accountId },
+          { uid: uid, value: flags });
+
         let labelFolderIds = labelMapper.labelsToFolderIds(rawLabels);
 
         // Is this a new message?
@@ -139,7 +151,7 @@ return TaskDefiner.defineSimpleTask([
         } else { // It's an existing message
           let newState = {
             rawMsgId: parseGmailMsgId(msg['x-gm-msgid']),
-            flags: msg.flags,
+            flags,
             labels: labelFolderIds
           };
           if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {

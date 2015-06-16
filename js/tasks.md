@@ -155,3 +155,27 @@ decides to execute a complex task, it instead hands the complex task a task
 marker.
 
 Task markers have an associated count in order to allow for parallelization.
+
+## Undo Support ##
+
+The planning stage of task processing generates a list of raw tasks that,
+when planned, will undo the side-effects of the current task.  (A single task
+may expand to multiple undo tasks because although the desired target state may
+be simple, the current source state may be very complex.)  This can all be a bit
+complex to implement both correctly and efficiently, so our initial game plan is
+to potentially be wildly inefficient when undoing things.
+
+The request to generate and return undo data is issued as part of the raw task
+itself.  This results in the Promise being resolved with the list of raw undo
+tasks being returned.  The tentative plan is to send them over the wire to the
+front-end to avoid having mutation operations generating garbage that requires
+activat participation from the consumer to not leak.  By just updating the
+return value of the MailAPI request and then forgetting about it, JS GC handles
+things for us.
+
+The downside to this approach is that it provides a path for the front-end logic
+to directly request raw task scheduling.  We make almost no effort to protect
+against a hostile front-end (and indeed we cannot protect against it at this
+time), but it's worth noting since we may desire to expose a somewhat hardened
+API in the future for extensions in order to avoid having internals become de
+facto APIs that are hard to change.

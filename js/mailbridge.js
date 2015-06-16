@@ -460,83 +460,6 @@ MailBridge.prototype = {
     this.universe.fetchMessageBody(msg.id, msg.date, 'bridge');
   },
 
-  _cmd_getBody: function mb__cmd_getBody(msg) {
-    var self = this;
-    // map the message id to the folder storage
-    var folderStorage = this.universe.getFolderStorageForMessageSuid(msg.suid);
-
-    // when requesting the body we also create a observer to notify the client
-    // of events... We never want to send the updates before fetching the body
-    // so we buffer them here with a temporary handler.
-    var pendingUpdates = [];
-
-    var catchPending = function(msg) {
-      pendingUpdates.push(msg);
-    };
-
-    if (!this._observedBodies[msg.suid])
-      this._observedBodies[msg.suid] = {};
-
-    this._observedBodies[msg.suid][msg.handle] = catchPending;
-
-    var handler = function(bodyInfo) {
-      self.__sendMessage({
-        type: 'gotBody',
-        handle: msg.handle,
-        bodyInfo: bodyInfo
-      });
-
-      // if all body reps where requested we verify that all are present
-      // otherwise we begin the request for more body reps.
-      if (
-        msg.downloadBodyReps &&
-        !folderStorage.messageBodyRepsDownloaded(bodyInfo)
-      ) {
-
-        self.universe.downloadMessageBodyReps(
-          msg.suid,
-          msg.date,
-          function() { /* we don't care it will send update events */ }
-        );
-      }
-
-      // dispatch pending updates...
-      pendingUpdates.forEach(self.__sendMessage, self);
-      pendingUpdates = null;
-
-      // revert to default handler. Note! this is intentionally
-      // set to null and not deleted if deleted the observer is removed.
-      self._observedBodies[msg.suid][msg.handle] = null;
-    };
-
-    if (msg.withBodyReps)
-      folderStorage.getMessageBodyWithReps(msg.suid, msg.date, handler);
-    else
-      folderStorage.getMessageBody(msg.suid, msg.date, handler);
-  },
-
-  _cmd_killBody: function(msg) {
-    var handles = this._observedBodies[msg.id];
-    if (handles) {
-      delete handles[msg.handle];
-
-      var purgeHandles = true;
-      for (var key in handles) {
-        purgeHandles = false;
-        break;
-      }
-
-      if (purgeHandles) {
-        delete this._observedBodies[msg.id];
-      }
-    }
-
-    this.__sendMessage({
-      type: 'bodyDead',
-      handle: msg.handle
-    });
-  },
-
   _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
     var self = this;
     this.universe.downloadMessageAttachments(
@@ -555,6 +478,17 @@ MailBridge.prototype = {
   //
   // All mutations are told to the universe which breaks the modifications up on
   // a per-account basis.
+
+  _cmd_store_labels: function(msg) {
+    for (let convInfo of msg.conversations) {
+      this.universe.storeLabels(
+        convInfo.id,
+        convInfo.messageIds,
+        msg.add,
+        msg.remove
+      );
+    }
+  },
 
   _cmd_modifyMessageTags: function mb__cmd_modifyMessageTags(msg) {
     // XXXYYY

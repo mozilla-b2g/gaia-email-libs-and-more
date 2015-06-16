@@ -96,6 +96,9 @@ return TaskDefiner.defineComplexTask([
 
     plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
       // - Check whether we already have a pending request for the conversation.
+      // TODO: concurrency interacting with failure recovery here.  We don't
+      // want to plan a task while execute is running online since that can
+      // result in racing state.  But we also don't want to block.  But the
       let planned = memoryState.get(rawTask.convId);
       if (planned) {
         // If the new task has an amount and we either don't have an existing
@@ -166,8 +169,6 @@ return TaskDefiner.defineComplexTask([
 
     execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
-      // We need to clear this out before going async.
-      memoryState.delete(req.convId);
 
       // -- Retrieve the conversation and its messages for mutation
       let fromDb = yield ctx.beginMutate({
@@ -282,6 +283,9 @@ return TaskDefiner.defineComplexTask([
 
       // -- Update the conversation
       let convInfo = churnConversation(req.convId, null, loadedMessages);
+
+      // since we're successful at this point, clear it out of the memory state.
+      memoryState.delete(req.convId);
 
       yield ctx.finishTask({
         mutations: {

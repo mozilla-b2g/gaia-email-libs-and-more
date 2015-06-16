@@ -142,6 +142,10 @@ TaskManager.prototype = {
    * @param {String} why
    *   Human readable but terse label to explain the causality/rationale of this
    *   task being scheduled.
+   * @return {Promise<TaskId[]>}
+   *   A promise that's resolved with an array populated with the
+   *   resulting task ids of the tasks.  This is a tenative babystep
+   *   towards v3 undo support.  This may be removed.
    */
   scheduleTasks: function(rawTasks, why) {
     let wrappedTasks = this.__wrapTasks(rawTasks);
@@ -150,6 +154,7 @@ TaskManager.prototype = {
 
     return this._db.addTasks(wrappedTasks).then(() => {
       this.__enqueuePersistedTasksForPlanning(wrappedTasks);
+      return wrappedTasks.map(x => x.id);
     });
   },
 
@@ -231,7 +236,6 @@ TaskManager.prototype = {
     }
 
     // -- Phase 2: update the priority heap
-    let prioritizedTasks = this._prioritizedTasks;
     for (let [node, aggregateDelta] of perThingDeltas.values()) {
       // The heap allows us to reduce keys (Which, because we negate them, means
       // priority increases) efficiently, but otherwise we need to remove the
@@ -359,10 +363,14 @@ TaskManager.prototype = {
       if (priorityNode) {
         this._reprioritizeHeapNode(priorityNode, nodeKey);
       } else {
-        this._prioritizedTasks.insert(nodeKey, taskThing);
+        priorityNode =
+          this._prioritizedTasks.insert(nodeKey, taskThing);
+        this._markerIdToHeapNode.set(taskThing.id, priorityNode);
       }
     } else {
       this._prioritizedTasks.insert(nodeKey, taskThing);
+      // (this isn't a marker so we don't put an entry in
+      // _markerIdToHeapNode)
     }
 
     // If nothing is happening, then we might need/want to call _maybeDoStuff
@@ -378,6 +386,18 @@ TaskManager.prototype = {
       Promise.resolve().then(() => {
         this._maybeDoStuff();
       });
+    }
+  },
+
+  /**
+   * Remove the task marker with the given id.
+   */
+  __removeMarker: function(markerId) {
+    let priorityNode = this._markerIdToHeapNode.get(markerId);
+    if (priorityNode) {
+      this._prioritizedTasks.delete(priorityNode);
+      this._markerIdToHeapNode.delete(markerId);
+      logic(this, 'removeMarker', { id: markerId });
     }
   },
 
