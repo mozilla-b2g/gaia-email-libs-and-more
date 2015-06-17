@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 46;
+const CUR_VERSION = 47;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -619,6 +619,7 @@ MailDB.prototype = evt.mix({
    */
   read: function(ctx, requests) {
     return new Promise((resolve, reject) => {
+      logic(this, 'read:begin', { ctxId: ctx.id });
       let trans = this._db.transaction(TASK_MUTATION_STORES, 'readonly');
 
       let dbReqCount = 0;
@@ -759,6 +760,7 @@ MailDB.prototype = evt.mix({
         // it would be nice if we could have avoided creating the transaction...
       } else {
         trans.oncomplete = () => {
+          logic(this, 'read:end', { ctxId: ctx.id, dbReqCount });
           resolve(requests);
           this._considerCachePressure('read', ctx);
         };

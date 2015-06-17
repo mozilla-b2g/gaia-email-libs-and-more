@@ -57,7 +57,7 @@ let churnConversation = require('app_logic/conv_churn');
  *
  * @property {AccountId} accountId
  *   Account identifier, required for all tasks for binning purposes.
- * @property {ConversationId} conversationId
+ * @property {ConversationId} convId
  *   The conversation to be manipulated
  * @property {Array<MessageId>} [onlyMessages]
  *   If this shouldn't be applied to the entire conversation, the list of
@@ -359,9 +359,9 @@ let GmailStoreTaskMixin = {
 
       let conversationsMap = null;
       if (anyMessageChanged) {
-        let oldConvInfo = fromDb.conversations.get(req.conversationId);
+        let oldConvInfo = fromDb.conversations.get(req.convId);
         let convInfo = churnConversation(
-          req.conversationId, oldConvInfo, loadedMessages);
+          req.convId, oldConvInfo, loadedMessages);
         conversationsMap = new Map([[convInfo.id, convInfo]]);
       }
 

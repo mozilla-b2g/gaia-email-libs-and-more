@@ -101,7 +101,7 @@ TaskManager.prototype = {
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
       } else {
-        this.__prioritizeTaskOrMarker(wrappedTask);
+        this.__prioritizeTaskOrMarker(wrappedTask, 'restored', true);
       }
     }
 
@@ -293,11 +293,10 @@ TaskManager.prototype = {
 
     this._activePromise.then(() => {
       this._activePromise = null;
-      logic(this, 'completed');
       this._maybeDoStuff();
     }, (err) => {
       this._activePromise = null;
-      logic(this, 'taskFailure', { err: err, stack: err.stack });
+      logic(this, 'taskError', { err: err, stack: err.stack });
       this._maybeDoStuff();
     });
   },
@@ -310,9 +309,17 @@ TaskManager.prototype = {
    */
   _planNextTask: function() {
     let wrappedTask = this._tasksToPlan.shift();
-    logic(this, 'planning', { task: wrappedTask });
+    logic(this, 'planning:begin', { task: wrappedTask });
     let ctx = new TaskContext(wrappedTask, this._universe);
-    return this._registry.planTask(ctx, wrappedTask);
+    let planResult = this._registry.planTask(ctx, wrappedTask);
+    if (planResult) {
+      planResult.then(() => {
+        logic(this, 'planning:end', { task: wrappedTask });
+      });
+    } else {
+      logic(this, 'planning:end', { moot: true, task: wrappedTask });
+    }
+    return planResult;
   },
 
   /**
@@ -342,8 +349,8 @@ TaskManager.prototype = {
    *
    * @param {WrappedTask|TaskMarker} taskThing
    */
-  __prioritizeTaskOrMarker: function(taskThing) {
-    logic(this, 'prioritizing', { taskOrMarker: taskThing });
+  __prioritizeTaskOrMarker: function(taskThing, sourceId, noTrigger) {
+    logic(this, 'prioritizing', { taskOrMarker: taskThing, sourceId });
 
     // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
     // the root (they're simple/flat).
@@ -382,7 +389,7 @@ TaskManager.prototype = {
     // XXX Audit this more and potentially ensure there's only one of these
     // nextTick-style hacks.  But right now this should be harmless but
     // wasteful.
-    if (!this._activePromise) {
+    if (!noTrigger && !this._activePromise) {
       Promise.resolve().then(() => {
         this._maybeDoStuff();
       });
@@ -404,14 +411,22 @@ TaskManager.prototype = {
   _executeNextTask: function() {
     let taskThing = this._prioritizedTasks.extractMinimum().value;
     let isTask = !taskThing.type;
-    logic(this, 'executing', { task: taskThing });
+    logic(this, 'executing:begin', { task: taskThing });
 
     // If this is a marker, remove it from the heap node or it will leak.
     if (!isTask) {
       this._markerIdToHeapNode.delete(taskThing.id);
     }
     let ctx = new TaskContext(taskThing, this._universe);
-    return this._registry.executeTask(ctx, taskThing);
+    let execResult = this._registry.executeTask(ctx, taskThing);
+    if (execResult) {
+      execResult.then(() => {
+        logic(this, 'executing:end', { task: taskThing });
+      });
+    } else {
+      logic(this, 'executing:end', { moot: true, task: taskThing });
+    }
+    return execResult;
   }
 };
 

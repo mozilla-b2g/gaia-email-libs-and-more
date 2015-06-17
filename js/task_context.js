@@ -211,7 +211,7 @@ TaskContext.prototype = {
         // create / update marker
         if (taskMarker) {
           this.universe.taskManager.__prioritizeTaskOrMarker(
-            taskMarker);
+            taskMarker, this.id, true);
         }
         // nuke the marker
         else {
