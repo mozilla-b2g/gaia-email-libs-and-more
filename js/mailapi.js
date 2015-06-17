@@ -298,7 +298,7 @@ MailAPI.prototype = evt.mix({
         type: itemType,
         id: itemId,
         callback: (msg) => {
-          if (msg.err) {
+          if (msg.err || !msg.data) {
             reject(msg.err);
             return;
           }

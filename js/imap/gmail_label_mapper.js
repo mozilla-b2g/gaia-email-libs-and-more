@@ -67,7 +67,8 @@ GmailLabelMapper.prototype = {
 
       this._labelToFolderId.set(label, folderInfo.id);
       this._folderIdToLabel.set(folderInfo.id, label);
-      logic(this, 'mapping', { id: folderInfo.id, label: label });
+      // Useful but too chatty right now.
+      //logic(this, 'mapping', { id: folderInfo.id, label: label });
     }
   },
 

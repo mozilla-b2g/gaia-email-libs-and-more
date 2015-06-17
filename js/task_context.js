@@ -23,10 +23,53 @@ function TaskContext(taskThing, universe) {
 }
 TaskContext.prototype = {
   get taskMode() {
-    if (this._wrappedTask.state === null) {
+    if (!this.isTask) {
+      return 'executing'; // task marker => we're executing
+    } else if (this._wrappedTask.state === null) {
       return 'planning';
     } else {
       return 'executing';
+    }
+  },
+
+  /**
+   * Return the type of the task.
+   */
+  get taskType() {
+    if (this.isTask) {
+      // (the task is being planned)
+      if (this._taskThing.state === null) {
+        return this._taskThing.rawTask.type;
+      }
+      // (the task is being executed)
+      else {
+        return this._taskThing.plannedTask.type;
+      }
+    }
+    // It's a task marker
+    else {
+      return this._taskThing.type;
+    }
+  },
+
+  /**
+   * Return the account id this task is associated with.  It's possible for this
+   * to be null for global tasks.
+   */
+  get accountId() {
+    if (this.isTask) {
+      // (the task is being planned)
+      if (this._taskThing.state === null) {
+        return this._taskThing.rawTask.accountId || null;
+      }
+      // (the task is being executed)
+      else {
+        return this._taskThing.plannedTask.accountId || null;
+      }
+    }
+    // It's a task marker
+    else {
+      return this._taskThing.accountId || null;
     }
   },
 
@@ -132,7 +175,6 @@ TaskContext.prototype = {
     this.state = 'finishing';
 
     let revisedTaskInfo;
-    // - Simple Task-Specific
     if (this.isTask) {
       if (finishData.taskState) {
         // (Either this was the planning stage or an execution stage that didn't
@@ -151,19 +193,16 @@ TaskContext.prototype = {
         };
       }
     }
-    // - Complex Task-Specific
-    else {
-      // Apply the helpful record aliasing that task_registry understands.
-      if (finishData.complexTaskState) {
-        // [AccountId, ComplexTaskName]
-        if (!finishData.mutations) {
-          finishData.mutations = {};
-        }
-        let taskThing = this._taskThing;
-        finishData.mutations.complexTaskStates =
-          new Map([[[taskThing.accountId, taskThing.type],
-                    finishData.complextaskState]]);
+
+    // - Complex Task State
+    // Apply the helpful record aliasing that task_registry understands.
+    if (finishData.complexTaskState) {
+      if (!finishData.mutations) {
+        finishData.mutations = {};
       }
+      finishData.mutations.complexTaskStates =
+        new Map([[[this.accountId, this.taskType],
+                  finishData.complexTaskState]]);
     }
 
     // (Complex) task markers can be immediately prioritized.

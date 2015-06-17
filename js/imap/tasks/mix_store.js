@@ -370,7 +370,8 @@ let GmailStoreTaskMixin = {
           conversations: conversationsMap,
           messages: modifiedMessagesMap
         },
-        taskMarkers: modifyTaskMarkers
+        taskMarkers: modifyTaskMarkers,
+        complexTaskState: persistentState
       });
     }
     // (The local database state will already include any accumulated changes

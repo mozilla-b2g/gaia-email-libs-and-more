@@ -593,7 +593,7 @@ define(function(require) {
     this.maxDepth = opts.maxDepth || 10;
     this.maxStringLength = opts.maxStringLength || 1000;
     this.maxArrayLength = opts.maxArrayLength || 1000;
-    this.maxObjectLength = opts.maxObjectLength || 10;
+    this.maxObjectLength = opts.maxObjectLength || 100;
   }
 
   ObjectSimplifier.prototype = {

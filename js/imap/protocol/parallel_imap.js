@@ -173,9 +173,9 @@ ParallelIMAP.prototype = {
   listMailboxes: simpleWithConn('listMailboxes'),
   listMessages: inFolderWithConn('listMessages', 3),
   listNamespaces: simpleWithConn('listNamespaces'),
-  search: inFolderWithConn('search', 3),
+  search: inFolderWithConn('search', 2),
 
-  store: inFolderWithConn('store', 3),
+  store: inFolderWithConn('store', 4),
 
   /**
    * This is a temporary non-streaming mechanism that fetches a single body part

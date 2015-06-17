@@ -98,7 +98,9 @@ return TaskDefiner.defineComplexTask([
       // - Check whether we already have a pending request for the conversation.
       // TODO: concurrency interacting with failure recovery here.  We don't
       // want to plan a task while execute is running online since that can
-      // result in racing state.  But we also don't want to block.  But the
+      // result in racing state.  We also don't want to block, but it's critical
+      // that in the event the execute task fails that it still gets run to
+      // completion.
       let planned = memoryState.get(rawTask.convId);
       if (planned) {
         // If the new task has an amount and we either don't have an existing

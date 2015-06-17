@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 44;
+const CUR_VERSION = 46;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -930,6 +930,7 @@ MailDB.prototype = evt.mix({
       if (convInfo === null) {
         // - Delete the conversation summary
         convStore.delete(convId);
+        this.convCache.delete(convId);
         // - Delete all affiliated messages
         let messageRange = IDBKeyRange.bound([convId],
                                              [convId, []],
@@ -938,12 +939,12 @@ MailDB.prototype = evt.mix({
         trans.objectStore(TBL_MESSAGES).delete(messageRange);
       } else { // Modification
         convStore.put(convInfo, convId);
-        this.convCache.set(convInfo.id, convInfo);
+        this.convCache.set(convId, convInfo);
       }
 
       // Notify specific listeners, and yeah, deletion is just telling a null
       // value.
-      this.emit('conv!' + convInfo.id + '!change', convId, convInfo);
+      this.emit('conv!' + convId + '!change', convId, convInfo);
 
 
       let { added, kept, removed } = computeSetDelta(preInfo.folderIds,
@@ -989,23 +990,23 @@ MailDB.prototype = evt.mix({
       if (preInfo.date !== convInfo.date ||
           preInfo.height !== convInfo.height) {
         for (let folderId of preInfo.folderIds) {
-          convIdsStore.delete([folderId, preInfo.date, convInfo.id]);
+          convIdsStore.delete([folderId, preInfo.date, convId]);
         }
         for (let folderId of convInfo.folderIds) {
           convIdsStore.add(
-            [folderId, convInfo.date, convInfo.id, convInfo.height], // value
-            [folderId, convInfo.date, convInfo.id]); // key
+            [folderId, convInfo.date, convId, convInfo.height], // value
+            [folderId, convInfo.date, convId]); // key
         }
       }
       // Otherwise we need to cleverly compute the delta
       else {
         for (let folderId of removed) {
-          convIdsStore.delete([folderId, convInfo.date, convInfo.id]);
+          convIdsStore.delete([folderId, convInfo.date, convId]);
         }
         for (let folderId of added) {
           convIdsStore.add(
-            [folderId, convInfo.date, convInfo.id, convInfo.height], // value
-            [folderId, convInfo.date, convInfo.id]); // key
+            [folderId, convInfo.date, convId, convInfo.height], // value
+            [folderId, convInfo.date, convId]); // key
         }
       }
     }
@@ -1035,6 +1036,7 @@ MailDB.prototype = evt.mix({
 
   _processMessageAdditions: function(trans, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
+    let messageCache = this.messageCache;
     for (let message of valueIterator(messages)) {
       let convId = convIdFromMessageId(message.id);
       let key = [
@@ -1043,6 +1045,7 @@ MailDB.prototype = evt.mix({
         encodedGmailMessageIdFromMessageId(message.id)
       ];
       store.add(message, key);
+      messageCache.set(message.id, message);
 
       let eventId = 'conv!' + convId + '!messages!tocChange';
       this.emit(eventId, message.id, message.date, message, true);
@@ -1054,6 +1057,7 @@ MailDB.prototype = evt.mix({
    */
   _processMessageMutations: function(trans, preStates, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
+    let messageCache = this.messageCache;
     for (let [messageId, message] of messages) {
       let convId = convIdFromMessageId(messageId);
       let date = preStates.get(messageId);
@@ -1066,9 +1070,11 @@ MailDB.prototype = evt.mix({
       if (message === null) {
         // -- Deletion
         store.delete(key);
+        messageCache.delete(messageId);
       } else {
         // -- Modification
         store.put(message, key);
+        messageCache.set(messageId, message);
       }
 
       let convEventId = 'conv!' + convId + '!messages!tocChange';
@@ -1141,7 +1147,9 @@ MailDB.prototype = evt.mix({
 
       if (mutations.complexTaskStates) {
         for (let [key, complexTaskState] of mutations.complexTaskStates) {
-          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState, key);
+          complexTaskState.key = key;
+          logic(this, 'complexTaskStates', { complexTaskState });
+          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState);
         }
       }
 
@@ -1221,7 +1229,7 @@ MailDB.prototype = evt.mix({
     }
 
     return wrapTrans(trans).then(() => {
-      logic(this, 'finishMutate:end');
+      logic(this, 'finishMutate:end', { ctxId: ctx.id });
       this._considerCachePressure('mutate', ctx);
     });
   },

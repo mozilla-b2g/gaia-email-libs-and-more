@@ -117,6 +117,7 @@ WindowedListView.prototype = evt.mix({
           contentsChanged = true;
           obj.serial = newSerial;
           obj.__update(newStates.get(id));
+          obj.emit('change');
         }
         // Remove it from the existingSet so we can infer objects no longer in
         // the set.
