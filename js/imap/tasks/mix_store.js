@@ -356,31 +356,29 @@ let GmailStoreTaskMixin = {
             exclusiveResources: []
           });
       }
+    } // (end per-message loop)
 
-      let conversationsMap = null;
-      if (anyMessageChanged) {
-        let oldConvInfo = fromDb.conversations.get(req.convId);
-        let convInfo = churnConversation(
-          req.convId, oldConvInfo, loadedMessages);
-        conversationsMap = new Map([[convInfo.id, convInfo]]);
-      }
-
-      yield ctx.finishTask({
-        mutations: {
-          conversations: conversationsMap,
-          messages: modifiedMessagesMap
-        },
-        taskMarkers: modifyTaskMarkers,
-        complexTaskState: persistentState
-      });
+    let conversationsMap = null;
+    if (anyMessageChanged) {
+      let oldConvInfo = fromDb.conversations.get(req.convId);
+      let convInfo = churnConversation(
+        req.convId, oldConvInfo, loadedMessages);
+      conversationsMap = new Map([[convInfo.id, convInfo]]);
     }
+
     // (The local database state will already include any accumulated changes
     // requested by the user but not yet reflected to the server.  There is no
     // need to perform any transformation based on what is currently pending
     // because inbound sync does that and so we always seem a post-transform
     // view when looking in our database.)
-
-    // See
+    yield ctx.finishTask({
+      mutations: {
+        conversations: conversationsMap,
+        messages: modifiedMessagesMap
+      },
+      taskMarkers: modifyTaskMarkers,
+      complexTaskState: persistentState
+    });
   }),
 
   /**

@@ -172,6 +172,9 @@ TaskContext.prototype = {
    *   `newData.tasks` because these are not directly pesisted.
    */
   finishTask: function(finishData) {
+    if (this.state === 'finishing') {
+      throw new Error('already finishing! did you put finishTask in a loop?');
+    }
     this.state = 'finishing';
 
     let revisedTaskInfo;

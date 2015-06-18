@@ -422,7 +422,7 @@ MailBridge.prototype = {
     let eventHandler = (arg1, arg2) => {
       let rawRep = eventArgsToRaw(arg1, arg2);
       if (rawRep) {
-        let wireRep = rawToWireRep();
+        let wireRep = rawToWireRep(rawRep);
         if (wireRep) {
           ctx.sendMessage('update', wireRep);
         }

@@ -129,7 +129,7 @@ TaskRegistry.prototype = {
     }
 
     if (taskMeta.impl.isComplex) {
-      taskMeta.impl.plan(
+      return taskMeta.impl.plan(
         ctx, taskMeta.persistentState, taskMeta.memoryState, rawTask);
     } else {
       // All tasks have a plan stage.  Even if it's only the default one that

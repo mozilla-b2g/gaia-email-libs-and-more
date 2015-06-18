@@ -303,7 +303,7 @@ MailAPI.prototype = evt.mix({
             return;
           }
 
-          let obj = new itemConstructor(this, msg.data);
+          let obj = new itemConstructor(this, msg.data, null, handle);
           resolve(obj);
           this._trackedItemHandles.set(handle, {
             type: itemType,
