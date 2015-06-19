@@ -159,8 +159,12 @@ MailConversation.prototype = evt.mix({
    */
   setStarred: function(beStarred) {
     if (beStarred) {
-      if (!this.isStarred) {
+      if (!this.hasStarred) {
         this._api.modifyConversationTags([this], ['\\Flagged'], null, 'last');
+      }
+    } else {
+      if (this.hasStarred) {
+        this._api.modifyConversationTags([this], null, ['\\Flagged']);
       }
     }
   },
