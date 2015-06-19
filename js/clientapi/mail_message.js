@@ -205,11 +205,19 @@ MailMessage.prototype = evt.mix({
     return this._api.markMessagesRead([this], beRead);
   },
 
+  toggleRead: function() {
+    return this.setRead(!this.isRead);
+  },
+
   /**
    * Set or clear the starred/flagged status of this message.
    */
   setStarred: function(beStarred) {
     return this._api.markMessagesStarred([this], beStarred);
+  },
+
+  toggleStarred: function() {
+    return this.setStarred(!this.isStarred);
   },
 
   /**

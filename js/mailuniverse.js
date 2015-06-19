@@ -603,15 +603,32 @@ MailUniverse.prototype = {
     ], why);
   },
 
-  storeLabels: function(conversationId, messageIds, addLabels, removeLabels) {
+  storeLabels: function(conversationId, messageIds, messageSelector, addLabels,
+                        removeLabels) {
     return this.taskManager.scheduleTasks([
       {
         type: 'store_labels',
         accountId: accountIdFromConvId(conversationId),
         convId: conversationId,
         onlyMessages: messageIds || null,
+        messageSelector: messageSelector || null,
         add: addLabels,
         remove: removeLabels
+      }
+    ]);
+  },
+
+  storeFlags: function(conversationId, messageIds, messageSelector, addFlags,
+                       removeFlags) {
+    return this.taskManager.scheduleTasks([
+      {
+        type: 'store_flags',
+        accountId: accountIdFromConvId(conversationId),
+        convId: conversationId,
+        onlyMessages: messageIds || null,
+        messageSelector: messageSelector || null,
+        add: addFlags,
+        remove: removeFlags
       }
     ]);
   },

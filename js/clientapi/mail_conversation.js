@@ -108,6 +108,20 @@ MailConversation.prototype = evt.mix({
   },
 
   /**
+   * Archive the message.  What this means is implementation dependent:
+   * - Gmail: The inbox label is removed.
+   * - All other account types: Nothing is done.  The idea would be to do what
+   *   Thunderbird does and create one or more archive folders (possibly
+   *   segmented by date) and trigger a move to that folder.
+   */
+  archive: function() {
+    let accountId = accountIdFromConvId(this.id);
+    let account = this._api.accounts.getAccountById(accountId);
+    let inboxFolder = account.foldes.getFirstFolderWithType('inbox');
+    return this.removeLabels([inboxFolder]);
+  },
+
+  /**
    * Add the label identified by the given folder to this conversation.
    *
    * Under the hood, this is implemented by us applying the label to all the
@@ -119,6 +133,61 @@ MailConversation.prototype = evt.mix({
 
   removeLabels: function(folders) {
     this._api.modifyConversationLabels([this], null, folders);
+  },
+
+  /**
+   *
+   */
+  modifyTags: function(addTags, removeTags) {
+    this._api.modifyConversationTags([this], addTags, removeTags);
+  },
+
+  // Alias for hasStarred for symmetry with MailMessage.
+  get isStarred() {
+    return this.hasStarred;
+  },
+
+  /**
+   * Mark the conversation as starred or unstarred.
+   *
+   * @param {Boolean} beStarred
+   *   If `true` and we are already isStarred, then nothing will be done.
+   *   If `true` and we are not isStarred, then the last message in the
+   *   conversation will be starred.
+   *   If `false` then all messages in the converastion have their starred
+   *   state cleared.
+   */
+  setStarred: function(beStarred) {
+    if (beStarred) {
+      if (!this.isStarred) {
+        this._api.modifyConversationTags([this], ['\\Flagged'], null, 'last');
+      }
+    }
+  },
+
+  toggleStarred: function() {
+    this.setStarred(!this.hasStarred);
+  },
+
+  // Inverting alias for symmetry with MailMessage
+  get isRead() {
+    return !this.hasUnread;
+  },
+
+  /**
+   * Mark the conversation as read or unread.  This will modify the state of all
+   * messages in the conversation uniformly.
+   */
+  setRead: function(beRead) {
+    if (beRead) {
+      this.modifyTags(['\\Seen'], null);
+    } else {
+      this.modifyTags(null, ['\\Seen']);
+    }
+  },
+
+  toggleRead: function() {
+    this.setRead(!this.isRead);
   },
 
   _forgetPeeps: function() {

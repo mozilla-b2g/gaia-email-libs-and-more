@@ -250,6 +250,21 @@ let GmailStoreTaskMixin = {
     let modifyTaskMarkers = new Map();
     let anyMessageChanged = false;
 
+    // - Apply the message selector if applicable
+    if (!filterMessages && req.messageSelector) {
+      // Convert the selector into a message id filter.  Not particularly
+      // efficient, but it simplifies the control flow below.  Refactor as
+      // appropriate.
+      switch (req.messageSelector) {
+        case 'last':
+          filterMessages = [loadedMessages[loadedMessages.length - 1].id];
+          break;
+        default:
+          throw new Error('unsupported message selector:' +
+                          req.messageSelector);
+      }
+    }
+
     let attrName = this.attrName;
     let toAdd = req.add;
     let toRemove = req.remove;

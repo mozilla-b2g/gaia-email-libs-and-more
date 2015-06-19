@@ -40,6 +40,17 @@ function objCopy(obj) {
   return copy;
 }
 
+/**
+ * Given a list of MailFolders (that may just be null and not a list), map those
+ * to the folder id's.
+ */
+let normalizeFoldersToIds = (folders) => {
+  if (!folders) {
+    return folders;
+  }
+  return folders.map(folder => folder.id);
+};
+
 // For testing
 exports._MailFolder = MailFolder;
 
@@ -999,17 +1010,23 @@ MailAPI.prototype = evt.mix({
    * need not attempt to be clever.
    *
    * TODO: undo support
+   *
+   * @param {MailConversation[]} conversations
+   * @param {MailFolder[]} [addLabels]
+   * @param {MailFolder[]} [removeLabels]
+   * @param {"last"|null} messageSelector
+   *   Allows filtering the set of affected messages in the conversation.
    */
-  modifyConversationLabels: function(conversations, addLabels, removeLabels) {
-    let normalizeFoldersToIds = (folders) => {
-      if (!folders) {
-        return folders;
-      }
-      return folders.map(folder => folder.id);
-    };
+  modifyConversationLabels: function(conversations, addLabels, removeLabels,
+                                     messageSelector) {
     this.__bridgeSend({
       type: 'store_labels',
-      conversations: conversations.map((x) => { return { id: x.id }; }),
+      conversations: conversations.map((x) => {
+        return {
+          id: x.id,
+          messageSelector
+        };
+      }),
       add: normalizeFoldersToIds(addLabels),
       remove: normalizeFoldersToIds(removeLabels)
     });
@@ -1024,54 +1041,43 @@ MailAPI.prototype = evt.mix({
    * TODO: undo support
    */
   modifyConversationMessageLabels: function(messages, addLabels, removeLabels) {
-    let normalizeFoldersToIds = (folders) => {
-      if (!folders) {
-        return folders;
-      }
-      return folders.map(folder => folder.id);
-    };
     this.__bridgeSend({
       type: 'store_labels',
-      conversations: {
-        id: convIdFromMessageId(messages[0]),
+      conversations: [{
+        id: convIdFromMessageId(messages[0].id),
         messageIds: messages.map(x => x.id)
-      },
+      }],
       add: normalizeFoldersToIds(addLabels),
       remove: normalizeFoldersToIds(removeLabels)
     });
   },
 
+  modifyConversationTags: function(conversations, addTags, removeTags,
+                                   messageSelector) {
+    this.__bridgeSend({
+      type: 'store_flags',
+      conversations: conversations.map((x) => {
+        return {
+          id: x.id,
+          messageSelector
+        };
+      }),
+      add: addTags,
+      remove: removeTags
+    });
+  },
+
   modifyMessageTags: function ma_modifyMessageTags(messages, addTags,
                                                    removeTags, _opcode) {
-    // We allocate a handle that provides a temporary name for our undoable
-    // operation until we hear back from the other side about it.
-    var handle = this._nextHandle++;
-
-    if (!_opcode) {
-      if (addTags && addTags.length)
-        _opcode = 'addtag';
-      else if (removeTags && removeTags.length)
-        _opcode = 'removetag';
-    }
-    var undoableOp = new UndoableOperation(this, _opcode, messages.length,
-                                           handle),
-        msgSuids = messages.map(serializeMessageName);
-
-    this._pendingRequests[handle] = {
-      type: 'mutation',
-      handle: handle,
-      undoableOp: undoableOp
-    };
     this.__bridgeSend({
-      type: 'modifyMessageTags',
-      handle: handle,
-      opcode: _opcode,
-      addTags: addTags,
-      removeTags: removeTags,
-      messages: msgSuids,
+      type: 'store_flags',
+      conversations: [{
+        id: convIdFromMessageId(messages[0].id),
+        messageIds: messages.map(x => x.id)
+      }],
+      add: addTags,
+      remove: removeTags
     });
-
-    return undoableOp;
   },
 
   /**

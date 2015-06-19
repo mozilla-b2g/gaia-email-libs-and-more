@@ -5,26 +5,12 @@ let co = require('co');
 
 let logic = require('./logic');
 let $mailchewStrings = require('./bodies/mailchew_strings');
-let $date = require('./date');
-
-let $imaputil = require('./util');
-let bsearchForInsert = $imaputil.bsearchForInsert;
-let bsearchMaybeExists = $imaputil.bsearchMaybeExists;
 
 let BridgeContext = require('./bridge/bridge_context');
 let BatchManager = require('./bridge/batch_manager');
 
 let EntireListProxy = require('./bridge/entire_list_proxy');
 let WindowedListProxy = require('./bridge/windowed_list_proxy');
-
-function strcmp(a, b) {
-  if (a < b) {
-    return -1;
-  } else if (a > b) {
-    return 1;
-  }
-  return 0;
-}
 
 function checkIfAddressListContainsAddress(list, addrPair) {
   if (!list) {
@@ -259,7 +245,7 @@ MailBridge.prototype = {
           err !== 'needs-oauth-reauth' &&
           err !== 'imap-disabled'
         ));
-      }
+      };
       if (canIgnoreError(incomingErr) && canIgnoreError(outgoingErr)) {
         self.universe.clearAccountProblems(account);
       }
@@ -484,49 +470,23 @@ MailBridge.prototype = {
       this.universe.storeLabels(
         convInfo.id,
         convInfo.messageIds,
+        convInfo.messageSelector,
         msg.add,
         msg.remove
       );
     }
   },
 
-  _cmd_modifyMessageTags: function mb__cmd_modifyMessageTags(msg) {
-    // XXXYYY
-
-    // - The mutations are written to the database for persistence (in case
-    //   we fail to make the change in a timely fashion) and so that we can
-    //   know enough to reverse the operation.
-    // - Speculative changes are made to the headers in the database locally.
-
-    var longtermIds = this.universe.modifyMessageTags(
-      msg.opcode, msg.messages, msg.addTags, msg.removeTags);
-    this.__sendMessage({
-      type: 'mutationConfirmed',
-      handle: msg.handle,
-      longtermIds: longtermIds,
-    });
-  },
-
-  _cmd_deleteMessages: function mb__cmd_deleteMessages(msg) {
-    var longtermIds = this.universe.deleteMessages(
-      msg.messages);
-    this.__sendMessage({
-      type: 'mutationConfirmed',
-      handle: msg.handle,
-      longtermIds: longtermIds,
-    });
-  },
-
-  _cmd_moveMessages: function mb__cmd_moveMessages(msg) {
-    var longtermIds = this.universe.moveMessages(
-      msg.messages, msg.targetFolder, function(err, moveMap) {
-        this.__sendMessage({
-          type: 'mutationConfirmed',
-          handle: msg.handle,
-          longtermIds: longtermIds,
-          result: moveMap
-        });
-      }.bind(this));
+  _cmd_store_flags: function(msg) {
+    for (let convInfo of msg.conversations) {
+      this.universe.storeFlags(
+        convInfo.id,
+        convInfo.messageIds,
+        convInfo.messageSelector,
+        msg.add,
+        msg.remove
+      );
+    }
   },
 
   _cmd_sendOutboxMessages: function(msg) {
