@@ -55,7 +55,7 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   /** @type{Map<ConverastionId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
-  this.taskRegistry = new TaskRegistry();
+  this.taskRegistry = new TaskRegistry(this.db);
   this.taskManager = new TaskManager(this, this.db, this.taskRegistry,
                                      this.accountsTOC);
 

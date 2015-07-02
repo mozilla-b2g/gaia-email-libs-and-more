@@ -9,6 +9,7 @@ define(
     $mailchew,
     $imaputil
   ) {
+'use strict';
 
 var formatAddresses = $imaputil.formatAddresses;
 

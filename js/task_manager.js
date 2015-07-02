@@ -2,13 +2,12 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let evt = require('evt');
 let logic = require('logic');
 
 let TaskContext = require('./task_context');
 
 let FibonacciHeap = require('./ext/fibonacci-heap');
-
-let DEFAULT_PRIORITY = 100;
 
 /**
  * The public API and ultimate coordinator of all tasks.  Tracks and prioritizes
@@ -22,8 +21,12 @@ let DEFAULT_PRIORITY = 100;
  * - `TaskContext`: Provides the execution context and helpers for tasks as they
  *   are run.
  *
+ * Tasks will not be processed until the `MailUniverse` invokes our
+ * `__restoreFromDB` method and we have fully initialized all complex tasks.
+ * (Complex task initialization can be async.)
  */
 function TaskManager(universe, db, registry, accountsTOC) {
+  evt.Emitter.call(this);
   logic.defineScope(this, 'TaskManager');
   this._universe = universe;
   this._db = db;
@@ -44,7 +47,7 @@ function TaskManager(universe, db, registry, accountsTOC) {
   this._nextId = idBase * 100;
 
   /**
-   * @type{Array<RawTask>}
+   * @type{RawTask[]}
    * The tasks that we still need to plan (but have scheduled/durably persisted
    * to disk.)
    */
@@ -91,7 +94,7 @@ function TaskManager(universe, db, registry, accountsTOC) {
   // we're just using an already-resolved Promise for typing reasons.
   this._activePromise = Promise.resolve(null);
 }
-TaskManager.prototype = {
+TaskManager.prototype = evt.mix({
   __restoreFromDB: co.wrap(function*() {
     let { wrappedTasks, complexTaskStates } = yield this._db.loadTasks();
     logic(this, 'restoreFromDB', { count: wrappedTasks.length });
@@ -106,39 +109,50 @@ TaskManager.prototype = {
     }
 
     // -- Push complex task state into complex tasks
+    let pendingInitPromises = [];
     this._registry.initializeFromDatabaseState(complexTaskStates);
     this._accountsTOC.getAllItems().forEach((accountInfo) => {
       // TODO: implement concept of 'gelamType' or something to convey the
       // correct super-specific implementation type in use (at least for tasks).
-      let markers = this._registry.accountExists(accountInfo.id, 'gmail');
-      this._prioritizeTasksOrMarkers(markers);
+      pendingInitPromises.push(
+        this._registry.accountExistsInitTasks(accountInfo.id, 'gmail')
+          .then((markers) => {
+            this._prioritizeTasksOrMarkers(markers);
+          }));
     });
     this._accountsTOC.on('add', (accountInfo) => {
-      let markers = this._registry.accountExists(accountInfo.id, 'gmail');
-      this._prioritizeTasksOrMarkers(markers);
+      this._registry.accountExistsInitTasks(accountInfo.id, 'gmail')
+        .then((markers) => {
+          this._prioritizeTasksOrMarkers(markers);
+        });
     });
     this._accountsTOC.on('remove', (accountInfo) => {
       this._registry.accountRemoved(accountInfo.id);
       // TODO: we need to reap the markers
     });
 
-    // -- Trigger processing
-    this._activePromise = null;
-    this._maybeDoStuff();
+    // -- Trigger processing when all initialization has completed.
+    Promise.all(pendingInitPromises).then(() => {
+      this._activePromise = null;
+      this._maybeDoStuff();
+    });
   }),
 
   /**
-   * Schedule one or more tasks.  Resolved with the ids of the task once they
-   * have been durably persisted to disk.  You should not care about the id
-   * unless you are a unit test.  For all user-visible things, you should be
-   * listening on a list view or a specific object identifier, etc.  (Ex: if you
-   * care about an attachment being downloaded, listen to the message itself or
-   * view the list of pending downloads.)
+   * Schedule one or more persistent tasks.
+   *
+   * Resolved with the ids of the task once they have been durably persisted to
+   * disk.  You should not care about the id unless you are a unit test.  For
+   * all user-visible things, you should be listening on a list view or a
+   * specific object identifier, etc.  (Ex: if you care about an attachment
+   * being downloaded, listen to the message itself or view the list of pending
+   * downloads.)
    *
    * This method should only be called by things that are not part of the task
    * system, like user-triggered actions.  Tasks should list the tasks they
    * define during their call to finishTask.
    *
+   * @param {RawTask[]} rawTasks
    * @param {String} why
    *   Human readable but terse label to explain the causality/rationale of this
    *   task being scheduled.
@@ -156,6 +170,36 @@ TaskManager.prototype = {
       this.__enqueuePersistedTasksForPlanning(wrappedTasks);
       return wrappedTasks.map(x => x.id);
     });
+  },
+
+  /**
+   * Return a promise that will be resolved when the tasks with the given id's
+   * have been planned.
+   */
+  waitForTasksToBePlanned: function(taskIds) {
+    return Promise.all(taskIds.map((taskId) => {
+      return new Promise((resolve, reject) => {
+        this.once('planned:' + taskId, resolve)
+      });
+    }));
+  },
+
+  /**
+   * Schedule one or more non-persistent tasks.  You only want to do this for
+   * tasks whose arguments are things that should not be persisted to disk and
+   * for which it's expected that the task will run quickly.  The canonical
+   * example is attaching files to a draft where we (currently) encode in
+   * bite-size chunks.  (Noting that we want to change this.)
+   *
+   * In general you don't want to be calling this.
+   */
+  scheduleNonPersistentTasks: function(rawTasks, why) {
+    let wrappedTasks = this.__wrapTasks(rawTasks);
+    wrappedTasks.forEach((wrapped) => {
+      wrapped.nonpersistent = true;
+    });
+    this.__enqueuePersistedTasksForPlanning(wrappedTasks);
+    return wrappedTasks.map(x => x.id);
   },
 
   _computePriorityForTags: function(priorityTags) {
@@ -315,9 +359,11 @@ TaskManager.prototype = {
     if (planResult) {
       planResult.then(() => {
         logic(this, 'planning:end', { task: wrappedTask });
+        this.emit('planned:' + wrappedTask.id);
       });
     } else {
       logic(this, 'planning:end', { moot: true, task: wrappedTask });
+      this.emit('planned:' + wrappedTask.id);
     }
     return planResult;
   },
@@ -422,13 +468,15 @@ TaskManager.prototype = {
     if (execResult) {
       execResult.then(() => {
         logic(this, 'executing:end', { task: taskThing });
+        this.emit('executed:' + taskThing.id);
       });
     } else {
       logic(this, 'executing:end', { moot: true, task: taskThing });
+      this.emit('executed:' + taskThing.id);
     }
     return execResult;
   }
-};
+});
 
 return TaskManager;
 });

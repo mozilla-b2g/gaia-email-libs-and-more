@@ -284,6 +284,28 @@ MailAPI.prototype = evt.mix({
   },
 
   /**
+   * Sends a message with a freshly allocated single-use handle, returning a
+   * Promise that will be resolved when the MailBridge responds to the message.
+   * (Someday it may also be rejected if we lose the back-end.)
+   */
+  _sendPromisedRequest: function(sendMsg) {
+    return new Promise((resolve, reject) => {
+      let handle = sendMsg.handle = this._nextHandle++;
+      this._pendingRequests[handle] = {
+        type: sendMsg.type,
+        resolve
+      };
+      this.__bridgeSend(sendMsg);
+    });
+  },
+
+  _recv_promisedResult: function(msg) {
+    let pending = this._pendingRequests[handle];
+    delete this._pendingRequests[handle];
+    pending.resolve(msg);
+  },
+
+  /**
    * Ask the back-end for an item by its id.  The current state will be loaded
    * from the db and then logically consistent updates provided until release
    * is called on the object.
@@ -414,16 +436,6 @@ MailAPI.prototype = evt.mix({
     body.__update(wireRep, msg.detail);
 
     body.emit('change', msg.detail, body);
-  },
-
-  _recv_bodyDead: function(msg) {
-    var body = this._liveBodies[msg.handle];
-
-    if (body) {
-      body.emit('dead');
-    }
-
-    delete this._liveBodies[msg.handle];
   },
 
   _downloadAttachments: function(body, relPartIndices, attachmentIndices,
@@ -804,7 +816,7 @@ MailAPI.prototype = evt.mix({
    *   Should the `MailAccount` instances automatically issue viewFolders
    *   requests and assign them to a "folders" property?
    */
-  viewAccounts: function ma_viewAccounts(opts) {
+  viewAccounts: function(opts) {
     var handle = this._nextHandle++,
         view = new AccountsViewSlice(this, handle, opts);
     this._trackedItemHandles.set(handle, { obj: view });
@@ -1187,10 +1199,11 @@ MailAPI.prototype = evt.mix({
 
   resolveEmailAddressToPeep: function(emailAddress, callback) {
     var peep = ContactCache.resolvePeep({ name: null, address: emailAddress });
-    if (ContactCache.pendingLookupCount)
+    if (ContactCache.pendingLookupCount) {
       ContactCache.callbacks.push(callback.bind(null, peep));
-    else
+    } else {
       callback(peep);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1207,84 +1220,37 @@ MailAPI.prototype = evt.mix({
    * inferred.  Message may be null if there are no messages in the folder.
    * Folder is not required if a message is provided.
    *
-   * @args[
-   *   @param[message #:optional MailHeader]{
-   *     Some message to use as context when not issuing a reply/forward.
-   *   }
-   *   @param[folder #:optional MailFolder]{
-   *     The folder to use as context if no `message` is provided and not
-   *     issuing a reply/forward.
-   *   }
-   *   @param[options #:optional @dict[
-   *     @key[replyTo #:optional MailHeader]
-   *     @key[replyMode #:optional @oneof[null 'list' 'all']]
-   *     @key[forwardOf #:optional MailHeader]
-   *     @key[forwardMode #:optional @oneof['inline']]
-   *   ]]
-   *   @param[callback #:optional Function]{
-   *     The callback to invoke once the composition handle is fully populated.
-   *     This is necessary because the back-end decides what identity is
-   *     appropriate, handles "re:" prefixing, quoting messages, etc.
-   *   }
-   * ]
+   * NOTE: The composition object returned is not "live".  We don't expect
+   * the current front-end to get into situations where another client could
+   * effectively claim ownership of a draft out from under us, so we don't
+   * bother.  In the future we will likely make it live with very minimal events
+   * covering "draft went away!" and "draft superseded by another draft!", both
+   * of which would likely be dealt with in the same fashion.
+   *
+   * @param {MailMessage} message
+   * @param {MailFolder} folder
+   * @param {Object} options
+   * @param {'reply'|'forward'} options.command
+   * @param {null|'list'|'all'} options.mode
+   *   The reply mode.  This will eventually indicate the forwarding mode too.
+   * @return {Promise<Messagecomposition>}
+   *   A MessageComposition instance populated for use.
    */
   beginMessageComposition: function(message, folder, options, callback) {
-    if (!callback)
-      throw new Error('A callback must be provided; you are using the API ' +
-                      'wrong if you do not.');
-    if (!options)
+    if (!options) {
       options = {};
-
-    var handle = this._nextHandle++,
-        composer = new MessageComposition(this, handle);
-
-    this._pendingRequests[handle] = {
-      type: 'compose',
-      composer: composer,
-      callback: callback,
-    };
-    var msg = {
+    }
+    return this._sendPromisedRequest({
       type: 'beginCompose',
-      handle: handle,
-      mode: null,
-      submode: null,
-      refSuid: null,
-      refDate: null,
-      refGuid: null,
-      refAuthor: null,
-      refSubject: null,
-    };
-    if (options.hasOwnProperty('replyTo') && options.replyTo) {
-      msg.mode = 'reply';
-      msg.submode = options.replyMode;
-      msg.refSuid = options.replyTo.id;
-      msg.refDate = options.replyTo.date.valueOf();
-      msg.refGuid = options.replyTo.guid;
-      msg.refAuthor = options.replyTo.author.toWireRep();
-      msg.refSubject = options.replyTo.subject;
-    }
-    else if (options.hasOwnProperty('forwardOf') && options.forwardOf) {
-      msg.mode = 'forward';
-      msg.submode = options.forwardMode;
-      msg.refSuid = options.forwardOf.id;
-      msg.refDate = options.forwardOf.date.valueOf();
-      msg.refGuid = options.forwardOf.guid;
-      msg.refAuthor = options.forwardOf.author.toWireRep();
-      msg.refSubject = options.forwardOf.subject;
-    }
-    else {
-      msg.mode = 'new';
-      if (message) {
-        msg.submode = 'message';
-        msg.refSuid = message.id;
-      }
-      else if (folder) {
-        msg.submode = 'folder';
-        msg.refSuid = folder.id;
-      }
-    }
-    this.__bridgeSend(msg);
-    return composer;
+      messageId: message ? message.id : null,
+      messageDate: message ? message.date.valueOf() : null,
+      folderId: folder ? folder.id : null,
+      command: options.command,
+      mode: options.mode
+    }).then((msg) => {
+      let composer = new MessageComposition(this, msg.data, handle);
+      return composer;
+    });
   },
 
   /**
@@ -1297,51 +1263,15 @@ MailAPI.prototype = evt.mix({
    * is updated and effectively deleted once the draft is completed.  (A
    * move may be performed instead.)
    */
-  resumeMessageComposition: function(message, callback) {
-    if (!callback)
-      throw new Error('A callback must be provided; you are using the API ' +
-                      'wrong if you do not.');
-
-    var handle = this._nextHandle++,
-        composer = new MessageComposition(this, handle);
-
-    this._pendingRequests[handle] = {
-      type: 'compose',
-      composer: composer,
-      callback: callback,
-    };
-
-    this.__bridgeSend({
+  resumeMessageComposition: function(message) {
+    return this._sendPromisedRequest({
       type: 'resumeCompose',
-      handle: handle,
-      messageNamer: serializeMessageName(message)
+      messageId: message ? message.id : null,
+      messageDate: message ? message.date.valueOf() : null
+    }).then((msg) => {
+      let composer = new MessageComposition(this, msg.data, handle);
+      return composer;
     });
-
-    return composer;
-  },
-
-  _recv_composeBegun: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for compose begun:', msg.handle);
-      return;
-    }
-
-    req.composer.senderIdentity = new MailSenderIdentity(this, msg.identity);
-    req.composer.subject = msg.subject;
-    req.composer.body = msg.body; // rich obj of {text, html}
-    req.composer.to = msg.to;
-    req.composer.cc = msg.cc;
-    req.composer.bcc = msg.bcc;
-    req.composer._references = msg.referencesStr;
-    req.composer.attachments = msg.attachments;
-    req.composer.sendStatus = msg.sendStatus; // For displaying "Send failed".
-
-    if (req.callback) {
-      var callback = req.callback;
-      req.callback = null;
-      callback.call(null, req.composer);
-    }
   },
 
   _composeAttach: function(draftHandle, attachmentDef, callback) {
@@ -1467,7 +1397,7 @@ MailAPI.prototype = evt.mix({
    * Receive events about the start and stop of periodic syncing
    */
   _recv_cronSyncStart: function ma__recv_cronSyncStart(msg) {
-    this.emit('cronsyncstart', msg.accountIds)
+    this.emit('cronsyncstart', msg.accountIds);
   },
 
   _recv_cronSyncStop: function ma__recv_cronSyncStop(msg) {

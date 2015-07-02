@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+let MailSenderIdentity = require('./mail_sender_identity');
+
 /**
  * Handle for a current/ongoing message composition process.  The UI reads state
  * out of the object when it resumes editing a draft, otherwise this can just be
@@ -11,7 +13,7 @@ define(function(require) {
  * If another client deletes our draft out from under us, we currently won't
  * notice.
  */
-function MessageComposition(api, handle) {
+function MessageComposition(api, wireRep, handle) {
   this._api = api;
   this._handle = handle;
 
@@ -54,6 +56,19 @@ MessageComposition.prototype = {
     };
   },
 
+  __update: function(msg) {
+    this.id = msg.id;
+    this.senderIdentity = new MailSenderIdentity(this._api, msg.identity);
+    this.subject = msg.subject;
+    this.body = msg.body; // rich obj of {text, html}
+    this.cc = msg.cc;
+    this.to = msg.to;
+    this.bcc = msg.bcc;
+    this._references = msg.referencesStr;
+    this.attachments = msg.attachments;
+    this.sendStatus = msg.sendStatus; // For displaying "Send failed".
+  },
+
   release: function() {
     if (this._handle) {
       this._api._composeDone(this._handle, 'release', null, null);
@@ -93,7 +108,7 @@ MessageComposition.prototype = {
     // There needs to be a draft for us to attach things to.
     if (!this.hasDraft)
       this.saveDraft();
-    this._api._composeAttach(this._handle, attachmentDef, callback);
+    this._api._composeAttach(this.id, attachmentDef, callback);
 
     var placeholderAttachment = {
       name: attachmentDef.name,
@@ -141,8 +156,12 @@ MessageComposition.prototype = {
   /**
    * Enqueue the message for sending. When the callback fires, the
    * message will be in the outbox, but will likely not have been sent yet.
+   *
+   * TODO: Return a promise that indicates whether we're actively trying to
+   * send the message or whether it's just queued for future sending because
+   * we're offline.  (UI can currently infer from other channels/data.)
    */
-  finishCompositionSendMessage: function(callback) {
+  finishCompositionSendMessage: function() {
     this._api._composeDone(this._handle, 'send', this._buildWireRep(),
                            callback);
   },
@@ -150,7 +169,7 @@ MessageComposition.prototype = {
   /**
    * Save the state of this composition.
    */
-  saveDraft: function(callback) {
+  saveDraft: function() {
     this.hasDraft = true;
     this._api._composeDone(this._handle, 'save', this._buildWireRep(),
                            callback);
@@ -164,7 +183,7 @@ MessageComposition.prototype = {
    * functionality, possibly on the UI side of the house.  This is not a secure
    * delete.
    */
-  abortCompositionDeleteDraft: function(callback) {
+  abortCompositionDeleteDraft: function() {
     this._api._composeDone(this._handle, 'delete', null, callback);
   },
 

@@ -519,7 +519,9 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
-  _cmd_beginCompose: function mb__cmd_beginCompose(msg) {
+  _cmd_beginCompose: function(msg) {
+    this.universe.beginCompose();
+
     require(['./drafts/composer', 'mailchew'], function ($composer, $mailchew) {
       var req = this._pendingRequests[msg.handle] = {
         type: 'compose',
@@ -733,7 +735,7 @@ MailBridge.prototype = {
     }.bind(this));
   },
 
-  _cmd_resumeCompose: function mb__cmd_resumeCompose(msg) {
+  _cmd_resumeCompose: function(msg) {
     var req = this._pendingRequests[msg.handle] = {
       type: 'compose',
       active: 'resume',

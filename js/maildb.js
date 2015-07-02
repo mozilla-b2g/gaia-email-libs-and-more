@@ -5,8 +5,8 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('./logic');
 
-const { accountIdFromConvId, convIdFromMessageId,
-        encodedGmailMessageIdFromMessageId } = require('./id_conversions');
+const { convIdFromMessageId, encodedGmailMessageIdFromMessageId } =
+  require('./id_conversions');
 
 const {
   indexedDB, IDBObjectStore, IDBIndex, IDBCursor, IDBTransaction, IDBRequest,
@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 47;
+const CUR_VERSION = 48;
 
 /**
  * What is the lowest database version that we are capable of performing a

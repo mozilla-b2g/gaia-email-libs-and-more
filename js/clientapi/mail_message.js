@@ -108,6 +108,7 @@ MailMessage.prototype = evt.mix({
     this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
     this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
+    this.isDraft = wireRep.flags.indexOf('\\Draft') !== -1;
     this.tags = filterOutBuiltinFlags(wireRep.flags);
     this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
@@ -296,7 +297,7 @@ MailMessage.prototype = evt.mix({
    */
   replyToMessage: function(replyMode, callback) {
     return this._slice._api.beginMessageComposition(
-      this, null, { replyTo: this, replyMode: replyMode }, callback);
+      this, null, { command: 'reply', mode: replyMode }, callback);
   },
 
   /**
@@ -313,7 +314,7 @@ MailMessage.prototype = evt.mix({
    */
   forwardMessage: function(forwardMode, callback) {
     return this._slice._api.beginMessageComposition(
-      this, null, { forwardOf: this, forwardMode: forwardMode }, callback);
+      this, null, { command: 'forward', mode: forwardMode }, callback);
   },
 
   /**

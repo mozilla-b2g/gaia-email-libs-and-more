@@ -12,8 +12,12 @@ let logic = require('logic');
  * - Deciding which task implementation is appropriate for a given task.  This
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
+ *
+ * @param {MailDB} db
+ *   Database reference to pass through to complex tasks during their
+ *   initialization.
  */
-function TaskRegistry() {
+function TaskRegistry(db) {
   logic.defineScope(this, 'TaskRegistry');
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();
@@ -66,12 +70,19 @@ TaskRegistry.prototype = {
   },
 
 
+  /**
+   * Initialize the per-account per-task-type data structures for a given
+   * account.  While ideally many complex tasks can synchronously initialize
+   * themselves, some may be async and may return a promise.  For that reason,
+   * this method is async.
+   */
   accountExists: function(accountId, accountType) {
     logic(this, 'accountExists', { accountId });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
 
     let accountMarkers = [];
+    let pendingPromises = [];
 
     // Get any pre-existing state for the account
     let dataByTaskType = this._dbDataByAccount.get(accountId);
@@ -83,7 +94,8 @@ TaskRegistry.prototype = {
     let taskMetas = new Map();
     this._perAccountIdTaskRegistry.set(accountId, taskMetas);
 
-    for (let taskImpl of taskImpls.values()) {
+    for (let unlatchedTaskImpl of taskImpls.values()) {
+      let taskImpl = unlatchedTaskImpl; // (let limitations in gecko right now)
       let taskType = taskImpl.name;
       let meta = {
         impl: taskImpl,
@@ -97,20 +109,30 @@ TaskRegistry.prototype = {
         if (!meta.persistentState) {
           meta.persistentState = taskImpl.initPersistentState();
         }
-        let { memoryState, markers: taskMarkers } =
-          taskImpl.deriveMemoryStateFromPersistentState(
-            meta.persistentState);
-        meta.memoryState = memoryState;
-
-        if (taskMarkers) {
-          accountMarkers = accountMarkers.concat(taskMarkers);
+        // Invoke the complex task's real init logic that may need to do some
+        // async db stuff if its state isn't in the persistent state we
+        // helpfully loaded.
+        let maybePromise =
+          taskImpl.deriveMemoryStateFromPersistentState(meta.persistentState);
+        let saveOffMemoryState = ({ memoryState, markers }) => {
+          meta.memoryState = memoryState;
+          if (markers) {
+            accountMarkers = accountMarkers.concat(markers);
+          }
+        };
+        if (maybePromise.then) {
+          pendingPromises.push(maybePromise.then(saveOffMemoryState));
+        } else {
+          saveOffMemoryState(maybePromise);
         }
       }
 
       taskMetas.set(taskType, meta);
     }
 
-    return accountMarkers;
+    return Promise.all(pendingPromises).then(() => {
+      return accountMarkers;
+    });
   },
 
   accountRemoved: function(accountId) {

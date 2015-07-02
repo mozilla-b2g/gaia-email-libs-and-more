@@ -12,7 +12,8 @@ let expandGmailConvId = a64.decodeUI64;
 
 let { encodedGmailConvIdFromConvId } = require('../../id_conversions');
 
-let { valuesOnly, chewMessageStructure } = require('../imapchew');
+let { valuesOnly, chewMessageStructure, parseImapDateTime } =
+  require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
@@ -123,9 +124,29 @@ return TaskDefiner.defineSimpleTask([
       });
     }),
 
+    /**
+     * Shared code for processing new-to-us messages based on their UID.
+     *
+     * @param {TaskContext} ctx
+     * @param account
+     * @param {FolderMeta} allMailFolderInfo
+     * @param {ConversationId} convId
+     * @param {UID[]} uids
+     * @param {SyncStateHelper} [syncState]
+     *   For the new conversation case where we may be referencing messages that
+     *   are not already known to the sync state and need to be enrolled.  In
+     *   most cases these messages will be "meh", but it's also very possible
+     *   that server state has changed since the sync_refresh/sync_grow task ran
+     *   and that some of those messages will actually be "yay".
+     */
     _fetchAndChewUids: function*(ctx, account, allMailFolderInfo, convId,
-                                 uids) {
+                                 uids, syncState) {
       let messages = [];
+
+      let rawConvId;
+      if (syncState) {
+        rawConvId = encodedGmailConvIdFromConvId(convId);
+      }
 
       if (uids && uids.length) {
         let foldersTOC =
@@ -146,6 +167,24 @@ return TaskDefiner.defineSimpleTask([
           // different from flags which are automatically normalized.)
           let rawGmailLabels = valuesOnly(msg['x-gm-labels']);
           let flags = msg.flags || [];
+          let uid = msg.uid;
+
+          // If this is a new conversation, we need to track these messages
+          if (syncState &&
+              !syncState.yayUids.has(uid) &&
+              !syncState.mehUids.has(uid)) {
+            // (Sync state wants the label status as reflected by the server,
+            // so we don't want store_labels to perform fixup for us.)
+            let serverFolderIds =
+              labelMapper.labelsToFolderIds(rawGmailLabels);
+            let dateTS = parseImapDateTime(msg.internaldate);
+
+            if (syncState.messageMeetsSyncCriteria(dateTS, serverFolderIds)) {
+              syncState.newYayMessageInExistingConv(uid, rawConvId);
+            } else {
+              syncState.newMehMessageInExistingConv(uid, rawConvId);
+            }
+          }
 
           // Have store_labels apply any (offline) requests that have not yet
           // been replayed to the server.
@@ -197,20 +236,8 @@ return TaskDefiner.defineSimpleTask([
         allMailFolderInfo, searchSpec, { byUid: true });
       logic(ctx, 'search found uids', { uids });
 
-      // Any uids the sync state didn't already know about must be meh UIDs.
-      // We need to track these so that sync_refresh knows we care about their
-      // state changes and so that sync_grow doesn't get excited and think it
-      // has discovered new messages if they are already known.
-      let rawConvId = encodedGmailConvIdFromConvId(req.convId);
-      for (let uid of uids) {
-        if (!syncState.yayUids.has(uid) &&
-            !syncState.mehUids.has(uid)) {
-          syncState.newMehMessageInExistingConv(uid, rawConvId);
-        }
-      }
-
       let messages = yield* this._fetchAndChewUids(
-        ctx, account, allMailFolderInfo, req.convId, uids);
+        ctx, account, allMailFolderInfo, req.convId, uids, syncState);
 
       let convInfo = churnConversation(req.convId, null, messages);
 
@@ -284,7 +311,7 @@ return TaskDefiner.defineSimpleTask([
       // Fetch the envelopes from the server and create headers/bodies
       let newMessages = yield* this._fetchAndChewUids(
         ctx, account, allMailFolderInfo, req.convId,
-        req.newUids && Array.from(req.newUids));
+        req.newUids && Array.from(req.newUids), false);
 
       // Ensure the messages are ordered correctly
       let allMessages = keptMessages.concat(newMessages);
