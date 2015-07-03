@@ -26,36 +26,29 @@ var mailRep = require('../db/mail_rep');
  * @param newDraftInfo.suid {SUID}
  * @param newDraftInfo.date {Number}
  */
-function mergeDraftStates(oldHeader, oldBody,
+function mergeDraftStates(oldMessage,
                           newDraftRep, newDraftInfo,
                           universe) {
 
   var identity = universe.getIdentityForSenderIdentityId(newDraftRep.senderId);
 
   // -- convert from compose rep to header/body rep
-  var newHeader = mailRep.makeHeaderInfo({
+  var newHeader = mailRep.makeMessageInfo({
     id: newDraftInfo.id,
-    srvid: null, // stays null
-    suid: newDraftInfo.suid, // filled in by the job
-    // we currently don't generate a message-id for drafts, but we'll need to
-    // do this when we start appending to the server.
-    guid: oldHeader ? oldHeader.guid : null,
-    author: { name: identity.name, address: identity.address},
+    guid: oldMessage ? oldMessage.guid : null,
+    author: { name: identity.name, address: identity.address },
     to: newDraftRep.to,
     cc: newDraftRep.cc,
     bcc: newDraftRep.bcc,
     replyTo: identity.replyTo,
     date: newDraftInfo.date,
     flags: [],
-    hasAttachments: oldBody ? oldBody.attachments.length > 0 : false,
+    hasAttachments: oldMessage ? oldMessage.attachments.length > 0 : false,
     subject: newDraftRep.subject,
+    // XXX bad hardcoded constant
     snippet: newDraftRep.body.text.substring(0, 100),
-  });
-  var newBody = mailRep.makeBodyInfo({
-    date: newDraftInfo.date,
-    size: 0,
-    attachments: oldBody ? oldBody.attachments.concat() : [],
-    relatedParts: oldBody ? oldBody.relatedParts.concat() : [],
+    attachments: oldMessage ? oldMessage.attachments.concat() : [],
+    relatedParts: oldMessage ? oldMessage.relatedParts.concat() : [],
     references: newDraftRep.referencesStr,
     bodyReps: []
   });

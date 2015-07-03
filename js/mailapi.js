@@ -1274,110 +1274,37 @@ MailAPI.prototype = evt.mix({
     });
   },
 
-  _composeAttach: function(draftHandle, attachmentDef, callback) {
-    if (!draftHandle) {
-      return;
-    }
-    var draftReq = this._pendingRequests[draftHandle];
-    if (!draftReq) {
-      return;
-    }
-    var callbackHandle = this._nextHandle++;
-    this._pendingRequests[callbackHandle] = {
+  _composeAttach: function(messageId, attachmentDef, callback) {
+    return this._sendPromisedRequest({
       type: 'attachBlobToDraft',
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'attachBlobToDraft',
-      handle: callbackHandle,
-      draftHandle: draftHandle,
-      attachmentDef: attachmentDef
+      messageId,
+      attachmentDef
+    }).then((msg) => {
+      return msg.err;
     });
   },
 
-  _recv_attachedBlobToDraft: function(msg) {
-    var callbackReq = this._pendingRequests[msg.handle];
-    var draftReq = this._pendingRequests[msg.draftHandle];
-    if (!callbackReq) {
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    if (callbackReq.callback && draftReq && draftReq.composer) {
-      callbackReq.callback(msg.err, draftReq.composer);
-    }
-  },
-
-  _composeDetach: function(draftHandle, attachmentIndex, callback) {
-    if (!draftHandle) {
-      return;
-    }
-    var draftReq = this._pendingRequests[draftHandle];
-    if (!draftReq) {
-      return;
-    }
-    var callbackHandle = this._nextHandle++;
-    this._pendingRequests[callbackHandle] = {
+  _composeDetach: function(messageId, attachmentIndex, callback) {
+    return this._sendPromisedRequest({
       type: 'detachAttachmentFromDraft',
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'detachAttachmentFromDraft',
-      handle: callbackHandle,
-      draftHandle: draftHandle,
-      attachmentIndex: attachmentIndex
+      messageId,
+      attachmentIndex
+    }).then((msg) => {
+      return msg.err;
     });
   },
 
-  _recv_detachedAttachmentFromDraft: function(msg) {
-    var callbackReq = this._pendingRequests[msg.handle];
-    var draftReq = this._pendingRequests[msg.draftHandle];
-    if (!callbackReq) {
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    if (callbackReq.callback && draftReq && draftReq.composer) {
-      callbackReq.callback(msg.err, draftReq.composer);
-    }
-  },
-
-  _composeDone: function(handle, command, state, callback) {
-    if (!handle)
-      return;
-    var req = this._pendingRequests[handle];
-    if (!req) {
-      return;
-    }
-    req.type = command;
-    if (callback)
-      req.callback = callback;
-    this.__bridgeSend({
+  _composeDone: function(messageId, command, state, callback) {
+    return this._sendPromisedRequest({
       type: 'doneCompose',
-      handle: handle,
-      command: command,
-      state: state,
-    });
-  },
-
-  _recv_doneCompose: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for doneCompose:', msg.handle);
-      return;
-    }
-    req.active = null;
-    // Do not cleanup on saves. Do cleanup on successful send, delete, die.
-    if (req.type === 'die' || (!msg.err && (req.type !== 'save')))
-      delete this._pendingRequests[msg.handle];
-    if (req.callback) {
-      req.callback.call(null, {
+      messageId, command, state
+    }).then((msg) => {
+      return {
         sentDate: msg.sentDate,
         messageId: msg.messageId,
         sendStatus: msg.sendStatus
-      });
-      req.callback = null;
-    }
+      };
+    });
   },
 
   //////////////////////////////////////////////////////////////////////////////

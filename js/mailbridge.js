@@ -523,14 +523,6 @@ MailBridge.prototype = {
     this.universe.beginCompose();
 
     require(['./drafts/composer', 'mailchew'], function ($composer, $mailchew) {
-      var req = this._pendingRequests[msg.handle] = {
-        type: 'compose',
-        active: 'begin',
-        account: null,
-        persistedNamer: null,
-        die: false
-      };
-
       // - figure out the identity to use
       var account, identity, folderId;
       if (msg.mode === 'new' && msg.submode === 'folder')

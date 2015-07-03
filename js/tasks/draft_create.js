@@ -26,8 +26,8 @@ return TaskDefiner.defineSimpleTask([
       ];
     },
 
-    plan: function() {
-
+    plan: function(ctx) {
+      //
     },
 
     execute: null
