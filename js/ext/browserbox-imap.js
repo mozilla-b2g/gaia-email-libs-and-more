@@ -35,9 +35,9 @@
 
     var DEBUG_TAG = 'browserbox IMAP';
 
-    // 
+    //
     // constants used for communication with the worker
-    // 
+    //
     var MESSAGE_START = 'start';
     var MESSAGE_INFLATE = 'inflate';
     var MESSAGE_INFLATED_DATA_READY = 'inflated_ready';
@@ -859,7 +859,7 @@
 
             //
             // web worker support
-            // 
+            //
 
             this._compressionWorker = new Worker(this._workerPath);
             this._compressionWorker.onmessage = function(e) {
@@ -893,7 +893,7 @@
 
             //
             // without web worker support
-            // 
+            //
 
             this._compression.inflatedReady = function(buffer) {
                 // emit inflated data

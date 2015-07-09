@@ -267,6 +267,11 @@ MailAPI.prototype = evt.mix({
               msg.whichSide);
   },
 
+  /** @see ContactCache.shoddyAutocomplete */
+  shoddyAutocomplete: function(phrase) {
+    return ContactCache.shoddyAutocomplete(phrase);
+  },
+
   /**
    * Return a promise that's resolved with a MailConversation instance that is
    * live-updating with events until `release` is called on it.

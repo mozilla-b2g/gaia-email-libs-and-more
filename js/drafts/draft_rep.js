@@ -10,21 +10,25 @@
  **/
 
 define(function(require) {
+'use strict';
 
-var mailRep = require('../db/mail_rep');
+const mailRep = require('../db/mail_rep');
+
+const { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
 
 /**
- * Create a new header and body for a draft by extracting any useful state
- * from the previous draft's persisted header/body and the revised draft.
+ * Create a new MessageInfo rep for a draft by extracting any useful state
+ * from the previous draft's persisted MessageInfo rep and the revised draft.
  *
  * @method mergeDraftStates
- * @param oldHeader {HeaderInfo}
- * @param oldBody {BodyInfo}
+ * @param oldMessage {MessageInfo}
  * @param newDraftRep {DraftRep}
  * @param newDraftInfo {Object}
  * @param newDraftInfo.id {Number}
  * @param newDraftInfo.suid {SUID}
  * @param newDraftInfo.date {Number}
+ *
+ * @return {MessageInfo}
  */
 function mergeDraftStates(oldMessage,
                           newDraftRep, newDraftInfo,
@@ -33,50 +37,46 @@ function mergeDraftStates(oldMessage,
   var identity = universe.getIdentityForSenderIdentityId(newDraftRep.senderId);
 
   // -- convert from compose rep to header/body rep
-  var newHeader = mailRep.makeMessageInfo({
+  var newMessage = mailRep.makeMessageInfo({
     id: newDraftInfo.id,
     guid: oldMessage ? oldMessage.guid : null,
     author: { name: identity.name, address: identity.address },
+    replyTo: identity.replyTo,
     to: newDraftRep.to,
     cc: newDraftRep.cc,
     bcc: newDraftRep.bcc,
-    replyTo: identity.replyTo,
     date: newDraftInfo.date,
-    flags: [],
-    hasAttachments: oldMessage ? oldMessage.attachments.length > 0 : false,
+    flags: oldMessage.flags || [],
     subject: newDraftRep.subject,
-    // XXX bad hardcoded constant
-    snippet: newDraftRep.body.text.substring(0, 100),
+    snippet: newDraftRep.body.text.substring(0, DESIRED_SNIPPET_LENGTH),
+    hasAttachments: oldMessage ? oldMessage.attachments.length > 0 : false,
     attachments: oldMessage ? oldMessage.attachments.concat() : [],
     relatedParts: oldMessage ? oldMessage.relatedParts.concat() : [],
-    references: newDraftRep.referencesStr,
+    references: oldMessage.references,
     bodyReps: []
   });
-  newBody.bodyReps.push(mailRep.makeBodyPart({
+  newMessage.bodyReps.push(mailRep.makeBodyPart({
     type: 'plain',
     part: null,
-    sizeEstimate: newDraftRep.body.text.length,
-    amountDownloaded: newDraftRep.body.text.length,
+    sizeEstimate: newDraftRep.textBody.length,
+    amountDownloaded: newDraftRep.textBody.length,
     isDownloaded: true,
     _partInfo: {},
-    content: [0x1, newDraftRep.body.text]
+    contentBlob: new Blob([0x1, newDraftRep.textBody])
   }));
-  if (newDraftRep.body.html) {
-    newBody.bodyReps.push(mailRep.makeBodyPart({
+  if (newDraftRep.htmlBlob) {
+    newMessage.bodyReps.push(mailRep.makeBodyPart({
       type: 'html',
       part: null,
-      sizeEstimate: newDraftRep.body.html.length,
-      amountDownloaded: newDraftRep.body.html.length,
+      sizeEstimate: newDraftRep.htmlBlob.size,
+      amountDownloaded: newDraftRep.htmlBlob.size,
       isDownloaded: true,
       _partInfo: {},
-      content: newDraftRep.body.html
+      contentBlob: newDraftRep.htmlBlob
     }));
   }
 
-  return {
-    header: newHeader,
-    body: newBody
-  };
+  return newMessage;
 }
 
 function convertHeaderAndBodyToDraftRep(account, header, body) {

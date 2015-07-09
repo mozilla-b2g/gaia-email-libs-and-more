@@ -76,8 +76,8 @@ TaskRegistry.prototype = {
    * themselves, some may be async and may return a promise.  For that reason,
    * this method is async.
    */
-  accountExists: function(accountId, accountType) {
-    logic(this, 'accountExists', { accountId });
+  accountExistsInitTasks: function(accountId, accountType) {
+    logic(this, 'accountExistsInitTasks', { accountId });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
 

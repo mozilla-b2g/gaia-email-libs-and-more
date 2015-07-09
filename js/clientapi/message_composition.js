@@ -1,20 +1,49 @@
 define(function(require) {
 'use strict';
 
+let evt = require('evt');
+
 let MailSenderIdentity = require('./mail_sender_identity');
 
+let asyncFetchBlob = require('../async_blob_fetcher');
+
 /**
- * Handle for a current/ongoing message composition process.  The UI reads state
- * out of the object when it resumes editing a draft, otherwise this can just be
- * treated as write-only.
+ * Represents a draft that you're currently editing.  If you want to display a
+ * draft, just use the `MailMessage`.  If you want to edit/compose, use
+ * `MailMessage.replyToMessage`, `MailMessage.forwardMessage`,
+ * `MailAPI.beginMessageComposition`, or `MailAPI.resumeMessageComposition`.
  *
- * == Other clients and drafts:
+ * ## On Content and Blobs ##
+ *
+ * For `MailMessage` instances, body contents are stored in Blobs and accessing
+ * them is fundamentaly an asynchronous process.  Getting an instance of this
+ * class is inherently an asynchronous request already, so we unpack the text
+ * Blob automatically.  Because the HTML is currently immutable and your UI
+ * already needs to be able to handle this, the HTML blob is not unpacked.
+ *
+ * ## Life Cycle and Persistence ##
+ *
+ * Originally the back-end kept track of all open composition sessions, but this
+ * turned out to not particularly be required or beneficial.  With the new task
+ * infrastructure we have all draft logic implemented as tasks which implies
+ * that all draft state is always persistent, thereby simplifying things.  The
+ * only real issue is that we now are potentially much more likely to create
+ * empty drafts that pile up if the user does not explicitly delete a draft and
+ * our app ends up getting closed.
+ *
+ * ## Drafts and their Wire Protocol ##
+ *
+ * The representation we send across the wire and receive is not the same as the
+ * representation used for `MailMessage` instances.
+ *
+ * ## Other clients and drafts ##
  *
  * If another client deletes our draft out from under us, we currently won't
- * notice.
+ * notice.  Some day we want to be able to recognize this (and not be tricked
+ * into thinking what we ourselves did was done by someone else).
  */
-function MessageComposition(api, wireRep, handle) {
-  this._api = api;
+function MessageComposition(api, handle) {
+  this.api = api;
   this._handle = handle;
 
   this.senderIdentity = null;
@@ -25,7 +54,10 @@ function MessageComposition(api, wireRep, handle) {
 
   this.subject = null;
 
-  this.body = null;
+  this.textBody = null;
+  this.htmlBlob = null;
+
+  this.serial = 0;
 
   this._references = null;
   /**
@@ -42,10 +74,8 @@ function MessageComposition(api, wireRep, handle) {
    * and removeAttachment must be used.
    */
   this.attachments = null;
-
-  this.hasDraft = false;
 }
-MessageComposition.prototype = {
+MessageComposition.prototype = evt.mix({
   toString: function() {
     return '[MessageComposition: ' + this._handle + ']';
   },
@@ -56,24 +86,41 @@ MessageComposition.prototype = {
     };
   },
 
-  __update: function(msg) {
-    this.id = msg.id;
-    this.senderIdentity = new MailSenderIdentity(this._api, msg.identity);
-    this.subject = msg.subject;
-    this.body = msg.body; // rich obj of {text, html}
-    this.cc = msg.cc;
-    this.to = msg.to;
-    this.bcc = msg.bcc;
-    this._references = msg.referencesStr;
-    this.attachments = msg.attachments;
-    this.sendStatus = msg.sendStatus; // For displaying "Send failed".
+  __asyncInitFromWireRep: function(wireRep) {
+    this.serial++;
+
+    this.id = wireRep.id;
+    this.senderIdentity = new MailSenderIdentity(this.api, wireRep.identity);
+    this.subject = wireRep.subject;
+    this.cc = wireRep.cc;
+    this.to = wireRep.to;
+    this.bcc = wireRep.bcc;
+    this._references = wireRep.referencesStr;
+    this.attachments = wireRep.attachments;
+    this.sendStatus = wireRep.sendStatus; // For displaying "Send failed".
+
+    this.htmlBlob = wireRep.htmlBlob;
+    return asyncFetchBlob(wireRep.body.textBlob, 'json').then((textRep) => {
+      if (Array.isArray(textRep) &&
+          textRep.length === 2 &&
+          textRep[0] === 0x1) {
+        this.textBody = textRep[1];
+      } else {
+        this.textBody = '';
+      }
+    });
   },
 
   release: function() {
     if (this._handle) {
-      this._api._composeDone(this._handle, 'release', null, null);
+      this.api._composeDone(this._handle, 'release', null, null);
       this._handle = null;
     }
+  },
+
+  _mutated: function() {
+    this.serial++;
+    this.emit('change');
   },
 
   /**
@@ -105,10 +152,7 @@ MessageComposition.prototype = {
    * ]
    */
   addAttachment: function(attachmentDef, callback) {
-    // There needs to be a draft for us to attach things to.
-    if (!this.hasDraft)
-      this.saveDraft();
-    this._api._composeAttach(this.id, attachmentDef, callback);
+    this.api._composeAttach(this.id, attachmentDef, callback);
 
     var placeholderAttachment = {
       name: attachmentDef.name,
@@ -133,8 +177,48 @@ MessageComposition.prototype = {
     var idx = this.attachments.indexOf(attachmentDef);
     if (idx !== -1) {
       this.attachments.splice(idx, 1);
-      this._api._composeDetach(this._handle, idx, callback);
+      this.api._composeDetach(this._handle, idx, callback);
     }
+  },
+
+  /**
+   * Optional helper function for to/cc/bcc list manipulation if you like the
+   * 'change' events for managing UI state.
+   */
+  addRecipient: function(bin, addressPair) {
+    this[bin].push(addressPair);
+    this._mutated();
+  },
+
+  /**
+   * Optional helper function for to/cc/bcc list manipulation if you like the
+   * 'change' events for managing UI state.
+   */
+  removeRecipient: function(bin, addressPair) {
+    let recipList = this[bin];
+    let idx = recipList.indexOf(addressPair);
+    if (idx !== -1) {
+      recipList.splice(idx, 1);
+      this._mutated();
+    }
+  },
+
+  /**
+   * Optional helper function for to/cc/bcc list manipulation if you like the
+   * 'change' events for managing UI state.  Removes the last recipient in this
+   * bin if there is one.
+   */
+  removeLastRecipient: function(bin) {
+    let recipList = this[bin];
+    if (recipList.length) {
+      recipList.pop();
+      this._mutated();
+    }
+  },
+
+  setSubject: function(subject) {
+    this.subject = subject;
+    this._mutated();
   },
 
   /**
@@ -162,17 +246,14 @@ MessageComposition.prototype = {
    * we're offline.  (UI can currently infer from other channels/data.)
    */
   finishCompositionSendMessage: function() {
-    this._api._composeDone(this._handle, 'send', this._buildWireRep(),
-                           callback);
+    return this.api._composeDone(this.id, 'send', this._buildWireRep());
   },
 
   /**
    * Save the state of this composition.
    */
   saveDraft: function() {
-    this.hasDraft = true;
-    this._api._composeDone(this._handle, 'save', this._buildWireRep(),
-                           callback);
+    return this.api._composeDone(this.id, 'save', this._buildWireRep());
   },
 
   /**
@@ -184,10 +265,10 @@ MessageComposition.prototype = {
    * delete.
    */
   abortCompositionDeleteDraft: function() {
-    this._api._composeDone(this._handle, 'delete', null, callback);
+    return this.api._composeDone(this.id, 'delete', null);
   },
 
-};
+});
 
 return MessageComposition;
 });

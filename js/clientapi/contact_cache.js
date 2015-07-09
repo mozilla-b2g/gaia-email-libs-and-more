@@ -61,8 +61,9 @@ var ContactCache = {
 
   init: function() {
     var contactsAPI = navigator.mozContacts;
-    if (!contactsAPI)
+    if (!contactsAPI) {
       return;
+    }
 
     contactsAPI.oncontactchange = this._onContactChange.bind(this);
   },
@@ -75,9 +76,68 @@ var ContactCache = {
 
   shutdown: function() {
     var contactsAPI = navigator.mozContacts;
-    if (!contactsAPI)
+    if (!contactsAPI) {
       return;
+    }
     contactsAPI.oncontactchange = null;
+  },
+
+  /**
+   * Perform an autocomplete lookup over the currently live MailPeep instances.
+   * This is shoddy because we actually have two sources of email/human data
+   * available to us: the mozContacts database and the corpus of mail addresses
+   * in synchronized mail.  Doing the right thing is non-trivial.
+   *
+   * So we do the simplest, most pragmatic thing we can do, which is just walk
+   * this cache.  It potentially has enough data to make it seem smart or at
+   * least something smart that's broken/buggy.
+   *
+   * @return {Promise<MailPeep[]>}
+   *   A Promise is resolved with a list of non-live matching MailPeep
+   *   instances.  In the future they may be live and there may be some
+   *   life-cycle management burden associated with this.  Or maybe we will
+   *   return an `EntireListView` instance.
+   */
+  shoddyAutocomplete: function(phrase) {
+    // string-for-regexp escaping logic from searchfilter.js that I worry about
+    // a little:
+    // TODO: use a proper factored-out/supported regexp-from-string module
+    if (!(phrase instanceof RegExp)) {
+      phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g,
+                                         '\\$&'),
+                          'i');
+    }
+
+    let matches = [];
+    const MAX_MATCHES = 8;
+
+    // The email map includes MailPeeps that are not backed by mozContacts as
+    // well as ones that are, so that's the one to use.
+    for (let peeps of this._livePeepsByEmail) {
+      // It's a list of practically identical instances, we only want one.
+      let peep = peeps[0];
+      if (peep.name) {
+        if (phrase.exec(peep.name)) {
+          matches.push(peep);
+          if (matches.length >= MAX_MATCHES) {
+            break;
+          }
+          continue;
+        }
+      }
+      if (phrase.exec(peep.address)) {
+        matches.push(peep);
+        if (matches.length >= MAX_MATCHES) {
+          break;
+        }
+        continue;
+      }
+      // NB: We could also look at fields on the actual mozContacts instance
+      // if we had the instance.  (We don't.  Also this is a lazy hackjob
+      // remember.)
+    }
+
+    return Promise.resolve(matches);
   },
 
   /**
@@ -117,8 +177,9 @@ var ContactCache = {
         livePeepsByEmail = this._livePeepsByEmail;
 
     // clear the cache if it has anything in it (per the above doc block)
-    if (this._cacheHitEntries || this._cacheEmptyEntries)
+    if (this._cacheHitEntries || this._cacheEmptyEntries) {
       this._resetCache();
+    }
 
     // -- Contact removed OR all contacts removed!
     if (event.reason === 'remove') {
@@ -150,8 +211,9 @@ var ContactCache = {
       req.onsuccess = function() {
         // If the contact disappeared we will hear a 'remove' event and so don't
         // need to process this.
-        if (!req.result.length)
+        if (!req.result.length) {
           return;
+        }
         var contact = req.result[0], livePeeps, iPeep, peep;
 
         // - process update with apparent e-mail address removal
@@ -180,19 +242,22 @@ var ContactCache = {
                 }
               }
             }
-            if (livePeeps.length === 0)
+            if (livePeeps.length === 0) {
               delete livePeepsById[contact.id];
+            }
           }
         }
         // - process create/update causing new coverage
-        if (!contact.email)
+        if (!contact.email) {
           return;
+        }
         for (var iEmail = 0; iEmail < contact.email.length; iEmail++) {
           var email = contact.email[iEmail].value;
           livePeeps = livePeepsByEmail[email];
           // nothing to do if there are no peeps that use that email address
-          if (!livePeeps)
+          if (!livePeeps) {
             continue;
+          }
 
           for (iPeep = 0; iPeep < livePeeps.length; iPeep++) {
             peep = livePeeps[iPeep];
@@ -201,8 +266,9 @@ var ContactCache = {
             if (!peep.contactId) {
               peep.contactId = contact.id;
               var idLivePeeps = livePeepsById[peep.contactId];
-              if (idLivePeeps === undefined)
+              if (idLivePeeps === undefined) {
                 idLivePeeps = livePeepsById[peep.contactId] = [];
+              }
               idLivePeeps.push(peep);
             }
             // However, if it's associated with a different contact, then just
@@ -213,8 +279,9 @@ var ContactCache = {
             // (The peep must be associated with this contact, so update and
             // fire)
 
-            if (contact.name && contact.name.length)
+            if (contact.name && contact.name.length) {
               peep.name = contact.name[0];
+            }
             if (peep.onchange) {
               try {
                 peep.onchange(peep);
@@ -233,8 +300,9 @@ var ContactCache = {
   },
 
   resolvePeeps: function(addressPairs) {
-    if (addressPairs == null)
+    if (addressPairs == null) {
       return null;
+    }
     var resolved = [];
     for (var i = 0; i < addressPairs.length; i++) {
       resolved.push(this.resolvePeep(addressPairs[i]));
@@ -258,20 +326,22 @@ var ContactCache = {
    */
   resolvePeep: function(addressPair) {
     var emailAddress = addressPair.address;
-    var entry = this._contactCache[emailAddress], contact, peep;
+    var entry = this._contactCache[emailAddress], peep;
     var contactsAPI = navigator.mozContacts;
     // known miss; create miss peep
     // no contacts API, always a miss, skip out before extra logic happens
     if (entry === null || !contactsAPI) {
       peep = new MailPeep(addressPair.name || '', emailAddress, null, null);
-      if (!contactsAPI)
+      if (!contactsAPI) {
         return peep;
+      }
     }
     // known contact; unpack contact info
     else if (entry !== undefined) {
       var name = addressPair.name || '';
-      if (entry.name && entry.name.length)
+      if (entry.name && entry.name.length) {
         name = entry.name[0];
+      }
       peep = new MailPeep(
         name,
         emailAddress,
@@ -320,27 +390,32 @@ var ContactCache = {
           var contact = req.result[0];
 
           ContactCache._contactCache[emailAddress] = contact;
-          if (++ContactCache._cacheHitEntries > ContactCache.MAX_CACHE_HITS)
+          if (++ContactCache._cacheHitEntries > ContactCache.MAX_CACHE_HITS) {
             self._resetCache();
+          }
 
           var peepsToFixup = self._livePeepsByEmail[emailAddress];
           // there might no longer be any MailPeeps alive to care; leave
-          if (!peepsToFixup)
+          if (!peepsToFixup) {
             return;
-          for (var i = 0; i < peepsToFixup.length; i++) {
+          }
+          for (let i = 0; i < peepsToFixup.length; i++) {
             var peep = peepsToFixup[i];
             if (!peep.contactId) {
               peep.contactId = contact.id;
               var livePeeps = self._livePeepsById[peep.contactId];
-              if (livePeeps === undefined)
+              if (livePeeps === undefined) {
                 livePeeps = self._livePeepsById[peep.contactId] = [];
+              }
               livePeeps.push(peep);
             }
 
-            if (contact.name && contact.name.length)
+            if (contact.name && contact.name.length) {
               peep.name = contact.name[0];
-            if (contact.photo && contact.photo.length)
+            }
+            if (contact.photo && contact.photo.length) {
               peep._thumbnailBlob = contact.photo[0];
+            }
 
             // If no one is waiting for our/any request to complete, generate an
             // onchange notification.
@@ -359,12 +434,13 @@ var ContactCache = {
         }
         else {
           ContactCache._contactCache[emailAddress] = null;
-          if (++ContactCache._cacheEmptyEntries > ContactCache.MAX_CACHE_EMPTY)
+          if (++ContactCache._cacheEmptyEntries > ContactCache.MAX_CACHE_EMPTY){
             self._resetCache();
+          }
         }
         // Only notify callbacks if all outstanding lookups have completed
         if (--self.pendingLookupCount === 0) {
-          for (i = 0; i < ContactCache.callbacks.length; i++) {
+          for (let i = 0; i < ContactCache.callbacks.length; i++) {
             ContactCache.callbacks[i]();
           }
           ContactCache.callbacks.splice(0, ContactCache.callbacks.length);
@@ -377,14 +453,16 @@ var ContactCache = {
     // - track the peep in our lists of live peeps
     var livePeeps;
     livePeeps = this._livePeepsByEmail[emailAddress];
-    if (livePeeps === undefined)
+    if (livePeeps === undefined) {
       livePeeps = this._livePeepsByEmail[emailAddress] = [];
+    }
     livePeeps.push(peep);
 
     if (peep.contactId) {
       livePeeps = this._livePeepsById[peep.contactId];
-      if (livePeeps === undefined)
+      if (livePeeps === undefined) {
         livePeeps = this._livePeepsById[peep.contactId] = [];
+      }
       livePeeps.push(peep);
     }
 
@@ -396,8 +474,9 @@ var ContactCache = {
         livePeepsByEmail = this._livePeepsByEmail;
     for (var iArg = 0; iArg < arguments.length; iArg++) {
       var peeps = arguments[iArg];
-      if (!peeps)
+      if (!peeps) {
         continue;
+      }
       for (var iPeep = 0; iPeep < peeps.length; iPeep++) {
         var peep = peeps[iPeep], livePeeps, idx;
         if (peep.contactId) {
@@ -406,8 +485,9 @@ var ContactCache = {
             idx = livePeeps.indexOf(peep);
             if (idx !== -1) {
               livePeeps.splice(idx, 1);
-              if (livePeeps.length === 0)
+              if (livePeeps.length === 0) {
                 delete livePeepsById[peep.contactId];
+              }
             }
           }
         }
@@ -416,8 +496,9 @@ var ContactCache = {
           idx = livePeeps.indexOf(peep);
           if (idx !== -1) {
             livePeeps.splice(idx, 1);
-            if (livePeeps.length === 0)
+            if (livePeeps.length === 0) {
               delete livePeepsByEmail[peep.address];
+            }
           }
         }
       }

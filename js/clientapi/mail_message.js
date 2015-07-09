@@ -256,48 +256,25 @@ MailMessage.prototype = evt.mix({
   },
 
   /**
-   * Assume this is a draft message and return a MessageComposition object
-   * that will be asynchronously populated.  The provided callback will be
-   * notified once all composition state has been loaded.
-   *
-   * The underlying message will be replaced by other messages as the draft
-   * is updated and effectively deleted once the draft is completed.  (A
-   * move may be performed instead.)
+   * Assume this is a draft message and return a Promise that will be resolved
+   * with a populated `MessageComposition` instance.
    */
-  editAsDraft: function(callback) {
-    var composer = this._slice._api.resumeMessageComposition(this, callback);
-    composer.hasDraft = true;
-    return composer;
+  editAsDraft: function() {
+    return this._api.resumeMessageComposition(this);
   },
 
   /**
    * Start composing a reply to this message.
    *
-   * @args[
-   *   @param[replyMode @oneof[
-   *     @default[null]{
-   *       To be specified...
-   *     }
-   *     @case['sender']{
-   *       Reply to the author of the message.
-   *     }
-   *     @case['list']{
-   *       Reply to the mailing list the message was received from.  If there
-   *       were other mailing lists copied on the message, they will not
-   *       be included.
-   *     }
-   *     @case['all']{
-   *       Reply to the sender and all listed recipients of the message.
-   *     }
-   *   ]]{
-   *     The not currently used reply-mode.
-   *   }
-   * ]
-   * @return[MessageComposition]
+   * @param {'sender'|'all'}
+   *   - sender: Reply to just the sender/author of the message.
+   *   - all: Reply to all; everyone on the to/cc and the author will end up
+   *     either on the "to" or "cc" lines.
+   * @return {Promise<MessageComposition>}
    */
-  replyToMessage: function(replyMode, callback) {
+  replyToMessage: function(replyMode) {
     return this._slice._api.beginMessageComposition(
-      this, null, { command: 'reply', mode: replyMode }, callback);
+      this, null, { command: 'reply', mode: replyMode });
   },
 
   /**
