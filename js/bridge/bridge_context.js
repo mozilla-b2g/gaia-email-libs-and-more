@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let logic = require('../logic');
+let logic = require('logic');
 
 function NamedContext(name, type, bridgeContext) {
   logic.defineScope(this, type,

@@ -1,7 +1,7 @@
 define(function (require) {
 'use strict';
 
-let logic = require('./logic');
+let logic = require('logic');
 
 /**
  * Provides helpers and standard arguments/context for tasks.

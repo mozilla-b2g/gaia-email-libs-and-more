@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let logic = require('./logic');
+let logic = require('logic');
 let slog = require('./slog');
 let $date = require('./date');
 let $syncbase = require('./syncbase');

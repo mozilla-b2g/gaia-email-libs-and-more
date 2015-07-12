@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let logic = require('../logic');
+let logic = require('logic');
 
 /**
  * Gmail helper logic for sync tasks to handle interpreting the sync state,
@@ -141,7 +141,7 @@ SyncStateHelper.prototype = {
     let task = {
       type: 'sync_conv',
       accountId: this._accountId,
-      convId: convId,
+      convId,
       newConv: false,
       removeConv: false,
       newUids: null, // set
@@ -188,7 +188,7 @@ SyncStateHelper.prototype = {
     }
   },
 
-  _updateTaskWithRemoveUid: function(stash, uid, rawConvId, dateTS) {
+  _updateTaskWithRemovedUid: function(stash, uid, rawConvId, dateTS) {
     if (!stash.task) {
       stash.task = this._makeConvTask(rawConvId);
     }

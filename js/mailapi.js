@@ -1,7 +1,7 @@
 define(function(require, exports, module) {
 'use strict';
 
-var logic = require('./logic');
+var logic = require('logic');
 // XXX proper logging configuration for the front-end too once things start
 // working happily.
 logic.realtimeLogEverything = true;

@@ -11,9 +11,6 @@ let { makeDaysAgo, makeDaysBefore, quantizeDate } = require('../../date');
 let imapchew = require('../imapchew');
 let parseImapDateTime = imapchew.parseImapDateTime;
 
-let a64 = require('../../a64');
-let parseGmailConvId = a64.parseUI64;
-
 
 let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 
@@ -47,10 +44,16 @@ return TaskDefiner.defineSimpleTask([
       });
 
       let syncState = new FolderSyncStateHelper(
-        ctx, fromDb.syncStates.get(req.accountId), req.accountId,
+        ctx, fromDb.syncStates.get(req.folderId), req.accountId,
         req.folderId, 'grow');
 
       // -- Issue a search for the new date range we're expanding to cover.
+      // TODO: consider the fast full folder sync heuristic where if the folder
+      // only has a few messages we just sync them all.
+      // TODO: consider some type of statistical shenanigans based on message
+      // sequence number.  Like fetch the dates of N messages around
+      // (EXISTS - 50) and then extrapolate a reasonable date choice based on
+      // that.
       let searchSpec = { not: { deleted: true } };
 
       let existingSinceDate = syncState.sinceDate;
@@ -104,17 +107,25 @@ return TaskDefiner.defineSimpleTask([
         // Use the UIDNEXT if the server provides it (some are jerks and don't)
         if (mailboxInfo.uidNext) {
           syncState.lastHighUid = mailboxInfo.uidNext - 1;
-        } else {
-          // Just find the max of all the UIDs we heard about.  Use logical or
-          // in case a NaN somehow got in there for paranoia reasons.
+        }
+        // Okay, then try and find the max of all the UIDs we heard about.
+        else if (uids.length) {
+          // Use logical or in case a NaN somehow got in there for paranoia
+          // reasons.
           syncState.lastHighUid = Math.max(...uids) || 0;
+        }
+        // Oh, huh, no UIDNEXT and no messages found?  Well, just pick 1 if
+        // there are some messages but not a huge number.
+        // XXX this is horrid; the full-folder fast sync and statistical date
+        // choices above should make us be able to avoid this.
+        else if (mailboxInfo.exists && mailboxInfo.exists < 100) {
+          syncState.lastHighUid = 1;
         }
       }
 
       yield ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
-          umidNames: syncState.umidNameWrites,
           umidLocations: syncState.umidLocationWrites
         },
         newData: {

@@ -3,7 +3,7 @@ define(function(require) {
 
 const co = require('co');
 const evt = require('evt');
-const logic = require('./logic');
+const logic = require('logic');
 
 const { convIdFromMessageId, encodedGmailMessageIdFromMessageId } =
   require('./id_conversions');
@@ -334,6 +334,19 @@ function genericUncachedLookups(store, requestMap) {
     req.onerror = handler;
   }
  return dbReqCount;
+}
+
+function genericUncachedWrites(trans, tableName, writeMap) {
+  if (writeMap) {
+    let store = trans.objectStore(tableName);
+    for (let [key, value] of writeMap) {
+      if (value !== null) {
+        store.put(value, key);
+      } else {
+        store.delete(key);
+      }
+    }
+  }
 }
 
 function genericCachedLookups(store, requestMap, cache) {
@@ -1241,36 +1254,11 @@ MailDB.prototype = evt.mix({
     // -- Mutations (begun via beginMutate)
     let mutations = data.mutations;
     if (mutations) {
-      if (mutations.syncStates) {
-        for (let [key, syncState] of mutations.syncStates) {
-          trans.objectStore(TBL_SYNC_STATES).put(syncState, key);
-        }
-      }
-
-      if (mutations.folders) {
-        for (let [accountId, foldersDbState] of mutations.folders) {
-          trans.objectStore(TBL_FOLDER_INFO).put(foldersDbState, accountId);
-        }
-      }
-
-      if (mutations.headerIdMaps) {
-        let store = trans.objectStore(TBL_HEADER_ID_MAP);
-        for (let [key, value] of mutations.headerIdMaps) {
-          store.put(value, key);
-        }
-      }
-      if (mutations.umidNames) {
-        let store = trans.objectStore(TBL_UMID_NAME);
-        for (let [key, value] of mutations.umidNames) {
-          store.put(value, key);
-        }
-      }
-      if (mutations.umidLocations) {
-        let store = trans.objectStore(TBL_UMID_LOCATION);
-        for (let [key, value] of mutations.umidLocations) {
-          store.put(value, key);
-        }
-      }
+      genericUncachedWrites(trans, TBL_SYNC_STATES, mutations.syncStates);
+      genericUncachedWrites(trans, TBL_FOLDER_INFO, mutations.folders);
+      genericUncachedWrites(trans, TBL_HEADER_ID_MAP, mutations.headerIdMaps);
+      genericUncachedWrites(trans, TBL_UMID_NAME, mutations.umidNames);
+      genericUncachedWrites(trans, TBL_UMID_LOCATION, mutations.umidLocations);
 
       if (mutations.conversations) {
         this._processConvMutations(

@@ -3,6 +3,8 @@ define(function(require) {
 
 let logic = require('../logic');
 
+let { convIdFromMessageId } = require('../../id_conversions');
+
 let a64 = require('../a64');
 
 /**
@@ -25,7 +27,7 @@ let a64 = require('../a64');
  *   characterize a message's flags by an index into this list.
  * - flagSetCounts: A parallel list to flagSets where each value is the count of
  *   messages using that flag-set.
- * - uidInfo: A map from message UID to the { umid, flagSet }.
+ * - uidInfo: A map from message UID to the { umid, flagSlot }.
  */
 function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId, mode) {
   if (!rawSyncState) {
@@ -50,9 +52,16 @@ function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId, mode) {
   this._flagSetCounts = this.rawSyncState.flagSetCounts;
   this._uidInfo = this.rawSyncState.uidInfo;
 
+  // The set of umids that have been deleted.
+  this.umidDeletions = new Set();
+  // Map from umid to new flags
+  this.umidFlagChanges = new Map();
+  // The umidName reads to issue, merged from umidDeletions and umidFlagChanges
+  this.umidNameReads = new Map();
+
   // A running list of tasks to spin-off
+  this._tasksByConvId = new Map();
   this.tasksToSchedule = [];
-  this.umidNameWrites = new Map();
   this.umidLocationWrites = new Map();
 }
 FolderSyncStateHelper.prototype = {
@@ -130,10 +139,42 @@ FolderSyncStateHelper.prototype = {
   },
 
   /**
+   * Return a list of all UIDs known to us.
+   */
+  getAllUids: function() {
+    return Array.from(this._uidInfo.keys());
+  },
+
+  /**
    * Does this message meet our date sync criteria?
    */
   messageMeetsSyncCriteria: function(date) {
     return date >= this.sinceDate;
+  },
+
+  /**
+   * Given the search results of searching for all known UIDs, figure out which
+   * UIDs, if any, disappeared, and make a note for a umid-lookup pass so we
+   * can subsequently generate aggregate tasks for sync_conv.
+   */
+  inferDeletionFromExistingUids: function(newUids) {
+    let uidsNotFound = new Set(this._uidInfo);
+    for (let uid of newUids) {
+      uidsNotFound.remove(uid);
+    }
+
+    let { _uidInfo: uidInfo, umidDeletions, umidNameReads,
+          umidNameWrites, umidLocationWrites } = this;
+    for (let uid of uidsNotFound) {
+      let { umid } = uidInfo.get(uid);
+      uidInfo.delete(uid);
+      umidDeletions.add(umid);
+      umidNameReads.set(umid, null);
+
+      // Nuke the umid location record.  The sync_conv job will take care of the
+      // umidName for consistency reasons.
+      umidLocationWrites.set(umid, null);
+    }
   },
 
   /**
@@ -142,13 +183,69 @@ FolderSyncStateHelper.prototype = {
    * track this message and it's not already known.
    */
   yayMessageFoundByDate: function(uid, dateTS, flags) {
-    let flagIdx = this._findFlagSlot(flags);
-    this._incrFlagSlot(flagIdx);
+    let flagSlot = this._findFlagSlot(flags);
+    this._incrFlagSlot(flagSlot);
 
     let umid = this.issueUniqueMessageId();
-    this.umidNameWrites.set(umid, null);
     this.umidLocationWrites.set(umid, [this._folderId, uid]);
     this._makeMessageTask(uid, umid, dateTS, flags);
+    this._uidInfo.set(uid, { umid, flagSlot });
+  },
+
+  /**
+   * Check if the flags for a message have changed.  If so, update our record of
+   * the flags and make a note of the umid so we can later resolve it to its
+   * conversation and enqueue a sync_conv task.
+   */
+  checkFlagChanges: function(uid, flags) {
+    let info = this._uidInfo.get(uid);
+    let oldFlagSlot = info.flagSlot;
+    let newFlagSlot = this._findFlagSlot(flags);
+    if (newFlagSlot !== oldFlagSlot) {
+      this._decrFlagSlot(oldFlagSlot);
+      this._incrFlagSlot(newFlagSlot);
+      info.flagSlot = newFlagSlot;
+      this.umidFlagChanges.set(info.umid, flags);
+      this.umidNameReads.set(info.umid, null);
+    }
+  },
+
+  /**
+   * Now that the umidNameReads should have been satisfied, group all flag
+   * changes and deletions by conversation
+   */
+  generateSyncConvTasks: function() {
+    let umidNameReads = this.umidNameReads;
+    for (let [umid, flags] of this.umidFlagChanges) {
+      let messageId = umidNameReads.get(umid);
+      if (messageId) {
+        this._ensureTaskWithUmidFlags(messageId, umid, flags);
+      }
+    }
+    for (let umid of this.umidDeletions) {
+      let messageId = umidNameReads.get(umid);
+      if (messageId) {
+        this._ensureTaskWithRemovedUmid(messageId, umid);
+      }
+    }
+  },
+
+  _ensureTaskWithUmidFlags: function(messageId, umid, flags) {
+    let convId = convIdFromMessageId(messageId);
+    let task = this._ensureConvTask(convId);
+    if (!task.modifiedUmids) {
+      task.modifiedUmids = new Map();
+    }
+    task.modifiedUmids.set(umid, flags);
+  },
+
+  _ensureTaskWithRemovedUmid: function(messageId, umid) {
+    let convId = convIdFromMessageId(messageId);
+    let task = this._ensureConvTask(convId);
+    if (!task.removedUmids) {
+      task.removedUmids = new Set();
+    }
+    task.removedUmids.add(umid);
   },
 
   /**
@@ -168,209 +265,21 @@ FolderSyncStateHelper.prototype = {
     return task;
   },
 
-  _updateTaskWithNewUid: function(stash, uid, rawConvId, dateTS) {
-    // If we're in grow mode, we don't need to update state for the UIDs and so
-    // we don't need to generate a task.
-    if (this._growMode) {
-      return;
+  _ensureConvTask: function(convId) {
+    if (this._tasksByConvId.has(convId)) {
+      return this._tasksByConvId(convId);
     }
-    if (!stash.task) {
-      stash.task = this._makeConvTask(rawConvId);
-    }
-    let task = stash.task;
-    if (!task.newConv) { // (don't specify uid's if it's a new conversation)
-      if (!task.newUids) {
-        task.newUids = new Set();
-      }
-      task.newUids.add(uid);
-    }
-    if (dateTS > stash.mostRecent) {
-      stash.mostRecent = dateTS;
-      task.mostRecent = dateTS;
-    }
-  },
 
-  _updateTaskWithModifiedUid: function(stash, uid, rawConvId, newState) {
-    if (!stash.task) {
-      stash.task = this._makeConvTask(rawConvId);
-    }
-    let task = stash.task;
-    if (!task.newConv) { // (don't specify uid's if it's a new conversation)
-      if (!task.modifiedUids) {
-        task.modifiedUids = new Map();
-      }
-      task.modifiedUids.set(uid, newState);
-    }
-  },
-
-  _updateTaskWithRemoveUid: function(stash, uid, rawConvId, dateTS) {
-    if (!stash.task) {
-      stash.task = this._makeConvTask(rawConvId);
-    }
-    let task = stash.task;
-    if (!task.newConv) { // (don't specify uid's if it's a new conversation)
-      if (!task.removedUids) {
-        task.removedUids = new Set();
-      }
-      task.removedUids.add(uid);
-    }
-  },
-
-  _updateForRemoval: function(stash) {
-    stash.task.removeConv = true;
-    // note: it's impossible for newConv to be true at this point since we
-    // should only hear about each message once and newConv being true means
-    // we've put a uid in yayUids and so we can't be removing it during this
-    // sync "round".
-    this._stashesPendingForRemoval.add(stash);
-  },
-
-  _updateSavedFromRemoval: function(stash) {
-    stash.task.removeConv = false;
-    this._stashesPendingForRemoval.delete(stash);
-  },
-
-  isKnownRawConvId: function(rawConvId) {
-    return this.rawConvIdToConvStash.has(rawConvId);
-  },
-
-  /**
-   * It's a new message that meets our sync criteria and it's the first message
-   * we've heard of in this conversation, so it's a new conversation!
-   */
-  newYayMessageInNewConv: function(uid, rawConvId, dateTS) {
-    this.metricUseful++;
-    this.yayUids.set(uid, rawConvId);
-    let stash = {
-      rawConvId: rawConvId,
-      yayUids: [uid],
-      mehUids: [],
-      mostRecent: dateTS,
-      task: this._makeConvTask(rawConvId)
+    let task = {
+      type: 'sync_conv',
+      accountId: this._accountId,
+      convId,
+      modifiedUmids: null, // Map<UniqueMessageId, Flags>
+      removedUmids: null // Set<UniqueMessageId>
     };
-    this.rawConvIdToConvStash.set(rawConvId, stash);
-
-    stash.task.newConv = true;
-    stash.task.mostRecent = dateTS;
-  },
-
-  newYayMessageInExistingConv: function(uid, rawConvId, dateTS) {
-    this.metricUseful++;
-    this.yayUids.set(uid, rawConvId);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.yayUids.push(uid);
-    this._updateTaskWithNewUid(stash, uid, rawConvId, dateTS);
-  },
-
-  newMehMessageInExistingConv: function(uid, rawConvId, dateTS) {
-    this.metricUseful++;
-    this.mehUids.set(uid, rawConvId);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.mehUids.push(uid);
-    // In the sync_conv case we won't have a dateTS nor will we care about
-    // tasks.
-    if (dateTS) {
-      this._updateTaskWithNewUid(stash, uid, rawConvId, dateTS);
-    }
-  },
-
-  newMootMessage: function(uid) {
-    this.metricWaste++;
-  },
-
-  existingIgnoredMessageIsNowYay: function(uid, rawConvId, dateTS) {
-    if (this.isKnownRawConvId(rawConvId)) {
-      this.newYayMessageInExistingConv(uid, rawConvId, dateTS);
-    } else {
-      this.newYayMessageInNewConv(uid, rawConvId, dateTS);
-    }
-  },
-
-  /**
-   * The previously yay message is now meh, which potentially means that we
-   * no longer care about the message and should purge the conversation from
-   * disk.
-   */
-  existingYayMessageIsNowMeh: function(uid, rawConvId, dateTS, newState) {
-    this.metricUseful++;
-    this.yayUids.delete(uid);
-    this.mehUids.set(uid, rawConvId);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.yayUids.splice(stash.yayUids.indexOf(uid), 1);
-    stash.mehUids.push(uid);
-    // If there's no longer anything keeping the conversation alive, convert the
-    // task to a deletion task by flagging it as such.  We still keep updating
-    // the UIDs in case some subsequent fetch result pushes us back over to
-    // keeping the conversation
-    this._updateTaskWithModifiedUid(stash, uid, rawConvId, newState);
-    if (stash.yayUids.length === 0) {
-      this._updateForRemoval(stash);
-    }
-  },
-
-  /**
-   * The previously meh message is now yay, which matters if the conversation
-   * ran out of yay messages during this sync "round" and now we need to rescue
-   * it from doom.
-   */
-  existingMehMessageIsNowYay: function(uid, rawConvId, dateTS, newState) {
-    this.metricUseful++;
-    this.mehUids.delete(uid);
-    this.yayUids.set(uid, rawConvId);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.mehUids.splice(stash.mehUids.indexOf(uid), 1);
-    stash.yayUids.push(uid);
-    this._updateTaskWithModifiedUid(stash, uid, rawConvId, newState);
-    // If we just made this conversation relevant again
-    if (stash.yayUids.length === 1) {
-      this._updateSavedFromRemoval(stash);
-    }
-  },
-
-  existingMessageUpdated: function(uid, rawConvId, dateTS, newState) {
-    this.metricUseful++;
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    this._updateTaskWithModifiedUid(stash, uid, rawConvId, newState);
-  },
-
-  yayMessageDeleted: function(uid) {
-    let rawConvId = this.yayUids.get(uid);
-    this.yayUids.delete(uid);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.yayUids.splice(stash.yayUids.indexOf(uid), 1);
-    this._updateTaskWithRemovedUid(stash, uid);
-    // This deletion may be resulting in the conversation no longer being
-    // relevant.
-    if (stash.yayUids.length === 0) {
-      this._updateForRemoval(stash);
-    }
-  },
-
-  mehMessageDeleted: function(uid) {
-    let rawConvId = this.mehUids.get(uid);
-    this.mehUids.delete(uid);
-    let stash = this.rawConvIdToConvStash.get(rawConvId);
-    stash.mehUids.splice(stash.mehUids.indexOf(uid), 1);
-    this._updateTaskWithRemovedUid(stash, uid);
-  },
-
-  existingMootMessage: function(uid) {
-    this.metricWaste++;
-  },
-
-  /**
-   * Finalize any pending removals by removing all uid state.  Call this after
-   * all sync manipulations have occurred and prior to issuing a database write
-   * with our raw state.
-   */
-  finalizePendingRemovals: function() {
-    for (let stash of this._stashesPendingForRemoval) {
-      for (let uid of stash.mehUids) {
-        this.mehUids.delete(uid);
-      }
-      this.rawConvIdToConvStash.delete(stash.rawConvId);
-    }
-    this._stashesPendingForRemoval.clear();
+    this.tasksToSchedule.push(task);
+    this._tasksByConvId.set(convId, task);
+    return task;
   }
 };
 

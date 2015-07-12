@@ -3,7 +3,7 @@ define(function(require) {
 
 let co = require('co');
 
-let logic = require('./logic');
+let logic = require('logic');
 let $mailchewStrings = require('./bodies/mailchew_strings');
 
 let BridgeContext = require('./bridge/bridge_context');

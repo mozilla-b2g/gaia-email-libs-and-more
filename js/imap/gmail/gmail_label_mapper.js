@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let logic = require('../logic');
+let logic = require('logic');
 
 /**
  * Builds and maintains a bidirectional mapping between FolderId and Gmail label
