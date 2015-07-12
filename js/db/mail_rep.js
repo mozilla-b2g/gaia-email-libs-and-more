@@ -27,6 +27,10 @@ define(function() {
  *   also be thought of as "convId.gmail message id.all mail folder uid".  If
  *   the message is not in the all mail folder because it is spam or in the
  *   trash some type of sentinel value is used.
+ * @property {UniqueMessageId} [umid]
+ *   The (account-scoped) unique message identifier that keys into the umidNames
+ *   and umidLocations storage for non-conversation-centric protocols where we
+ *   need to add some indirection.  See vanilla/sync.md for more details.
  * @property {String} [guid]
  *   The contents of the message-id header for the message, if available.  (Not
  *   available for ActiveSync.)
@@ -98,6 +102,7 @@ function makeMessageInfo(raw) {
 
   return {
     id: raw.id,
+    umid: raw.umid || null,
     guid: raw.guid || null,
     date: raw.date,
     author: raw.author,

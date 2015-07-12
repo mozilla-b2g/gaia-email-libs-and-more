@@ -5,7 +5,7 @@ define(function(require) {
  * These are the tasks for gmail accounts.
  */
 return [
-  require('./gmail_tasks/sync_folder_list'),
+  require('./vanilla_tasks/sync_folder_list'),
 
   require('./gmail_tasks/sync_grow'),
   require('./gmail_tasks/sync_refresh'),

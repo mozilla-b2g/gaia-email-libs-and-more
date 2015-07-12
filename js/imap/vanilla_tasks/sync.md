@@ -40,9 +40,9 @@ intend to leave the door open for more clever approaches that blend subject
 and content analysis.  If only to compensate for Mozilla mailing list/newsgroup
 gateway snafus where strict threading breaks down horribly.
 
-The other main issue we contend with is duplicate messages.  This is not to deal
-with Gmail IMAP mapping issues (gmail has its own sync engine), but to contend
-with cases like:
+The other main issue we contend with is duplicate messages.  This is not the
+Gmail IMAP mapping issue (gmail has its own sync engine, avoiding that), but
+cases like:
 - The user sends a message to a mailing list and ends up with the original copy
   in the sent folder (sans mailing list footer/transformations/etc.), plus the
   copy received from the mailing list.
@@ -54,10 +54,14 @@ with cases like:
 - In the future, if we consolidate conversations across accounts, this could
   happen even more.  However, we are not dealing with that anytime soon.
 
-Duplication primarily matters
+The back-end currently does nothing to address these scenarios because any
+solution is likely to be complex and require even more complexity to allow UI
+manipulation of the messages underying the aggregate.  (And could be very
+confusing to the user.)  For now it seems best to leave it up to the app/UI to
+address, such as collapsing duplicate messages by default or hiding them.  The
+back-end could provide some support for automatically hiding the messages by
+using a filtering mechanism, eventually.
 
-Our duplication-handling logic offers the opportunity to simplify our
-drafts-on-server implementation if we have a layer of indirection.
 
 ## Implementation ##
 
@@ -76,6 +80,12 @@ We do this because:
   message moves.  Then you end up needing to provide your own identifier and/or
   deal with complicated renaming transforms.  This really complicated the v1
   job-op infrastructure.
+
+For now, uniqueMessageId's look like a folderId with an additional number
+suffixed onto them.  But the inclusion of the folderId is just to simplify the
+unique allocation of the id's.  The folderId component of the uniqueMessageId
+has no meaning after the id is allocated; the payload in the umidMap table is
+the actual location of the message.
 
 ### Efficient Flag Updates ###
 
@@ -100,10 +110,14 @@ maintain reference counts in a parallel list and null out unused values.
   each value is either a conversationId or a list of messageId's.
   It's a conversationId if we don't have the message yet, list of messageId's if
   we do.  (There could be duplicates.)
-- umidMap: Keys are unique-message-id's allocated as new messages are found.
-  Values are the full messageId with conversationId prefix accompanied by the
-  current folderId and UID of the message in that folder.  This provides full
-  indirection so that
+- umidLocationMap: Keys are unique-message-id's allocated as new messages are
+  found.  Values are the current folderId and UID of the message in that folder.
+  Together with umidNameMap, this provides consistent naming (the umid) for
+  IMAP manipulations despite the potential for message moves (impacts folderId
+  and UID) and local message renaming due to conversation merges.  (Which suck
+  but can happen.)
+- umidNameMap: Keys are uniqueMessageId's allocated as new messages are found.
+  Values are the full messageId with conversationId prefix.
 - convInfo: (the standard)
 - messages: The standard, but with the message also including its umid.  When
   tasks with online components are planned, they will identify the message by
@@ -141,10 +155,12 @@ maintain reference counts in a parallel list and null out unused values.
 The only changes we can see for messages are flag changes.  As noted above, we
 do clever things to only generate tasks when flags actually change.
 
+- sync_refresh: We do a UID SEARCH UID {UIDs we know about} in order to infer
+  deletion.
 - sync_refresh: We notice the UIDs with flag changes.  From this we know the
-  umid's.  We do a batch read of these umid's to get their message id's so that
-  we can bin them by conversation.  We generate sync_conv tasks where we provide
-  the updated flags to the sync_conv task.
+  umid's.  We do a batch read of these umid's from the name map to get their
+  message id's so that we can bin them by conversation.  We generate sync_conv
+  tasks where we provide the updated flags to the sync_conv task.
 - sync_conv: Loads all of its messages, applies the flag changes to the impacted
   messages, runs its churn, and saves back the updated conversation and
   messages.

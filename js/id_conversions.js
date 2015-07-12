@@ -50,6 +50,20 @@ return {
 
   numericUidFromMessageId: function(messageId) {
     return parseInt(messageId.split(/\./g, 4)[3], 10);
+  },
+
+  // -- From Unique Message Id's
+  // These look like "account.folder.unique-for-folder"
+  /**
+   * Take the "folder.unique-for-folder" bit and convert it into
+   * "folder_unique-for-folder" so that dot delimiting works.  This value just
+   * ends up needing to be unique, not reversible to underlying values.
+   * (We likewise don't care about being able to go back to the umid, although
+   * the predictable transform may be nice for debugging.)
+   */
+  messageIdComponentFromUmid: function(umid) {
+    let idxFirst = umid.indexOf('.');
+    return umid.substring(idxFirst + 1).replace(/\./g, '_');
   }
 };
 });

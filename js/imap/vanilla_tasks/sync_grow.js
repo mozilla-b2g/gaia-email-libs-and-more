@@ -15,8 +15,7 @@ let a64 = require('../../a64');
 let parseGmailConvId = a64.parseUI64;
 
 
-let GmailLabelMapper = require('../gmail_label_mapper');
-let SyncStateHelper = require('../sync_state_helper');
+let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 
 let syncbase = require('../../syncbase');
 
@@ -42,26 +41,19 @@ return TaskDefiner.defineSimpleTask([
     },
 
     execute: co.wrap(function*(ctx, req) {
-      // -- Exclusively acquire the sync state for the account
+      // -- Exclusively acquire the sync state for the folder
       let fromDb = yield ctx.beginMutate({
-        syncStates: new Map([[req.accountId, null]])
+        syncStates: new Map([[req.folderId, null]])
       });
 
-      let syncState = new SyncStateHelper(
-        ctx, fromDb.syncStates.get(req.accountId), req.accountId, 'grow');
+      let syncState = new FolderSyncStateHelper(
+        ctx, fromDb.syncStates.get(req.accountId), req.accountId,
+        req.folderId, 'grow');
 
-      let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
-      let labelMapper = new GmailLabelMapper(foldersTOC);
-
-
-      // NB: Gmail auto-expunges by default, but it can be turned off.  Which is
-      // an annoying possibility.
+      // -- Issue a search for the new date range we're expanding to cover.
       let searchSpec = { not: { deleted: true } };
 
-      searchSpec['X-GM-LABELS'] = labelMapper.folderIdToLabel(req.folderId);
-
-      let existingSinceDate = syncState.getFolderIdSinceDate(req.folderId);
+      let existingSinceDate = syncState.sinceDate;
       let newSinceDate;
       if (existingSinceDate) {
         searchSpec.before = new Date(quantizeDate(existingSinceDate));
@@ -76,58 +68,54 @@ return TaskDefiner.defineSimpleTask([
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
 
       logic(ctx, 'searching', { searchSpec: searchSpec });
-      let allMailFolderInfo = account.getFirstFolderWithType('all');
+      let folderInfo = account.getFolderMetaForFolderId(req.folderId);
       // Find out new UIDs covering the range in question.
       let { mailboxInfo, result: uids } = yield account.pimap.search(
-        allMailFolderInfo, searchSpec, { byUid: true });
+        folderInfo, searchSpec, { byUid: true });
 
+      // -- Fetch flags and the dates for the new messages
+      // We want the date so we can prioritize the synchronization of the
+      // message.  We want the flags because the sync state needs to persist and
+      // track the flags so it can detect changes in flags in sync_refresh.
       if (uids.length) {
+        let newUids = syncState.filterOutKnownUids(uids);
+
         let { result: messages } = yield account.pimap.listMessages(
-          allMailFolderInfo,
-          uids,
+          folderInfo,
+          newUids,
           [
             'UID',
             'INTERNALDATE',
-            'X-GM-THRID',
+            'FLAGS'
           ],
           { byUid: true }
         );
 
         for (let msg of messages) {
-          let uid = msg.uid; // already parsed into a number by browserbox
           let dateTS = parseImapDateTime(msg.internaldate);
-          let rawConvId = parseGmailConvId(msg['x-gm-thrid']);
-
-          if (syncState.yayUids.has(uid)) {
-            // Nothing to do if the message already met our criteria.  (And we
-            // don't care about the flags because they're already up-to-date,
-            // inductively.)
-          } else if (syncState.mehUids.has(uid)) {
-            // The message is now a yay message, hooray!
-            syncState.existingMehMessageIsNowYay(uid, rawConvId, dateTS);
-          } else {
-            // Inductively, this is a newly yay message and potentially the
-            // start of a new yay conversation.
-            syncState.existingIgnoredMessageIsNowYay(
-              uid, rawConvId, dateTS);
-          }
+          syncState.yayMessageFoundByDate(msg.uid, dateTS, msg.flags);
         }
       }
 
-      syncState.setFolderIdSinceDate(req.folderId, newSinceDate.valueOf());
-      logic(ctx, 'mailboxInfo', { existingModseq: syncState.modseq,
-        newModseq: mailboxInfo.highestModseq, mailboxInfo: mailboxInfo });
-      if (!syncState.modseq) {
-        syncState.modseq = mailboxInfo.highestModseq;
-        syncState.lastHighUid = mailboxInfo.uidNext - 1;
-        logic(ctx, 'updatingModSeq', { modseqNow: syncState.modseq,
-         from: mailboxInfo.highestModseq});
+      syncState.sinceDate = newSinceDate.valueOf();
+      // Do we not have a lastHighUid (because this is our first grow for the
+      // folder?)
+      if (!syncState.lastHighUid) {
+        // Use the UIDNEXT if the server provides it (some are jerks and don't)
+        if (mailboxInfo.uidNext) {
+          syncState.lastHighUid = mailboxInfo.uidNext - 1;
+        } else {
+          // Just find the max of all the UIDs we heard about.  Use logical or
+          // in case a NaN somehow got in there for paranoia reasons.
+          syncState.lastHighUid = Math.max(...uids) || 0;
+        }
       }
-      syncState.finalizePendingRemovals();
 
       yield ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
+          umidNames: syncState.umidNameWrites,
+          umidLocations: syncState.umidLocationWrites
         },
         newData: {
           tasks: syncState.tasksToSchedule

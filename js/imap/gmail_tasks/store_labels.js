@@ -5,7 +5,7 @@ let co = require('co');
 
 let TaskDefiner = require('../../task_definer');
 
-let GmailLabelMapper = require('../gmail_label_mapper');
+let GmailLabelMapper = require('../gmail/gmail_label_mapper');
 
 return TaskDefiner.defineComplexTask([
   require('./mix_store'),

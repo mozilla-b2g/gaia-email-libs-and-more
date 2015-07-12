@@ -15,8 +15,8 @@ let a64 = require('../../a64');
 let parseGmailConvId = a64.parseUI64;
 
 
-let GmailLabelMapper = require('../gmail_label_mapper');
-let SyncStateHelper = require('../sync_state_helper');
+let GmailLabelMapper = require('../gmail/gmail_label_mapper');
+let SyncStateHelper = require('../gmail/sync_state_helper');
 
 let syncbase = require('../../syncbase');
 

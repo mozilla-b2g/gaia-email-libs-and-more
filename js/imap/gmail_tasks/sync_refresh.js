@@ -5,8 +5,8 @@ let co = require('co');
 
 let TaskDefiner = require('../../task_definer');
 
-let GmailLabelMapper = require('../gmail_label_mapper');
-let SyncStateHelper = require('../sync_state_helper');
+let GmailLabelMapper = require('../gmail/gmail_label_mapper');
+let SyncStateHelper = require('../gmail/sync_state_helper');
 
 let imapchew = require('../imapchew');
 let parseImapDateTime = imapchew.parseImapDateTime;

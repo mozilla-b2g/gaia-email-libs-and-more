@@ -7,6 +7,8 @@ let mailRep = require('../db/mail_rep');
 let $mailchew = require('../bodies/mailchew');
 let MimeParser = require('mimeparser');
 
+let { messageIdComponentFromUmid } = require('../id_conversions');
+
 let parseGmailMsgId = a64.parseUI64;
 
 function parseRfc2231CharsetEncoding(s) {
@@ -338,7 +340,26 @@ function valuesOnly(item) {
 }
 exports.valuesOnly = valuesOnly;
 
-exports.chewMessageStructure = function(msg, folderIds, flags, convId) {
+function extractMessageIdHeader(msg) {
+  return stripArrows(valuesOnly(firstHeader(msg, 'message-id')));
+}
+exports.extractMessageIdHeader = extractMessageIdHeader;
+
+/**
+ * Given a message extract and normalize the references header.  If there is no
+ * references header but there is an in-reply-to header, use that.
+ *
+ * XXX actually do the in-reply-to stuff; this has extra normalization sanity
+ * checking required so not doing that right now.
+ */
+function extractReferences(msg) {
+  let references = valuesOnly(firstHeader(msg, 'references'));
+  return references ? stripArrows(references.split(/\s+/)) : null;
+}
+exports.extractReferences = extractReferences;
+
+exports.chewMessageStructure = function(msg, folderIds, flags, convId,
+                                        maybeUmid, explicitMessageId) {
   // begin by splitting up the raw imap message
   let parts = chewStructure(msg);
 
@@ -363,16 +384,26 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId) {
   }
 
   let fromArray = valuesOnly(firstHeader(msg, 'from'));
-  let references = valuesOnly(firstHeader(msg, 'references'));
 
-  let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
-  let messageId = convId + '.' + gmailMsgId + '.' + msg.uid;
+  let messageId;
+  let umid = null;
+  // non-gmail, umid-case.
+  if (maybeUmid) {
+    umid = maybeUmid;
+    messageId = explicitMessageId;
+  }
+  // gmail case
+  else {
+    let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
+    messageId = convId + '.' + gmailMsgId + '.' + msg.uid;
+  }
 
   return mailRep.makeMessageInfo({
     id: messageId,
-    // The message-id header value; as GUID as get for now; on gmail we can
-    // use their unique value, or if we could convince dovecot to tell us.
-    guid: stripArrows(valuesOnly(firstHeader(msg, 'message-id'))),
+    // uniqueMessageId which provides server indirection for non-gmail sync
+    umid: umid,
+    // The message-id header value
+    guid: extractMessageIdHeader(msg),
     date: msg.date,
     // mimeparser models from as an array; we do not.
     author: fromArray && fromArray[0] ||
@@ -392,7 +423,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId) {
     snippet: null,
     attachments: parts.attachments,
     relatedParts: parts.relatedParts,
-    references: references ? stripArrows(references.split(/\s+/)) : null,
+    references: extractReferences(msg),
     bodyReps: parts.bodyReps
   });
 };
@@ -513,7 +544,7 @@ exports.calculateBytesToDownloadForImapBodyDisplay = function(body) {
     }
   });
   return bytesLeft;
-}
+};
 
 // parseImapDateTime and formatImapDateTime functions from node-imap;
 // MIT licensed, (c) Brian White.
@@ -553,8 +584,9 @@ var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 */
 var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
   var match = reDateTime.exec(dstr);
-  if (!match)
+  if (!match) {
     throw new Error('Not a good IMAP date-time: ' + dstr);
+  }
   var day = parseInt(match[1], 10),
       zeroMonth = MONTHS.indexOf(match[2]),
       year = parseInt(match[3], 10),

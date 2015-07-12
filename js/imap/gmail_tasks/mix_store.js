@@ -5,6 +5,10 @@ let co = require('co');
 
 let { numericUidFromMessageId } = require('../../id_conversions');
 
+let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
+  require('../../delta_algebra');
+let { selectMessages } = require('../../message_selector');
+
 let churnConversation = require('app_logic/conv_churn');
 
 
@@ -180,7 +184,7 @@ let GmailStoreTaskMixin = {
     };
   },
 
-  deriveMemoryStateFromPersistentState: function(persistentState) {
+  deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
     let markers = [];
     let idToAggrString = new Map();
 
@@ -188,6 +192,14 @@ let GmailStoreTaskMixin = {
       for (let uid of change.uids) {
         idToAggrString.set(uid, aggrString);
       }
+      markers.push({
+        type: this.name,
+        id: change.id,
+        accountId: accountId,
+        aggrString: aggrString,
+        priorityTags: [],
+        exclusiveResources: []
+      });
     }
 
     return {
@@ -231,7 +243,6 @@ let GmailStoreTaskMixin = {
   },
 
   plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
-    let filterMessages = req.onlyMessages;
     let { aggrChanges } = persistentState;
     let { idToAggrString } = memoryState;
 
@@ -251,59 +262,30 @@ let GmailStoreTaskMixin = {
     let anyMessageChanged = false;
 
     // - Apply the message selector if applicable
-    if (!filterMessages && req.messageSelector) {
-      // Convert the selector into a message id filter.  Not particularly
-      // efficient, but it simplifies the control flow below.  Refactor as
-      // appropriate.
-      switch (req.messageSelector) {
-        case 'last':
-          filterMessages = [loadedMessages[loadedMessages.length - 1].id];
-          break;
-        default:
-          throw new Error('unsupported message selector:' +
-                          req.messageSelector);
-      }
-    }
+    let filteredMessages = selectMessages(
+      loadedMessages, req.onlyMessages, req.messageSelector);
 
-    let attrName = this.attrName;
-    let toAdd = req.add;
-    let toRemove = req.remove;
+    const attrName = this.attrName;
+    let undoTasks = [];
     // -- Per message, compute the changes required and issue/update markers
-    for (let message of loadedMessages) {
-      // Skip messages if we're filtering and this message is not named.
-      if (filterMessages && filterMessages.indexOf(message.id) === -1) {
-        continue;
-      }
-
-      // NB: mutation of the value in-place
-      let attrVal = message[attrName];
-      let actuallyAdded = null;
-      let actuallyRemoved = null;
-      if (toAdd) {
-        for (let addend of toAdd) {
-          if (attrVal.indexOf(addend === -1)) {
-            if (!actuallyAdded) {
-              actuallyAdded = [];
-            }
-            attrVal.push(addend);
-            actuallyAdded.push(addend);
-          }
-        }
-      }
-      if (toRemove) {
-        for (let subtrahend of toRemove) { // (wiktionary consulted...)
-          let index = attrVal.indexOf(subtrahend);
-          if (index !== -1) {
-            if (!actuallyRemoved) {
-              actuallyRemoved = [];
-            }
-            attrVal.splice(index, 1);
-            actuallyRemoved.push(subtrahend);
-          }
-        }
-      }
+    for (let message of filteredMessages) {
+      let { add: actuallyAdded, remove: actuallyRemoved } =
+        normalizeAndApplyChanges(message[attrName], req.add, req.remove);
 
       if (actuallyAdded || actuallyRemoved) {
+        // - Generate (non-minimal) undo tasks
+        // (It's way too much work to optimize the undo case.)
+        undoTasks.push({
+          type: this.name,
+          accountId: req.accountId,
+          convId: req.convId,
+          onlyMessages: [message.id],
+          messageSelector: null,
+          // invert the manipulation that was actually performed
+          add: actuallyRemoved && actuallyRemoved.concat(),
+          remove: actuallyAdded && actuallyAdded.concat()
+        });
+
         // Normalize to server-name space from our local name-space.  AKA
         // convert folder id's to gmail labels in the label case and do nothing
         // in the flags case.
@@ -315,9 +297,6 @@ let GmailStoreTaskMixin = {
         modifiedMessagesMap.set(message.id, message);
         anyMessageChanged = true;
 
-        // TODO: this data needs to be accumulated and emitted as the "undo"
-        // byproduct
-
         let uid = numericUidFromMessageId(message.id);
         // - Unify with existing requests
         // If the change is already pending, then we need to remove it from that
@@ -326,12 +305,10 @@ let GmailStoreTaskMixin = {
         if (idToAggrString.has(uid)) {
           let pendingAggrString = idToAggrString.get(uid);
           let pendingChanges = aggrChanges.get(pendingAggrString);
-          actuallyAdded =
-            actuallyAdded ? actuallyAdded.concat(pendingChanges.add) :
-              pendingChanges.add;
-          actuallyRemoved =
-            actuallyRemoved ? actuallyRemoved.concat(pendingChanges.remove) :
-              pendingChanges.remove;
+
+          ({ add: actuallyAdded, remove: actuallyRemoved} =
+            mergeChanges(pendingChanges,
+                         { add: actuallyAdded, remove: actuallyRemoved }));
 
           // remove from pending changes (possibly wiping the entry)
           pendingChanges.uids.splice(pendingChanges.uids.indexOf(uid));
@@ -342,34 +319,38 @@ let GmailStoreTaskMixin = {
           }
         }
 
-        // - Bucket it.
-        let newAggrString = this._deriveMixStoreAggrString(
-          actuallyAdded, actuallyRemoved);
-        let newChanges;
-        if (aggrChanges.has(newAggrString)) {
-          newChanges = aggrChanges.get(newAggrString);
-          newChanges.uids.push(uid);
+        // - Bucket it (if there's something to do)
+        // (Change merges if there was pending changes could mean we don't
+        // actually need to modify anything on the server.)
+        if (actuallyAdded || actuallyRemoved) {
+          let newAggrString = this._deriveMixStoreAggrString(
+            actuallyAdded, actuallyRemoved);
+          let newChanges;
+          if (aggrChanges.has(newAggrString)) {
+            newChanges = aggrChanges.get(newAggrString);
+            newChanges.uids.push(uid);
+          }
+          else {
+            newChanges = {
+              id: this.name + ':' + req.accountId + persistentState.nextId++,
+              add: actuallyAdded,
+              remove: actuallyRemoved,
+              uids: [uid]
+            };
+            aggrChanges.set(newAggrString, newChanges);
+          }
+          idToAggrString.set(uid, newAggrString);
+          modifyTaskMarkers.set(
+            newChanges.id,
+            {
+              type: this.name,
+              id: newChanges.id,
+              accountId: req.accountId,
+              aggrString: newAggrString,
+              priorityTags: [],
+              exclusiveResources: []
+            });
         }
-        else {
-          newChanges = {
-            id: this.name + ':' + req.accountId + persistentState.nextId++,
-            add: actuallyAdded,
-            remove: actuallyRemoved,
-            uids: [uid]
-          };
-          aggrChanges.set(newAggrString, newChanges);
-        }
-        idToAggrString.set(uid, newAggrString);
-        modifyTaskMarkers.set(
-          newChanges.id,
-          {
-            type: this.name,
-            id: newChanges.id,
-            accountId: req.accountId,
-            aggrString: newAggrString,
-            priorityTags: [],
-            exclusiveResources: []
-          });
       }
     } // (end per-message loop)
 
@@ -392,7 +373,8 @@ let GmailStoreTaskMixin = {
         messages: modifiedMessagesMap
       },
       taskMarkers: modifyTaskMarkers,
-      complexTaskState: persistentState
+      complexTaskState: persistentState,
+      undoTasks: undoTasks
     });
   }),
 
@@ -410,21 +392,7 @@ let GmailStoreTaskMixin = {
       let aggrString = idToAggrString.get(uid);
       let changes = aggrChanges.get(aggrString);
 
-      if (changes.add) {
-        for (let addend of changes.add) {
-          if (value.indexOf(addend) === -1) {
-            value.push(addend);
-          }
-        }
-      }
-      if (changes.remove) {
-        for (let subtrahend of changes.remove) {
-          let index = value.indexOf(subtrahend);
-          if (index !== -1) {
-            value.splice(subtrahend, 1);
-          }
-        }
-      }
+      applyChanges(value, changes);
     }
   },
 

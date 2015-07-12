@@ -220,10 +220,6 @@ CompositeAccount.prototype = {
       }.bind(this));
   },
 
-  getFolderStorageForFolderId: function(folderId) {
-    return this._receivePiece.getFolderStorageForFolderId(folderId);
-  },
-
   getFolderMetaForFolderId: function(folderId) {
     return this._receivePiece.getFolderMetaForFolderId(folderId);
   },

@@ -113,7 +113,8 @@ TaskRegistry.prototype = {
         // async db stuff if its state isn't in the persistent state we
         // helpfully loaded.
         let maybePromise =
-          taskImpl.deriveMemoryStateFromPersistentState(meta.persistentState);
+          taskImpl.deriveMemoryStateFromPersistentState(meta.persistentState,
+                                                        accountId);
         let saveOffMemoryState = ({ memoryState, markers }) => {
           meta.memoryState = memoryState;
           if (markers) {

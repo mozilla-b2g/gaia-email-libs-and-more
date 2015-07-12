@@ -3,59 +3,59 @@ define(function(require) {
 
 let logic = require('../logic');
 
+let a64 = require('../a64');
+
 /**
- * Gmail helper logic for sync tasks to handle interpreting the sync state,
- * manipulating the sync state, and helping track follow-up tasks that may be
- * required.
+ * Vanilla IMAP helper logic for sync state manipulation.
  *
- * Ideally, this helps make sync_refresh and sync_grow cleaner and easier to
- * read.
+ * Our sync state contains:
+ *
+ * - nextUmidSuffix: We allocate unique umid's by prefixing them with our
+ *   folderId, and this is the one-up counter that drives that.
+ * - sinceDate: The date for our active sync range.  This only matters for the
+ *   grow step.  It is *not* used for deletion inference.  (Because we support
+ *   having synchronized messages outside the sinceDate range due to
+ *   conversation backfill or search results.)
+ * - lastHighUid: The highest UID we know about for the folder, used for
+ *   detecting new messages that may be of interest to us.  The first time we
+ *   sync a folder, this is UIDNEXT-1 if UIDNEXT is available or just the
+ *   highest UID we saw from our SEARCH results if not.  Subsequently, it's just
+ *   the highest UID we've heard about from our new message checking.
+ * - flagSets: A list of JSON.stringify'ed sorted flag sets used so we can
+ *   characterize a message's flags by an index into this list.
+ * - flagSetCounts: A parallel list to flagSets where each value is the count of
+ *   messages using that flag-set.
+ * - uidInfo: A map from message UID to the { umid, flagSet }.
  */
-function SyncStateHelper(ctx, rawSyncState, accountId, mode) {
+function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId, mode) {
   if (!rawSyncState) {
     logic(ctx, 'creatingDefaultSyncState', {});
     rawSyncState = {
-      yayUids: new Map(),
-      mehUids: new Map(),
-      labelSinceDates: new Map(),
+      nextUmidSuffix: 1,
+      sinceDate: 0,
       lastHighUid: 0,
-      modseq: ''
+      flagSets: [],
+      flagSetCounts: [],
+      uidInfo: new Map()
     };
   }
 
   this._ctx = ctx;
   this._accountId = accountId;
+  this._folderId = folderId;
   this.rawSyncState = rawSyncState;
   this._growMode = mode === 'grow';
 
-  /**
-   * A mapping folder FolderId to the SINCE dateTS that characterizes our
-   * understanding of the label if we've synced the folder/label before.
-   */
-  this._labelSinceDates = rawSyncState.labelSinceDates;
-
-  // The UIDs we care about because they meet the sync criteria on their own,
-  // and the (raw gmail) conversation id that they belong to.
-  this.yayUids = rawSyncState.yayUids;
-  // The UIDs we care about because they belong to a conversation we care about,
-  // and the (raw gmail) conversation id that they belong to.
-  this.mehUids = rawSyncState.mehUids;
-
-  this.rawConvIdToConvStash = new Map();
-  this._deriveRawConvIdToConvStash();
-
-  this._stashesPendingForRemoval = new Set();
+  this._flagSets = this.rawSyncState.flagSets;
+  this._flagSetCounts = this.rawSyncState.flagSetCounts;
+  this._uidInfo = this.rawSyncState.uidInfo;
 
   // A running list of tasks to spin-off
   this.tasksToSchedule = [];
-
-  // metrics to determine how useful this firehose is.  if we're seeing
-  // significantly more data than we can use, we may want to consider using
-  // a search pre-filter stage
-  this.metricUseful = 0;
-  this.metricWaste = 0;
+  this.umidNameWrites = new Map();
+  this.umidLocationWrites = new Map();
 }
-SyncStateHelper.prototype = {
+FolderSyncStateHelper.prototype = {
   get lastHighUid() {
     return this.rawSyncState.lastHighUid;
   },
@@ -64,90 +64,105 @@ SyncStateHelper.prototype = {
     this.rawSyncState.lastHighUid = val;
   },
 
-  get modseq() {
-    return this.rawSyncState.modseq;
+  get sinceDate() {
+    return this.rawSyncState.sinceDate;
   },
 
-  set modseq(val) {
-    this.rawSyncState.modseq = val;
+  set sinceDate(val) {
+    this.rawSyncState.sinceDate = val;
   },
 
-  _deriveRawConvIdToConvStash: function() {
-    let rawConvIdToConvStash = this.rawConvIdToConvStash;
-    for (let [yayUid, rawConvId] of this.yayUids) {
-      let stash = rawConvIdToConvStash.get(rawConvId);
-      if (!stash) {
-        stash = {
-          rawConvId: rawConvId,
-          yayUids: [yayUid],
-          mehUids: [],
-          // The most recent message for the conversation we're aware of in this
-          // sync batch.  We only care about this for task prioritization
-          // reasons, which is why this isn't persisted as part of our state.
-          mostRecent: 0,
-          task: null
-        };
-        rawConvIdToConvStash.set(rawConvId, stash);
-      } else {
-        stash.yayUids.push(yayUid);
-      }
-    }
-    for (let [mehUid, rawConvId] of this.mehUids) {
-      let stash = rawConvIdToConvStash.get(rawConvId);
-      if (!stash) {
-        // This should not be happening...
-        logic(this._ctx, 'mehWithoutYay',
-              { mehUid: mehUid, rawConvId: rawConvId });
-      } else {
-        stash.yayUids.push(mehUid);
-      }
-    }
-    logic(this._ctx, 'derivedData',
-          { numYay: this.yayUids.size, numMeh: this.mehUids.size,
-            numConvs: rawConvIdToConvStash.size });
-  },
-
-  getFolderIdSinceDate: function(folderId) {
-    return this._labelSinceDates.get(folderId);
-  },
-
-  setFolderIdSinceDate: function(folderId, sinceDate) {
-    this._labelSinceDates.set(folderId, sinceDate);
+  issueUniqueMessageId: function() {
+    return (this._folderId + '.' +
+            a64.encodeInt(this.rawSyncState.nextUmidSuffix++));
   },
 
   /**
-   * Does this message meet our primary sync criteria by having a label that
-   * we're interested in and a date that satisfies the SINCE criteria we are
-   * using for that label?
+   * Normalize the list of flags and find the flag slot this entry corresponds
+   * to.  This will allocate a flag slot if one does not already exist.  In no
+   * event will we manipulate _flagSetCounts.  You do that!
    */
-  messageMeetsSyncCriteria: function(date, folderIds) {
-    let labelSinceDates = this._labelSinceDates;
-    for (let folderId of folderIds) {
-      let sinceDate = labelSinceDates.get(folderId);
-      if (!sinceDate) {
-        continue;
-      }
-      if (date >= sinceDate) {
-        return true;
-      }
+  _findFlagSlot: function(flags) {
+    flags.sort();
+    let normStr = JSON.stringify(flags);
+    let idx = this._flagSets.indexOf(normStr);
+    if (idx === -1) {
+      idx = this._allocateFlagSlot(normStr);
     }
-
-    return false;
+    return idx;
   },
 
+  /**
+   * Allocate a flag slot for the given normalized flag string.  Helper for use
+   * by _findFlagSlot only.
+   */
+  _allocateFlagSlot: function(normStr) {
+    let idx = this._flagSets.indexOf(null);
+    if (idx === -1) {
+      idx = this._flagSets.length;
+      this._flagSets.push(normStr);
+      this._flagSetCounts.push(0);
+    }
+    return idx;
+  },
 
-  _makeConvTask: function(rawConvId) {
-    let convId = this._accountId + '.' + rawConvId;
+  _incrFlagSlot: function(slot) {
+    this._flagSetCounts[slot]++;
+  },
+
+  _decrFlagSlot: function(slot) {
+    let newVal = --this._flagSetCounts[slot];
+    if (newVal === 0) {
+      this._flagSets[slot] = null;
+    }
+    if (newVal < 0) {
+      logic.fail('flag slot reference count variant violation');
+    }
+  },
+
+  /**
+   * Given a list of uids, filter out the UIDs we already know about.
+   */
+  filterOutKnownUids: function(uids) {
+    return uids.filter((uid) => {
+      return !this._uidInfo.has(uid);
+    });
+  },
+
+  /**
+   * Does this message meet our date sync criteria?
+   */
+  messageMeetsSyncCriteria: function(date) {
+    return date >= this.sinceDate;
+  },
+
+  /**
+   * A search by date revealed this UID and we've already run filterOutKnownUids
+   * before deciding to fetch the flags, so it's a sure thing that we want to
+   * track this message and it's not already known.
+   */
+  yayMessageFoundByDate: function(uid, dateTS, flags) {
+    let flagIdx = this._findFlagSlot(flags);
+    this._incrFlagSlot(flagIdx);
+
+    let umid = this.issueUniqueMessageId();
+    this.umidNameWrites.set(umid, null);
+    this.umidLocationWrites.set(umid, [this._folderId, uid]);
+    this._makeMessageTask(uid, umid, dateTS, flags);
+  },
+
+  /**
+   * Create a sync_message task for a newly added message.
+   */
+  _makeMessageTask: function(uid, umid, dateTS, flags) {
     let task = {
-      type: 'sync_conv',
+      type: 'sync_message',
       accountId: this._accountId,
-      convId: convId,
-      newConv: false,
-      removeConv: false,
-      newUids: null, // set
-      modifiedUids: null, // map ( uid => newStateObj )
-      removedUids: null,
-      mostRecent: 0
+      folderId: this._folderId,
+      uid,
+      umid,
+      dateTS,
+      flags
     };
     this.tasksToSchedule.push(task);
     return task;
@@ -359,5 +374,5 @@ SyncStateHelper.prototype = {
   }
 };
 
-return SyncStateHelper;
+return FolderSyncStateHelper;
 });

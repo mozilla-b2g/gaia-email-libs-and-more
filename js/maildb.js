@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 48;
+const CUR_VERSION = 49;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -48,15 +48,15 @@ const TBL_CONFIG = 'config',
  *
  * For Gmail IMAP, this currently means a single record keyed by the accountId.
  *
- * For other IMAP (in the future), this will likely be a per-folder record
- * keyed by the FolderId.
+ * For vanilla IMAP, this is a per-folder record keyed by the FolderId.
  *
- * For POP3 (in the future), this will likely be the existing single giant
- * sync state blob we use.  (Which is mainly overflow UIDLs and deleted UIDLs.)
+ * For POP3, this is a single record keyed by AccountId.
  *
- * ActiveSync isn't totally clear; it depends a lot on how much server support
- * we reliably get for conversations giving our targeted legacy support goal.
- * But most likely is per-folder record keeyed by FolderId.
+ * For ActiveSync we have both global and per-folder storage.  The global
+ * storage is keyed by accountId and the per-folder storage is keyed by
+ * FolderId.
+ *
+ * NB: The AccountId is a prefix of the FolderId.
  */
 const TBL_SYNC_STATES = 'syncStates';
 
@@ -161,6 +161,29 @@ const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder';
  */
 const TBL_MESSAGES = 'messages';
 
+/**
+ * Maps normalized (quotes and arrows removed) message-id header values to
+ * the conversation/messages they belong to.
+ *
+ * key: [`AccountId`, `NormalizedMessageIdHeader`]
+ * value: either a `ConversationId` or an array of `MessageId`s.
+ */
+const TBL_HEADER_ID_MAP = 'headerIdMap';
+
+/**
+ * Indirection table from uniqueMessageId to the server location of messages.
+ *
+ * key: `UniqueMessageId` (which has the AccountId baked in)
+ */
+const TBL_UMID_LOCATION = 'umidLocationMap';
+
+/**
+ * Indirection table from uniqueMessageId to the messageId of the corresponding
+ * message.
+ *
+ * key: `UniqueMessageId` (which has the AccountId baked in)
+ */
+const TBL_UMID_NAME = 'umidNameMap';
 
 /**
  * The set of all object stores our tasks can mutate.  Which is all of them.
@@ -173,8 +196,10 @@ const TASK_MUTATION_STORES = [
   TBL_TASKS, TBL_COMPLEX_TASKS,
   TBL_FOLDER_INFO,
   TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
-  TBL_MESSAGES
+  TBL_MESSAGES,
+  TBL_HEADER_ID_MAP, TBL_UMID_LOCATION, TBL_UMID_NAME
 ];
+
 
 /**
  * Try and create a useful/sane error message from an IDB error and log it or
@@ -283,6 +308,64 @@ function wrapTrans(idbTransaction) {
   });
 }
 
+/**
+ * Given an IDBStore and a request map, issue read requests for all the keys
+ * in the map with us placing the values in the request map when they complete.
+ * Returns the number of requests issued mainly for IndexedDB bug workaround
+ * reasons.
+ */
+function genericUncachedLookups(store, requestMap) {
+  let dbReqCount = 0;
+  for (let unlatchedKey of requestMap.keys()) {
+    let key = unlatchedKey;
+    dbReqCount++;
+    let req = store.get(key);
+    let handler = (event) => {
+      let value;
+      if (req.error) {
+        value = null;
+        analyzeAndLogErrorEvent(event);
+      } else {
+        value = req.result;
+      }
+      requestMap.set(key, value);
+    };
+    req.onsuccess = handler;
+    req.onerror = handler;
+  }
+ return dbReqCount;
+}
+
+function genericCachedLookups(store, requestMap, cache) {
+  let dbReqCount = 0;
+  for (let unlatchedKey of requestMap.keys()) {
+    let key = unlatchedKey;
+    // fill from cache if available
+    if (cache.has(key)) {
+      requestMap.set(key, cache.get(key));
+      continue;
+    }
+
+    // otherwise we need to ask the database
+    dbReqCount++;
+    let req = store.get(key);
+    let handler = (event) => {
+      if (req.error) {
+        analyzeAndLogErrorEvent(event);
+      } else {
+        let value = req.result;
+        // Don't clobber a value in the cache; there might have been a write.
+        if (!cache.has(key)) {
+          cache.set(key, value);
+        }
+        requestMap.set(key, value);
+      }
+    };
+    req.onsuccess = handler;
+    req.onerror = handler;
+  }
+  return dbReqCount;
+}
 
 /**
  * v3 prototype database.  Intended for use on the worker directly.  For
@@ -399,6 +482,9 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
     db.createObjectStore(TBL_MESSAGES);
+    db.createObjectStore(TBL_HEADER_ID_MAP);
+    db.createObjectStore(TBL_UMID_NAME);
+    db.createObjectStore(TBL_UMID_LOCATION);
   },
 
   close: function() {
@@ -624,55 +710,40 @@ MailDB.prototype = evt.mix({
 
       let dbReqCount = 0;
 
+      // -- Uncached lookups
+      // Note that being uncached isn't actually netting us any correctness
+      // wins since our mutating transactions don't live for the duration for
+      // which a mutation lock needs to be held.  These are all candidates for
+      // caching in the future if we end up caring.
       if (requests.syncStates) {
-        let syncStore = trans.objectStore(TBL_SYNC_STATES);
-        let syncStatesRequestsMap = requests.syncStates;
-        for (let unlatchedKey of syncStatesRequestsMap.keys()) {
-          let key = unlatchedKey;
-          dbReqCount++;
-          let req = syncStore.get(key);
-          let handler = (event) => {
-            let value;
-            if (req.error) {
-              value = null;
-              analyzeAndLogErrorEvent(event);
-            } else {
-              value = req.result;
-            }
-            syncStatesRequestsMap.set(key, value);
-          };
-          req.onsuccess = handler;
-          req.onerror = handler;
-        }
+        dbReqCount += genericUncachedLookups(
+          trans.objectStore(TBL_SYNC_STATES),
+          requests.syncStates);
+      }
+      if (requests.headerIdMaps) {
+        dbReqCount += genericUncachedLookups(
+          trans.objectStore(TBL_HEADER_ID_MAP),
+          requests.headerIdMaps);
+      }
+      if (requests.umidNames) {
+        dbReqCount += genericUncachedLookups(
+          trans.objectStore(TBL_UMID_NAME),
+          requests.umidNames);
+      }
+      if (requests.umidLocations) {
+        dbReqCount += genericUncachedLookups(
+          trans.objectStore(TBL_UMID_LOCATION),
+          requests.umidLocations);
       }
 
+      // -- Cached lookups
       if (requests.conversations) {
-        let convStore = trans.objectStore(TBL_CONV_INFO);
-        let convRequestsMap = requests.conversations;
-        for (let unlatchedConvId of convRequestsMap.keys()) {
-          let convId = unlatchedConvId;
-          // fill from cache if available
-          if (this.convCache.has(convId)) {
-            convRequestsMap.set(convId, this.convCache.get(convId));
-            continue;
-          }
-
-          // otherwise we need to ask the database
-          dbReqCount++;
-          let req = convStore.get(convId);
-          let handler = (event) => {
-            if (req.error) {
-              analyzeAndLogErrorEvent(event);
-            } else {
-              let value = req.result;
-              this.convCache.set(convId, value);
-              convRequestsMap.set(convId, value);
-            }
-          };
-          req.onsuccess = handler;
-          req.onerror = handler;
-        }
+        dbReqCount += genericCachedLookups(
+          trans.objectStore(TBL_CONV_INFO),
+          requests.conversations,
+          this.convCache);
       }
+      // messagesByConversation requires special logic and can't use the helpers
       if (requests.messagesByConversation) {
         let messageStore = trans.objectStore(TBL_MESSAGES);
         let messageCache = this.messageCache;
@@ -708,6 +779,7 @@ MailDB.prototype = evt.mix({
           req.onerror = handler;
         }
       }
+      // messages requires special logic and can't use the helpers
       if (requests.messages) {
         let messageStore = trans.objectStore(TBL_MESSAGES);
         let messageCache = this.messageCache;
@@ -1086,6 +1158,50 @@ MailDB.prototype = evt.mix({
     }
   },
 
+  _processAccountDeletion: function(trans, accountId) {
+    // Build a range that covers our family of keys where we use an
+    // array whose first item is a string id that is a concatenation of
+    // `AccountId`, the string ".", and then some more array parts.  Our
+    // prefix string provides a lower bound, and the prefix with the
+    // highest possible unicode character thing should be strictly
+    // greater than any legal suffix (\ufff0 not being a legal suffix
+    // in our key-space.)
+    let accountStringPrefix = IDBKeyRange.bound(
+      accountId + '.',
+      accountId + '.\ufff0',
+      true, true);
+    let accountArrayItemPrefix = IDBKeyRange.bound(
+      [accountId + '.'],
+      [accountId + '.\ufff0'],
+      true, true);
+
+    // We handle the syncStates, folders, conversations, and message
+    // ranges here.
+    // Task fallout needs to be explicitly managed by the task in
+    // coordination with the TaskManager.
+    trans.objectStore(TBL_CONFIG)
+      .delete(CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
+
+    // Sync state: delete the accountId and any delimited suffixes
+    trans.objectStore(TBL_SYNC_STATES).delete(accountId);
+    trans.objectStore(TBL_SYNC_STATES).delete(accountStringPrefix);
+
+    // Folders: Just delete by accountId
+    trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
+
+    // Conversation: string ordering unicode tricks
+    trans.objectStore(TBL_CONV_INFO).delete(accountStringPrefix);
+    trans.objectStore(TBL_CONV_IDS_BY_FOLDER).delete(
+      accountArrayItemPrefix);
+
+    // Messages: string ordering unicode tricks
+    trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
+
+    trans.objectStore(TBL_HEADER_ID_MAP).delete(accountArrayItemPrefix);
+    trans.objectStore(TBL_UMID_NAME).delete(accountStringPrefix);
+    trans.objectStore(TBL_UMID_LOCATION).delete(accountStringPrefix);
+  },
+
   _addRawTasks: function(trans, wrappedTasks) {
     let store = trans.objectStore(TBL_TASKS);
     wrappedTasks.forEach((wrappedTask) => {
@@ -1137,6 +1253,25 @@ MailDB.prototype = evt.mix({
         }
       }
 
+      if (mutations.headerIdMaps) {
+        let store = trans.objectStore(TBL_HEADER_ID_MAP);
+        for (let [key, value] of mutations.headerIdMaps) {
+          store.put(value, key);
+        }
+      }
+      if (mutations.umidNames) {
+        let store = trans.objectStore(TBL_UMID_NAME);
+        for (let [key, value] of mutations.umidNames) {
+          store.put(value, key);
+        }
+      }
+      if (mutations.umidLocations) {
+        let store = trans.objectStore(TBL_UMID_LOCATION);
+        for (let [key, value] of mutations.umidLocations) {
+          store.put(value, key);
+        }
+      }
+
       if (mutations.conversations) {
         this._processConvMutations(
           trans, ctx._preMutateStates.conversations, mutations.conversations);
@@ -1166,43 +1301,7 @@ MailDB.prototype = evt.mix({
               .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
           } else {
             // - Account Deletion!
-            // We handle the syncStates, folders, conversations, and message
-            // ranges here.
-            // Task fallout needs to be explicitly managed by the task in
-            // coordination with the TaskManager.
-            trans.objectStore(TBL_CONFIG)
-              .delete(CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
-
-            // Sync state: just delete by accountId.
-            trans.objectStore(TBL_SYNC_STATES).delete(accountId);
-            // FUTURE: also do a range for per-folder stuff.
-
-            // Folders: Just delete by accountId
-            trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
-
-            // Build a range that covers our family of keys where we use an
-            // array whose first item is a string id that is a concatenation of
-            // `AccountId`, the string ".", and then some more array parts.  Our
-            // prefix string provides a lower bound, and the prefix with the
-            // highest possible unicode character thing should be strictly
-            // greater than any legal suffix (\ufff0 not being a legal suffix
-            // in our key-space.)
-            let accountStringPrefix = IDBKeyRange.bound(
-              accountId + '.',
-              accountId + '.\ufff0',
-              true, true);
-            let accountArrayItemPrefix = IDBKeyRange.bound(
-              [accountId + '.'],
-              [accountId + '.\ufff0'],
-              true, true);
-
-            // Conversation: string ordering unicode tricks
-            trans.objectStore(TBL_CONV_INFO).delete(accountStringPrefix);
-            trans.objectStore(TBL_CONV_IDS_BY_FOLDER).delete(
-              accountArrayItemPrefix);
-
-            // Messages: string ordering unicode tricks
-            trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
+            this._processAccountDeletion(trans, accountId);
           }
 
           this.emit('accounts!tocChange', accountId, null);

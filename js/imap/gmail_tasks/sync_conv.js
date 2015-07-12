@@ -19,8 +19,8 @@ let { conversationMessageComparator } = require('../../db/comparators');
 
 let churnConversation = require('app_logic/conv_churn');
 
-let SyncStateHelper = require('../sync_state_helper');
-let GmailLabelMapper = require('../gmail_label_mapper');
+let SyncStateHelper = require('../gmail/sync_state_helper');
+let GmailLabelMapper = require('../gmail/gmail_label_mapper');
 
 
 /**

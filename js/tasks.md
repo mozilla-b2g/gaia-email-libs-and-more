@@ -169,7 +169,7 @@ The request to generate and return undo data is issued as part of the raw task
 itself.  This results in the Promise being resolved with the list of raw undo
 tasks being returned.  The tentative plan is to send them over the wire to the
 front-end to avoid having mutation operations generating garbage that requires
-activat participation from the consumer to not leak.  By just updating the
+active participation from the consumer to not leak.  By just updating the
 return value of the MailAPI request and then forgetting about it, JS GC handles
 things for us.
 
