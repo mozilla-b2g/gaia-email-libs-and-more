@@ -147,6 +147,9 @@ return TaskDefiner.defineSimpleTask([
       }
 
       // -- Parallel 1/2: Process new messsages
+      // NB: This processing must occur after the inferDeletionFromExistingUids
+      // calls because otherwise we would infer the deletion of all the new
+      // messages we find!
       let highestUid = syncState.lastHighUid;
       let { result: newMessages } = yield parallelNewMessages;
       for (let msg of newMessages) {
@@ -178,6 +181,7 @@ return TaskDefiner.defineSimpleTask([
       yield ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
+          umidLocations: syncState.umidLocationWrites
         },
         newData: {
           tasks: syncState.tasksToSchedule
