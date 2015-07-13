@@ -371,8 +371,12 @@ function extractMessageIdHeader(msg) {
 exports.extractMessageIdHeader = extractMessageIdHeader;
 
 /**
- * Given a message extract and normalize the references header.  If there is no
- * references header but there is an in-reply-to header, use that.
+ * Given a message extract and normalize the references header into a list of
+ * strings without arrows, etc.  If there is no references header but there is
+ * an in-reply-to header, use that.
+ *
+ * Note that we currently require properly <> enclosed id's and ignore things
+ * outside of them.
  *
  * @return {String[]}
  *   An array of references.  If there were no references, this will be an
@@ -381,10 +385,39 @@ exports.extractMessageIdHeader = extractMessageIdHeader;
  * XXX actually do the in-reply-to stuff; this has extra normalization sanity
  * checking required so not doing that right now.
  */
-function extractReferences(msg) {
+function extractReferences(msg, messageId) {
   ensureHeadersParsed(msg);
-  let references = valuesOnly(firstHeader(msg, 'references'));
-  return references ? stripArrows(references.split(/\s+/)) : [];
+  let referencesStr = valuesOnly(firstHeader(msg, 'references'));
+  if (!referencesStr) {
+    return [];
+  }
+
+  let idx = 0;
+  let len = referencesStr.length;
+  let references = [];
+
+  while (idx < len) {
+    idx = referencesStr.indexOf('<', idx);
+    if (idx === -1) {
+      break;
+    }
+
+    let closeArrow = referencesStr.indexOf('>', idx + 1);
+    if (closeArrow === -1) {
+      break;
+    }
+
+    // Okay, so now we have a <...> we can consume.
+    let deArrowed = referencesStr.substring(idx + 1, closeArrow);
+    // Don't let a message include itself in its references
+    if (deArrowed !== messageId) {
+      references.push(deArrowed);
+    }
+
+    idx = closeArrow + 1;
+  }
+
+  return references;
 }
 exports.extractReferences = extractReferences;
 

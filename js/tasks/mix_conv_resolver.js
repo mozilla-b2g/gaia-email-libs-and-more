@@ -12,8 +12,8 @@ let { convIdFromMessageId, messageIdComponentFromUmid } =
  */
 function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
   // -- Perform message-id header lookups
-  let references = extractReferences(msg);
   let msgIdHeader = extractMessageIdHeader(msg);
+  let references = extractReferences(msg, msgIdHeader);
 
   let headerIdLookupRequests = new Map();
   for (let ref of references) {
