@@ -40,7 +40,6 @@ define(
 // Lazy loaded vars.
 var $wbxml, $asproto, ASCP;
 
-var bsearchForInsert = $util.bsearchForInsert;
 var $FolderTypes = $FolderHierarchy.Enums.Type;
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
@@ -76,7 +75,7 @@ function lazyConnection(cbIndex, fn, failString) {
   };
 }
 
-function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
+function ActiveSyncAccount(universe, accountDef, foldersTOC, dbConn,
                            receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
@@ -112,37 +111,15 @@ function ActiveSyncAccount(universe, accountDef, folderInfos, dbConn,
 
   this.identities = accountDef.identities;
 
-  this.folders = [];
-  this._folderStorages = {};
-  this._folderInfos = folderInfos;
-  this._serverIdToFolderId = {};
-  this._deadFolderIds = null;
+  this.foldersTOC = foldersTOC;
+  // this is owned by the TOC.  Do not mutate!
+  this.folders = this.foldersTOC.items;
+  this.meta = foldersTOC.meta;
 
   this._syncsInProgress = 0;
   this._lastSyncKey = null;
   this._lastSyncResponseWasEmpty = false;
 
-  this.meta = folderInfos.$meta;
-  this.mutations = folderInfos.$mutations;
-
-  // Sync existing folders
-  for (var folderId in folderInfos) {
-    if (folderId[0] === '$')
-      continue;
-    var folderInfo = folderInfos[folderId];
-
-    this._folderStorages[folderId] =
-      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   $asfolder.ActiveSyncFolderSyncer);
-    this._serverIdToFolderId[folderInfo.$meta.serverId] = folderId;
-    this.folders.push(folderInfo.$meta);
-  }
-
-  this.folders.sort(function(a, b) { return a.path.localeCompare(b.path); });
-
-  this._jobDriver = new $asjobs.ActiveSyncJobDriver(
-                          this,
-                          this._folderInfos.$mutationState);
 
   // Immediately ensure that we have any required local-only folders,
   // as those can be created even while offline.
@@ -306,47 +283,6 @@ ActiveSyncAccount.prototype = {
     }
   },
 
-  toBridgeWire: function asa_toBridgeWire() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      path: this.accountDef.name,
-      type: this.accountDef.type,
-
-      defaultPriority: this.accountDef.defaultPriority,
-
-      enabled: this.enabled,
-      problems: this.problems,
-
-      syncRange: this.accountDef.syncRange,
-      syncInterval: this.accountDef.syncInterval,
-      notifyOnNew: this.accountDef.notifyOnNew,
-      playSoundOnSend: this.accountDef.playSoundOnSend,
-
-      identities: this.identities,
-
-      credentials: {
-        username: this.accountDef.credentials.username,
-      },
-
-      servers: [
-        {
-          type: this.accountDef.type,
-          connInfo: this.accountDef.connInfo
-        },
-      ]
-    };
-  },
-
-  toBridgeFolder: function asa_toBridgeFolder() {
-    return {
-      id: this.accountDef.id,
-      name: this.accountDef.name,
-      path: this.accountDef.name,
-      type: 'account',
-    };
-  },
-
   get numActiveConns() {
     return 0;
   },
@@ -369,38 +305,15 @@ ActiveSyncAccount.prototype = {
     });
   },
 
-  /**
-   * We are being told that a synchronization pass completed, and that we may
-   * want to consider persisting our state.
-   */
-  __checkpointSyncCompleted: function(callback, betterReason) {
-    this.saveAccountState(null, callback, betterReason || 'checkpointSync');
-  },
-
-  shutdown: function asa_shutdown(callback) {
-    if (callback)
+  shutdown: function(callback) {
+    if (callback) {
       callback();
+    }
   },
 
-  accountDeleted: function asa_accountDeleted() {
+  accountDeleted: function() {
     this._alive = false;
     this.shutdown();
-  },
-
-  sliceFolderMessages: function asa_sliceFolderMessages(folderId,
-                                                        bridgeHandle) {
-    var storage = this._folderStorages[folderId],
-        slice = new $mailslice.MailSlice(bridgeHandle, storage);
-
-    storage.sliceOpenMostRecent(slice);
-  },
-
-  searchFolderMessages: function(folderId, bridgeHandle, phrase, whatToSearch) {
-    var storage = this._folderStorages[folderId],
-        slice = new $searchfilter.SearchSlice(bridgeHandle, storage, phrase,
-                                              whatToSearch);
-    storage.sliceOpenSearch(slice);
-    return slice;
   },
 
   syncFolderList: lazyConnection(0, function asa_syncFolderList(callback) {
@@ -428,15 +341,15 @@ ActiveSyncAccount.prototype = {
       e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Delete]],
                          function(node) {
         var folder = {};
-        for (var iter in Iterator(node.children)) {
-          var child = iter[1];
+        for (let child of node.children) {
           folder[child.localTagName] = child.children[0].textContent;
         }
 
         if (node.tag === fh.Add) {
           if (!account._addedFolder(folder.ServerId, folder.ParentId,
-                                    folder.DisplayName, folder.Type))
+                                    folder.DisplayName, folder.Type)) {
             deferredAddedFolders.push(folder);
+          }
         }
         else {
           account._deletedFolder(folder.ServerId);
@@ -458,14 +371,15 @@ ActiveSyncAccount.prototype = {
       // done.
       while (deferredAddedFolders.length) {
         var moreDeferredAddedFolders = [];
-        for (var iter in Iterator(deferredAddedFolders)) {
-          var folder = iter[1];
+        for (let folder of deferredAddedFolders) {
           if (!account._addedFolder(folder.ServerId, folder.ParentId,
-                                    folder.DisplayName, folder.Type))
+                                    folder.DisplayName, folder.Type)) {
             moreDeferredAddedFolders.push(folder);
+          }
         }
-        if (moreDeferredAddedFolders.length === deferredAddedFolders.length)
+        if (moreDeferredAddedFolders.length === deferredAddedFolders.length) {
           throw new Error('got some orphaned folders');
+        }
         deferredAddedFolders = moreDeferredAddedFolders;
       }
 
@@ -524,24 +438,24 @@ ActiveSyncAccount.prototype = {
    *   care about this kind of folder, or null if we need to wait until later
    *   (e.g. if we haven't added the folder's parent yet)
    */
-  _addedFolder: function asa__addedFolder(serverId, parentServerId, displayName,
-                                          typeNum, forceType,
-                                          suppressNotification) {
-    if (!forceType && !(typeNum in this._folderTypes))
+  _addedFolder: function(serverId, parentServerId, displayName, typeNum,
+                         forceType) {
+    if (!forceType && !(typeNum in this._folderTypes)) {
       return true; // Not a folder type we care about.
+    }
 
     var path = displayName;
     var parentFolderId = null;
     var depth = 0;
     if (parentServerId !== '0') {
-      parentFolderId = this._serverIdToFolderId[parentServerId];
-      // We haven't learned about the parent folder. Just return, and wait until
-      // we do.
-      if (parentFolderId === undefined)
+      var parentInfo = this.getFolderByServerId(parentServerId);
+      // No parent yet?  Return null and the add will get deferred.
+      if (!parent) {
         return null;
-      var parent = this._folderInfos[parentFolderId];
-      path = parent.$meta.path + '/' + path;
-      depth = parent.$meta.depth + 1;
+      }
+      parentFolderId = parentInfo.id;
+      path = parentInfo.path + '/' + path;
+      depth = parentInfo.depth + 1;
     }
 
     var useFolderType = this._folderTypes[typeNum];
@@ -564,15 +478,10 @@ ActiveSyncAccount.prototype = {
       useFolderType = forceType;
     }
 
-
     // Handle sentinel Inbox.
     if (typeNum === $FolderTypes.DefaultInbox) {
       var existingInboxMeta = this.getFirstFolderWithType('inbox');
       if (existingInboxMeta) {
-        // Update the server ID to folder ID mapping.
-        delete this._serverIdToFolderId[existingInboxMeta.serverId];
-        this._serverIdToFolderId[serverId] = existingInboxMeta.id;
-
         // Update everything about the folder meta.
         existingInboxMeta.serverId = serverId;
         existingInboxMeta.name = displayName;
@@ -583,122 +492,32 @@ ActiveSyncAccount.prototype = {
     }
 
     var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
-    var folderInfo = this._folderInfos[folderId] = {
-      $meta: $folder_info.makeFolderMeta({
-        id: folderId,
-        serverId: serverId,
-        name: displayName,
-        type: useFolderType,
-        path: path,
-        parentId: parentFolderId,
-        depth: depth,
-        lastSyncedAt: 0,
-        syncKey: '0',
-        version: $mailslice.FOLDER_DB_VERSION
-      }),
-      // any changes to the structure here must be reflected in _recreateFolder!
-      $impl: {
-        nextId: 0,
-        nextHeaderBlock: 0,
-        nextBodyBlock: 0,
-      },
-      accuracy: [],
-      headerBlocks: [],
-      bodyBlocks: [],
-      serverIdHeaderBlockMapping: {},
-    };
-
-    console.log('Added folder ' + displayName + ' (' + folderId + ')');
-    this._folderStorages[folderId] =
-      new $mailslice.FolderStorage(this, folderId, folderInfo, this._db,
-                                   $asfolder.ActiveSyncFolderSyncer);
-    this._serverIdToFolderId[serverId] = folderId;
-
-    var folderMeta = folderInfo.$meta;
-    var idx = bsearchForInsert(this.folders, folderMeta, function(a, b) {
-      return a.path.localeCompare(b.path);
+    var folderInfo = $folder_info.makeFolderMeta({
+      id: folderId,
+      serverId: serverId,
+      name: displayName,
+      type: useFolderType,
+      path: path,
+      parentId: parentFolderId,
+      depth: depth,
+      lastSyncedAt: 0
     });
-    this.folders.splice(idx, 0, folderMeta);
 
-    if (!suppressNotification)
-      this.universe.__notifyAddedFolder(this, folderMeta);
+    this.foldersTOC.addFolder(folderInfo);
 
-    return folderMeta;
+    return folderInfo;
   },
 
   /**
-   * Update the internal database and notify the appropriate listeners when we
-   * find out a folder has been removed.
+   * Update the TOC in response to the changes in our folders.
    *
    * @param {string} serverId A GUID representing the deleted folder
-   * @param {boolean} suppressNotification (optional) if true, don't notify any
-   *   listeners of this addition
    */
-  _deletedFolder: function asa__deletedFolder(serverId, suppressNotification) {
-    var folderId = this._serverIdToFolderId[serverId],
-        folderInfo = this._folderInfos[folderId],
-        folderMeta = folderInfo.$meta;
-
-    console.log('Deleted folder ' + folderMeta.name + ' (' + folderId + ')');
-    delete this._serverIdToFolderId[serverId];
-    delete this._folderInfos[folderId];
-    delete this._folderStorages[folderId];
-
-    var idx = this.folders.indexOf(folderMeta);
-    this.folders.splice(idx, 1);
-
-    if (this._deadFolderIds === null)
-      this._deadFolderIds = [];
-    this._deadFolderIds.push(folderId);
-
-    if (!suppressNotification)
-      this.universe.__notifyRemovedFolder(this, folderMeta);
-  },
-
-  /**
-   * Recreate the folder storage for a particular folder; useful when we end up
-   * desyncing with the server and need to start fresh.  No notification is
-   * generated, although slices are repopulated.
-   *
-   * FYI: There is a nearly identical method in IMAP's account implementation.
-   *
-   * @param {string} folderId the local ID of the folder
-   * @param {function} callback a function to be called when the operation is
-   *   complete, taking the new folder storage
-   */
-  _recreateFolder: function asa__recreateFolder(folderId, callback) {
-    logic(this, 'recreateFolder', { folderId: folderId });
-    var folderInfo = this._folderInfos[folderId];
-    folderInfo.$impl = {
-      nextId: 0,
-      nextHeaderBlock: 0,
-      nextBodyBlock: 0,
-    };
-    folderInfo.accuracy = [];
-    folderInfo.headerBlocks = [];
-    folderInfo.bodyBlocks = [];
-    folderInfo.serverIdHeaderBlockMapping = {};
-
-    if (this._deadFolderIds === null)
-      this._deadFolderIds = [];
-    this._deadFolderIds.push(folderId);
-
-    var self = this;
-    this.saveAccountState(null, function() {
-      var newStorage =
-        new $mailslice.FolderStorage(self, folderId, folderInfo, self._db,
-                                     $asfolder.ActiveSyncFolderSyncer);
-      for (var iter in Iterator(self._folderStorages[folderId]._slices)) {
-        var slice = iter[1];
-        slice._storage = newStorage;
-        slice.reset();
-        newStorage.sliceOpenMostRecent(slice);
-      }
-      self._folderStorages[folderId]._slices = [];
-      self._folderStorages[folderId] = newStorage;
-
-      callback(newStorage);
-    }, 'recreateFolder');
+  _deletedFolder: function asa__deletedFolder(serverId) {
+    var folderInfo = this.getFolderByServerId(serverId);
+    if (folderInfo) {
+      this.foldersTOC.removeFolderById(folderInfo.id);
+    }
   },
 
   /**
@@ -816,7 +635,6 @@ ActiveSyncAccount.prototype = {
 
     var fh = ASCP.FolderHierarchy.Tags;
     var fhStatus = ASCP.FolderHierarchy.Enums.Status;
-    var folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
 
     var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
     w.stag(fh.FolderDelete)
@@ -924,22 +742,6 @@ ActiveSyncAccount.prototype = {
     }.bind(this));
   }),
 
-  getFolderStorageForFolderId: function asa_getFolderStorageForFolderId(
-                               folderId) {
-    return this._folderStorages[folderId];
-  },
-
-  getFolderStorageForServerId: function asa_getFolderStorageForServerId(
-                               serverId) {
-    return this._folderStorages[this._serverIdToFolderId[serverId]];
-  },
-
-  getFolderMetaForFolderId: function(folderId) {
-    if (this._folderInfos.hasOwnProperty(folderId))
-      return this._folderInfos[folderId].$meta;
-    return null;
-  },
-
   /**
    * Ensure that local-only folders exist. This runs synchronously
    * before we sync the folder list with the server. Ideally, these
@@ -974,8 +776,7 @@ ActiveSyncAccount.prototype = {
           /* parentServerId: */ '0',
           /* displayName: */ data.displayName,
           /* typeNum: */ data.typeNum,
-          /* forceType: */ data.type,
-          /* suppressNotification: */ true);
+          /* forceType: */ data.type);
       }
     }, this);
   },
@@ -1011,17 +812,20 @@ ActiveSyncAccount.prototype = {
    */
   normalizeFolderHierarchy: $acctmixins.normalizeFolderHierarchy,
 
-  scheduleMessagePurge: function(folderId, callback) {
-    // ActiveSync servers have no incremental folder growth, so message purging
-    // makes no sense for them.
-    if (callback)
-      callback();
-  },
-
   upgradeFolderStoragesIfNeeded: $acctmixins.upgradeFolderStoragesIfNeeded,
   runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
   getFolderByPath: $acctmixins.getFolderByPath,
+  getFolderById: $acctmixins.getFolderById,
+  getFolderByServerId: function(serverId) {
+    var folders = this.folders;
+    for (var iFolder = 0; iFolder < folders.length; iFolder++) {
+      if (folders[iFolder].serverId === serverId) {
+        return folders[iFolder];
+      }
+    }
+   return null;
+ },
   saveAccountState: $acctmixins.saveAccountState,
   runAfterSaves: $acctmixins.runAfterSaves,
 

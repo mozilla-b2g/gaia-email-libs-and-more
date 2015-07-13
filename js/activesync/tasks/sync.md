@@ -24,13 +24,30 @@ hotmail.com/outlook.com/live.com to IMAP with this release, we currently cop
 out and put every message in a single-message conversation.  Luckily our gaia
 UX knows how to handle this.
 
-### Vanilla Code Reuse ###
+### UniqueMessageIds are used like in IMAP ###
 
-The conversation
+For folder-centric IMAP we use umid's to contend with
 
 ### sync_refresh cascade ###
+
+All sync is sync_refresh!
 
 - Get the set of deltas
   - New messages:
   - Changed messages:
   - Removed messages:
+
+### syncKey invalidation ###
+
+If a syncKey is bad the options are, as ever:
+1. Act like every message got deleted followed by a normal sync step.
+2. Create a specialized job that reconstructs pairings.
+
+The second thing is never going to happen because ActiveSync is not a priority
+protocol.  The first thing could eventually be specialized if we have general
+deletion logic that temporarily places the messages in limbo.
+
+
+### sync_grow is a no-op ###
+
+It could increase the filter size, but no.

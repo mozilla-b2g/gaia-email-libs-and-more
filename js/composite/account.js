@@ -41,7 +41,7 @@ var PIECE_ACCOUNT_TYPE_TO_CLASS = {
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(universe, accountDef, folderTOC, dbConn,
+function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
                           receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
@@ -75,7 +75,7 @@ function CompositeAccount(universe, accountDef, folderTOC, dbConn,
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.receiveType](
       universe, this,
       accountDef.id, accountDef.credentials, accountDef.receiveConnInfo,
-      folderTOC, dbConn, receiveProtoConn);
+      foldersTOC, dbConn, receiveProtoConn);
   this._sendPiece =
     new PIECE_ACCOUNT_TYPE_TO_CLASS[accountDef.sendType](
       universe, this,
@@ -88,6 +88,7 @@ function CompositeAccount(universe, accountDef, folderTOC, dbConn,
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
+  this.foldersTOC = this._receivePiece.foldersTOC;
   this.meta = this._receivePiece.meta;
 
   // Mix in any fields common to all accounts.
@@ -220,10 +221,6 @@ CompositeAccount.prototype = {
       }.bind(this));
   },
 
-  getFolderMetaForFolderId: function(folderId) {
-    return this._receivePiece.getFolderMetaForFolderId(folderId);
-  },
-
   runOp: function(op, mode, callback) {
     return this._receivePiece.runOp(op, mode, callback);
   },
@@ -240,6 +237,8 @@ CompositeAccount.prototype = {
   },
 
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
+
+  getFolderById: $acctmixins.getFolderById,
 
   upgradeFolderStoragesIfNeeded: function() {
     for (var key in this._receivePiece._folderStorages) {

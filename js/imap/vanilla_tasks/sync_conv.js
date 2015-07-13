@@ -47,8 +47,34 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      let oldConvInfo = fromDb.conversations.get(req.convId);
-      let convInfo = churnConversation(req.convId, oldConvInfo, keptMessages);
+      let convInfo;
+
+      if (keptMessages.length) {
+        let oldConvInfo = fromDb.conversations.get(req.convId);
+        convInfo = churnConversation(req.convId, oldConvInfo, keptMessages);
+      } else {
+        // Flag the conversation for deletion.
+        convInfo = null;
+        // TODO: we are going to leak headerIdMap entries.  The logic should
+        // recover if a conversation comes back, but we need to have some way
+        // to deal with this.  Ideas:
+        // - Automatically derived index:
+        //  - from the conversation (requires strict churn cooperation or us to
+        //    wrap the churn's output.  probably not a bad idea.)
+        //  - from the messages.  This avoids churn headaches but potentially
+        //    results in massive duplication in the index since it will result
+        //    in O(n^2) entries in the pathological reply case.
+        //  - 1:1 mapping placeholders whose keys are all prefixed by the
+        //    conversationId so we can efficiently do a range deletion on the
+        //    conversation and that wipes out the mappings without having to
+        //    scatter/gather ourselves.  And because our mapping place-holders
+        //    are named so that they are clobbered by duplicate information,
+        //    it's just N keys with N derived indices.
+        // - Periodic correctness sweep that garbage collects.
+        //
+        // At first glance, I'm liking the 1:1 mapping placeholders with
+        // automatic indexing.
+      }
 
       yield ctx.finishTask({
         mutations: {

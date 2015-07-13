@@ -164,7 +164,7 @@ FolderSyncStateHelper.prototype = {
     }
 
     let { _uidInfo: uidInfo, umidDeletions, umidNameReads,
-          umidNameWrites, umidLocationWrites } = this;
+          umidLocationWrites } = this;
     for (let uid of uidsNotFound) {
       let { umid } = uidInfo.get(uid);
       uidInfo.delete(uid);

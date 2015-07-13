@@ -205,7 +205,7 @@ return TaskDefiner.defineComplexTask([{
       umidLocations: new Map([[marker.umid, null]])
     });
 
-    let { folderId, uid } = fromDb.umidLocations.get(marker.umid);
+    let [ folderId, uid ] = fromDb.umidLocations.get(marker.umid);
     let folderInfo = account.getFolderMetaForFolderId(folderId);
 
     // -- Issue the manipulations to the server

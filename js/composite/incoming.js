@@ -118,8 +118,7 @@ CompositeIncomingAccount.prototype = {
         parentId: parentId,
         delim: delim,
         depth: depth,
-        lastSyncedAt: 0,
-        version: $mailslice.FOLDER_DB_VERSION
+        lastSyncedAt: 0
       });
 
     this.foldersTOC.addFolder(folderInfo);
