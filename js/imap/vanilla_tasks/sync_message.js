@@ -10,8 +10,7 @@ let TaskDefiner = require('../../task_definer');
 let { resolveConversationTaskHelper } =
   require('../../tasks/mix_conv_resolver');
 
-let { valuesOnly, chewMessageStructure, parseImapDateTime } =
-  require('../imapchew');
+let { chewMessageStructure } = require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
@@ -82,6 +81,11 @@ return TaskDefiner.defineSimpleTask([
       // We don't have any a prioir name-able exclusive resources.  Our records
       // are either orthogonal or will only be dynamically discovered while
       // we're running.
+      plannedTask.exclusiveResources = [
+      ];
+
+      plannedTask.priorityTags = [
+      ];
 
       // Prioritize the message based on how new it is.  Newer messages are more
       // important, donchaknow.  This is a question of quantization/binning and
@@ -106,7 +110,7 @@ return TaskDefiner.defineSimpleTask([
     execute: co.wrap(function*(ctx, req) {
       // -- Get the envelope
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
-      let folderInfo = account.getFolderMetaForFolderId(req.folderId);
+      let folderInfo = account.getFolderById(req.folderId);
 
       let { result: rawMessages } = yield account.pimap.listMessages(
         folderInfo,
@@ -118,7 +122,7 @@ return TaskDefiner.defineSimpleTask([
 
       // -- Resolve the conversation this goes in.
       let { convId, existingConv, messageId, headerIdWrites, extraTasks } =
-        yield* resolveConversationTaskHelper(ctx, msg, req.umid);
+        yield* resolveConversationTaskHelper(ctx, msg, req.accountId, req.umid);
 
       let messageInfo = chewMessageStructure(
         msg,
@@ -149,7 +153,7 @@ return TaskDefiner.defineSimpleTask([
         allMessages = [messageInfo];
       }
 
-      let convInfo = churnConversation(req.convId, oldConvInfo, allMessages);
+      let convInfo = churnConversation(convId, oldConvInfo, allMessages);
 
       if (existingConv) {
         modifiedConversations = new Map([[convId, convInfo]]);

@@ -338,30 +338,12 @@ function valuesOnly(item) {
 }
 exports.valuesOnly = valuesOnly;
 
-function extractMessageIdHeader(msg) {
-  return stripArrows(valuesOnly(firstHeader(msg, 'message-id')));
-}
-exports.extractMessageIdHeader = extractMessageIdHeader;
+function ensureHeadersParsed(msg) {
+  // already parsed!
+  if (msg.headers) {
+    return;
+  }
 
-/**
- * Given a message extract and normalize the references header.  If there is no
- * references header but there is an in-reply-to header, use that.
- *
- * XXX actually do the in-reply-to stuff; this has extra normalization sanity
- * checking required so not doing that right now.
- */
-function extractReferences(msg) {
-  let references = valuesOnly(firstHeader(msg, 'references'));
-  return references ? stripArrows(references.split(/\s+/)) : null;
-}
-exports.extractReferences = extractReferences;
-
-exports.chewMessageStructure = function(msg, folderIds, flags, convId,
-                                        maybeUmid, explicitMessageId) {
-  // begin by splitting up the raw imap message
-  let parts = chewStructure(msg);
-
-  msg.date = msg.internaldate && parseImapDateTime(msg.internaldate);
   msg.headers = {};
 
   for (let key in msg) {
@@ -380,6 +362,40 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
       break;
     }
   }
+}
+
+function extractMessageIdHeader(msg) {
+  ensureHeadersParsed(msg);
+  return stripArrows(valuesOnly(firstHeader(msg, 'message-id')));
+}
+exports.extractMessageIdHeader = extractMessageIdHeader;
+
+/**
+ * Given a message extract and normalize the references header.  If there is no
+ * references header but there is an in-reply-to header, use that.
+ *
+ * @return {String[]}
+ *   An array of references.  If there were no references, this will be an
+ *   empty list.
+ *
+ * XXX actually do the in-reply-to stuff; this has extra normalization sanity
+ * checking required so not doing that right now.
+ */
+function extractReferences(msg) {
+  ensureHeadersParsed(msg);
+  let references = valuesOnly(firstHeader(msg, 'references'));
+  return references ? stripArrows(references.split(/\s+/)) : [];
+}
+exports.extractReferences = extractReferences;
+
+exports.chewMessageStructure = function(msg, folderIds, flags, convId,
+                                        maybeUmid, explicitMessageId) {
+  ensureHeadersParsed(msg);
+
+  // begin by splitting up the raw imap message
+  let parts = chewStructure(msg);
+
+  msg.date = msg.internaldate && parseImapDateTime(msg.internaldate);
 
   let fromArray = valuesOnly(firstHeader(msg, 'from'));
 

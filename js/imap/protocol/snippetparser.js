@@ -1,13 +1,14 @@
 define(['./textparser'], function($textparser) {
+'use strict';
 
 var TextParser = $textparser.TextParser;
 
-function bufferAppend(buffer1, buffer2) {
-  var tmp = new Uint8Array(buffer1.byteLength + buffer2.byteLength);
-  tmp.set(new Uint8Array(buffer1), 0);
-  tmp.set(new Uint8Array(buffer2), buffer1.byteLength);
-  return tmp.buffer;
-};
+function arrayAppend(array1, array2) {
+  var tmp = new Uint8Array(array1.byteLength + array2.byteLength);
+  tmp.set(array1, 0);
+  tmp.set(array2, array1.byteLength);
+  return tmp;
+}
 
 /**
  * Wrapper around the textparser, accumulates buffer content and returns it as
@@ -18,11 +19,11 @@ function SnippetParser(partDef) {
 }
 
 SnippetParser.prototype = {
-  parse: function(buffer) {
-    if (!this._buffer) {
-      this._buffer = buffer;
+  parse: function(u8array) {
+    if (!this._array) {
+      this._array = u8array;
     } else {
-      this._buffer = bufferAppend(this._buffer, buffer);
+      this._array = arrayAppend(this._array, u8array);
     }
 
     // do some magic parsing
@@ -33,7 +34,7 @@ SnippetParser.prototype = {
     var content =
       TextParser.prototype.complete.apply(this, arguments);
 
-    content.buffer = this._buffer;
+    content.buffer = this._array.buffer;
     return content;
   }
 };

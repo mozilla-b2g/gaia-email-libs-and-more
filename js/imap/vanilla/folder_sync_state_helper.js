@@ -129,6 +129,10 @@ FolderSyncStateHelper.prototype = {
     }
   },
 
+  isKnownUid: function(uid) {
+    return this._uidInfo.has(uid);
+  },
+
   /**
    * Given a list of uids, filter out the UIDs we already know about.
    */
@@ -145,6 +149,15 @@ FolderSyncStateHelper.prototype = {
     return Array.from(this._uidInfo.keys());
   },
 
+  getUmidForUid: function(uid) {
+    let info = this._uidInfo.get(uid);
+    if (info) {
+      return info.umid;
+    } else {
+      return null;
+    }
+  },
+
   /**
    * Does this message meet our date sync criteria?
    */
@@ -158,9 +171,9 @@ FolderSyncStateHelper.prototype = {
    * can subsequently generate aggregate tasks for sync_conv.
    */
   inferDeletionFromExistingUids: function(newUids) {
-    let uidsNotFound = new Set(this._uidInfo);
+    let uidsNotFound = new Set(this._uidInfo.keys());
     for (let uid of newUids) {
-      uidsNotFound.remove(uid);
+      uidsNotFound.delete(uid);
     }
 
     let { _uidInfo: uidInfo, umidDeletions, umidNameReads,

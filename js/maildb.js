@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 49;
+const CUR_VERSION = 57;
 
 /**
  * What is the lowest database version that we are capable of performing a

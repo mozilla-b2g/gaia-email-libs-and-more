@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let { extractReferences, extractMessageIdHeader } = '../imap/imapchew';
+let { extractReferences, extractMessageIdHeader } = require('../imap/imapchew');
 
 let { convIdFromMessageId, messageIdComponentFromUmid } =
   require('../id_conversions');
@@ -10,7 +10,7 @@ let { convIdFromMessageId, messageIdComponentFromUmid } =
  * Task helper to assist in establishing the conversation relationship for
  * a message given a BrowserBox-style raw message rep.
  */
-function* resolveConversationTaskHelper(ctx, msg, umid) {
+function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
   // -- Perform message-id header lookups
   let references = extractReferences(msg);
   let msgIdHeader = extractMessageIdHeader(msg);
@@ -60,7 +60,7 @@ function* resolveConversationTaskHelper(ctx, msg, umid) {
 
   // If there isn't a conversation already, derive an id from our umid.
   if (conversationIds.size === 0) {
-    convId = messageIdComponentFromUmid(umid);
+    convId = accountId + '.' + messageIdComponentFromUmid(umid);
     existingConv = false;
   }
   // If there's just one, then use it.

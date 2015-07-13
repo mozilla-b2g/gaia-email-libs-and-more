@@ -208,7 +208,7 @@ ParallelIMAP.prototype = {
     let msg = messages[0];
     let body;
     for (let key in msg) {
-      if (/^body/.test(key)) {
+      if (/^body/i.test(key)) {
         body = msg[key];
         break;
       }

@@ -71,7 +71,7 @@ return TaskDefiner.defineSimpleTask([
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
 
       logic(ctx, 'searching', { searchSpec: searchSpec });
-      let folderInfo = account.getFolderMetaForFolderId(req.folderId);
+      let folderInfo = account.getFolderById(req.folderId);
       // Find out new UIDs covering the range in question.
       let { mailboxInfo, result: uids } = yield account.pimap.search(
         folderInfo, searchSpec, { byUid: true });
@@ -125,7 +125,7 @@ return TaskDefiner.defineSimpleTask([
 
       yield ctx.finishTask({
         mutations: {
-          syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
+          syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
           umidLocations: syncState.umidLocationWrites
         },
         newData: {

@@ -148,7 +148,12 @@ TaskRegistry.prototype = {
       taskMeta = this._globalTaskRegistry.get(taskType);
     } else {
       let accountId = rawTask.accountId;
-      taskMeta = this._perAccountIdTaskRegistry.get(accountId).get(taskType);
+      let perAccountTasks = this._perAccountIdTaskRegistry.get(accountId);
+      if (!perAccountTasks) {
+        // This means the account is no longer known to us.  Return immediately,
+        return null;
+      }
+      taskMeta = perAccountTasks.get(taskType);
     }
 
     if (taskMeta.impl.isComplex) {

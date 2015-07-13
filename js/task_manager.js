@@ -178,7 +178,7 @@ TaskManager.prototype = evt.mix({
   waitForTasksToBePlanned: function(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
       return new Promise((resolve, reject) => {
-        this.once('planned:' + taskId, resolve)
+        this.once('planned:' + taskId, resolve);
       });
     }));
   },
@@ -328,9 +328,23 @@ TaskManager.prototype = evt.mix({
       this._activePromise = this._executeNextTask();
     } else {
       logic(this, 'nothingToDo');
+      // bail, intentionally doing nothing.
+      return;
     }
 
     if (!this._activePromise) {
+      // If we're here it means that we tried to to plan/execute a task but
+      // either they completed synchronously (with success) or had to fast-path
+      // out because of something bad happening.  Either way, we want to
+      // potentially invoke this function again since we're not chaining onto
+      // a promise.
+      //
+      // TODO: consider whether a while loop would be a better approach over
+      // this.  Right now we're effectively being really paranoid to make sure
+      // we clear the stack.
+      if (this._tasksToPlan.length || !this._prioritizedTasks.isEmpty()) {
+        setTimeout(() => { this._maybeDoStuff(); }, 0);
+      }
       return;
     }
 

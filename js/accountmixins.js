@@ -1,18 +1,6 @@
 define(function(require, exports) {
 'use strict';
 
-var DisasterRecovery = require('./disaster-recovery');
-
-/**
- * The no-op operation for job operations that are not implemented.
- * Returns successs in a future turn of the event loop.
- */
-function unimplementedJobOperation(op, callback) {
-  window.setZeroTimeout(function() {
-    callback(null, null);
-  });
-}
-
 /**
  * Account Mixins:
  *
@@ -53,18 +41,20 @@ exports.getFirstFolderWithType = function(type) {
     }
   }
   for (var iFolder = 0; iFolder < folders.length; iFolder++) {
-    if (folders[iFolder].type === type)
+    if (folders[iFolder].type === type) {
       return folders[iFolder];
+    }
   }
  return null;
 };
 exports.getFolderByPath = function(folderPath) {
   var folders = this.folders;
   for (var iFolder = 0; iFolder < folders.length; iFolder++) {
-    if (folders[iFolder].path === folderPath)
+    if (folders[iFolder].path === folderPath) {
       return folders[iFolder];
+    }
   }
- return null;
+  return null;
 };
 exports.getFolderById = function(id) {
   return this.foldersTOC.foldersById.get(id);
@@ -92,7 +82,7 @@ exports.normalizeFolderHierarchy = function() {
     return;
   }
 
-  var parent = this.getFolderMetaForFolderId(sibling.parentId);
+  var parent = this.getFolderById(sibling.parentId);
 
   // NOTE: `parent` may be null if `sibling` is a top-level folder.
   var foldersToMove = [this.getFirstFolderWithType('localdrafts'),
@@ -136,18 +126,5 @@ exports.normalizeFolderHierarchy = function() {
 
 };
 
-/**
- * This function goes through each folder storage object in
- * an account and performs the necessary upgrade steps if
- * there is a new version. See upgradeIfNeeded in mailslice.js.
- * Note: This function schedules a job for each folderStorage
- * object in the account.
- */
-exports.upgradeFolderStoragesIfNeeded = function() {
-  for (var key in this._folderStorages) {
-    var storage = this._folderStorages[key];
-    storage.upgradeIfNeeded();
-  }
-}
 
 }); // end define

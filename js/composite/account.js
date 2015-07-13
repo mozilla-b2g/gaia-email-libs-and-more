@@ -88,7 +88,7 @@ function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
-  this.foldersTOC = this._receivePiece.foldersTOC;
+  // foldersTOC is a getter; both work.
   this.meta = this._receivePiece.meta;
 
   // Mix in any fields common to all accounts.

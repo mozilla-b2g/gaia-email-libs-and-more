@@ -52,9 +52,7 @@ return TaskDefiner.defineSimpleTask([
               {
                 type: 'sync_grow',
                 accountId: req.accountId,
-                // This is reliably the inbox, but this is probably not the
-                // right way to do this...
-                folderId: req.accountId + '.0'
+                folderId: req.folderId
               }
             ]
           }
@@ -67,11 +65,17 @@ return TaskDefiner.defineSimpleTask([
 
       // -- Parallel 1/2: Issue find new messages
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
-      let folderInfo = account.getFolderMetaForFolderId(req.folderId);
+      let folderInfo = account.getFolderById(req.folderId);
 
+      // XXX fastpath out if UIDNEXT says there's nothing new.
+      // For Yahoo at least, if there are no new messages, so we're asking
+      // for a UID that doesn't exist, it ends up pretending like we said the
+      // number of the highest UID.  Oh. Hm.  Could it be the "*" that causes
+      // the range to be N+1:N ?  Maybe that's it.  Anyways, be smarter by
+      // adding a step that selects the folder first and checks UIDNEXT.
       let parallelNewMessages = account.pimap.listMessages(
         folderInfo,
-        syncState.lastHighUid + ':*',
+        (syncState.lastHighUid + 1) + ':*',
         [
           'UID',
           'INTERNALDATE',
@@ -106,16 +110,18 @@ return TaskDefiner.defineSimpleTask([
         // a message we would like to already have the flags up-to-date.  (This
         // matters more for CONDSTORE/QRESYNC where we only get info on-change
         // versus this dumb implementation where we infer that ourselves.)
-        uid: syncState.getAllUids()
+        // XXX have range-generation logic
+        uid: syncState.getAllUids().join(',')
       };
       let { result: searchedUids } = yield account.pimap.search(
         folderInfo, searchSpec, { byUid: true });
       syncState.inferDeletionFromExistingUids(searchedUids);
 
       // - Do envelope fetches on the non-deleted messages
-      let { result: currentFlagMessages } = account.pimap.listMessages(
+      // XXX use SEARCHRES here when possible!
+      let { result: currentFlagMessages } = yield account.pimap.listMessages(
         folderInfo,
-        syncState.lastHighUid + ':*',
+        searchedUids.join(','),
         [
           'UID',
           'FLAGS'
@@ -126,14 +132,17 @@ return TaskDefiner.defineSimpleTask([
       );
       for (let msg of currentFlagMessages) {
         let flags = msg.flags;
+        let umid = syncState.getUmidForUid(msg.uid);
         // Have the flag-setting task fix-up the flags to compensate for any
         // changes we haven't played against the server.
         // TODO: get smarter in the future to avoid redundantly triggering a
         // sync_conv task that just re-asserts the already locally-applied
         // changes.
-        ctx.synchronouslyConsultOtherTask(
-          { name: 'store_flags', accountId: req.accountId },
-          { uid: msg.uid, value: flags });
+        if (umid) {
+          ctx.synchronouslyConsultOtherTask(
+            { name: 'store_flags', accountId: req.accountId },
+            { uid: msg.uid, value: flags });
+        }
         syncState.checkFlagChanges(msg.uid, msg.flags);
       }
 
@@ -141,6 +150,14 @@ return TaskDefiner.defineSimpleTask([
       let highestUid = syncState.lastHighUid;
       let { result: newMessages } = yield parallelNewMessages;
       for (let msg of newMessages) {
+        // We want to filter out already known UIDs.  As an edge case we can end
+        // up hearing about the highest message again.  But additionally it's
+        // possible we might have backfilled to find out about a message before
+        // we get around to sync_refresh.
+        if (syncState.isKnownUid(msg.uid)) {
+          continue;
+        }
+
         let dateTS = parseImapDateTime(msg.internaldate);
         highestUid = Math.max(highestUid, msg.uid);
         if (syncState.messageMeetsSyncCriteria(dateTS)) {
@@ -151,7 +168,7 @@ return TaskDefiner.defineSimpleTask([
       // -- Issue name reads if needed.
       if (syncState.umidNameReads.size) {
         yield ctx.read({
-          umidNames: umidNameReads // mutated as a side-effect.
+          umidNames: syncState.umidNameReads // mutated as a side-effect.
         });
         syncState.generateSyncConvTasks();
       }
