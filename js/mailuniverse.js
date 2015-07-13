@@ -20,6 +20,7 @@ let TaskRegistry = require('./task_registry');
 // require lazy_tasks for the side-effect of defining the tasks we implement.
 let globalTasks = require('./global_tasks');
 let gmailTasks = require('./imap/gmail_tasks');
+let vanillaImapTasks = require('./imap/vanilla_tasks');
 
 let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
   require('./id_conversions');
@@ -61,6 +62,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
   this.taskRegistry.registerPerAccountTypeTasks('gmail', gmailTasks);
+  this.taskRegistry.registerPerAccountTypeTasks(
+    'vanillaImap', vanillaImapTasks);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -378,8 +381,7 @@ MailUniverse.prototype = {
    * still pretty convoluted overall.  Probably good to task-ify the
    * configurator logic.
    */
-  tryToCreateAccount: function mu_tryToCreateAccount(userDetails, domainInfo,
-                                                     callback) {
+  tryToCreateAccount: function(userDetails, domainInfo, callback) {
     if (!this.online) {
       return Promise.resolve({ error: 'offline' });
     }

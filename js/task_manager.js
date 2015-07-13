@@ -112,16 +112,15 @@ TaskManager.prototype = evt.mix({
     let pendingInitPromises = [];
     this._registry.initializeFromDatabaseState(complexTaskStates);
     this._accountsTOC.getAllItems().forEach((accountInfo) => {
-      // TODO: implement concept of 'gelamType' or something to convey the
-      // correct super-specific implementation type in use (at least for tasks).
       pendingInitPromises.push(
-        this._registry.accountExistsInitTasks(accountInfo.id, 'gmail')
-          .then((markers) => {
-            this._prioritizeTasksOrMarkers(markers);
-          }));
+        this._registry.accountExistsInitTasks(
+          accountInfo.id, accountInfo.engine)
+        .then((markers) => {
+          this._prioritizeTasksOrMarkers(markers);
+        }));
     });
     this._accountsTOC.on('add', (accountInfo) => {
-      this._registry.accountExistsInitTasks(accountInfo.id, 'gmail')
+      this._registry.accountExistsInitTasks(accountInfo.id, accountInfo.engine)
         .then((markers) => {
           this._prioritizeTasksOrMarkers(markers);
         });

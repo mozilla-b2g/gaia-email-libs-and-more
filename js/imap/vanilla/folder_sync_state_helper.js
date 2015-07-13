@@ -1,11 +1,11 @@
 define(function(require) {
 'use strict';
 
-let logic = require('../logic');
+let logic = require('logic');
 
 let { convIdFromMessageId } = require('../../id_conversions');
 
-let a64 = require('../a64');
+let a64 = require('../../a64');
 
 /**
  * Vanilla IMAP helper logic for sync state manipulation.

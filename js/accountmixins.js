@@ -149,6 +149,9 @@ exports.getFolderByPath = function(folderPath) {
   }
  return null;
 };
+exports.getFolderById = function(id) {
+  return this.foldersTOC.foldersById.get(id);
+};
 
 /**
  * Ensure that local-only folders live in a reasonable place in the

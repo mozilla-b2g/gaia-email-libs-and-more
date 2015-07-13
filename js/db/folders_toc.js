@@ -4,9 +4,7 @@ define(function(require) {
 let evt = require('evt');
 let logic = require('logic');
 
-let util = require('../util');
-let bsearchMaybeExists = util.bsearchMaybeExists;
-let bsearchForInsert = util.bsearchForInsert;
+let { bsearchForInsert } = require('../util');
 
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
@@ -57,6 +55,7 @@ function FoldersTOC(foldersDbState) {
 
   /**
    * Canonical folder state representation.  This is what goes in the database.
+   * @type {Map<FolderId, FolderInfo>}
    */
   this.foldersById = foldersDbState.folders;
 

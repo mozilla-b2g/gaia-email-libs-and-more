@@ -123,15 +123,18 @@ exports.configurator = {
       .then(function(results) {
         var incomingConn = results[0].conn;
         var defineAccount;
+        var engine;
 
         if (incomingType === 'imap') {
           defineAccount = this._defineImapAccount;
+          engine = results[0].engine;
         } else if (incomingType === 'pop3') {
           incomingInfo.preferredAuthMethod = incomingConn.authMethod;
           defineAccount = this._definePop3Account;
+          engine = 'pop3';
         }
-        return defineAccount.call(this,
-                                  universe, userDetails, credentials,
+        return defineAccount.call(this, universe, engine,
+                                  userDetails, credentials,
                                   incomingInfo, smtpConnInfo, incomingConn);
       }.bind(this))
       .catch(function(ambiguousErr) {
@@ -175,6 +178,7 @@ exports.configurator = {
       name: oldAccountDef.name,
 
       type: oldType,
+      engine: oldAccountDef.engine || 'vanillaImap',
       receiveType: oldType.split('+')[0],
       sendType: 'smtp',
 
@@ -213,7 +217,7 @@ exports.configurator = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _defineImapAccount: function(universe, userDetails, credentials,
+  _defineImapAccount: function(universe, engine, userDetails, credentials,
                                incomingInfo, smtpConnInfo, imapProtoConn,
                                callback) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
@@ -223,6 +227,7 @@ exports.configurator = {
       defaultPriority: $date.NOW(),
 
       type: 'imap+smtp',
+      engine,
       receiveType: 'imap',
       sendType: 'smtp',
 
@@ -259,7 +264,7 @@ exports.configurator = {
    * provided with the protocol connection that was used to perform the check
    * so we can immediately put it to work.
    */
-  _definePop3Account: function(universe, userDetails, credentials,
+  _definePop3Account: function(universe, engine, userDetails, credentials,
                                incomingInfo, smtpConnInfo, pop3ProtoConn,
                                callback) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
@@ -269,6 +274,7 @@ exports.configurator = {
       defaultPriority: $date.NOW(),
 
       type: 'pop3+smtp',
+      engine,
       receiveType: 'pop3',
       sendType: 'smtp',
 

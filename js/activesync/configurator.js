@@ -25,6 +25,7 @@ define(
     require,
     exports
   ) {
+'use strict';
 
 function checkServerCertificate(url, callback) {
   var match = /^https:\/\/([^:/]+)(?::(\d+))?/.exec(url);
@@ -225,6 +226,7 @@ exports.configurator = {
         defaultPriority: $date.NOW(),
 
         type: 'activesync',
+        engine: 'activesync',
         syncRange: 'auto',
 
         syncInterval: userDetails.syncInterval || 0,
@@ -272,6 +274,7 @@ exports.configurator = {
       name: oldAccountDef.name,
 
       type: 'activesync',
+      engine: 'activesync',
       syncRange: oldAccountDef.syncRange,
       syncInterval: oldAccountDef.syncInterval || 0,
       notifyOnNew: oldAccountDef.hasOwnProperty('notifyOnNew') ?

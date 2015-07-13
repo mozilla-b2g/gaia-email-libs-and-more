@@ -86,6 +86,7 @@ AccountsTOC.prototype = evt.mix({
       id: accountDef.id,
       name: accountDef.name,
       type: accountDef.type,
+      engine: accountDef.engine,
 
       defaultPriority: accountDef.defaultPriority,
 

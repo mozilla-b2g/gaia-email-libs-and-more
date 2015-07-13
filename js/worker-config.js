@@ -46,11 +46,12 @@
       'bleach': 'ext/bleach.js/lib/bleach',
       'imap-formal-syntax': 'ext/imap-handler/src/imap-formal-syntax',
       'smtpclient-response-parser':
-      'ext/smtpclient/src/smtpclient-response-parser',
+        'ext/smtpclient/src/smtpclient-response-parser',
       'tests': '../test/unit',
       'wbxml': 'ext/activesync-lib/wbxml/wbxml',
       'activesync/codepages': 'ext/activesync-lib/codepages',
       'activesync/protocol': 'ext/activesync-lib/protocol',
+      'gelam': '.',
 
       // This lists every top-level module in GELAM/js/ext.
       // CAUTION: It is automatically updated during the build step;

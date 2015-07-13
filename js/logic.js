@@ -156,7 +156,7 @@
  */
 define(function(require) {
   var evt = require('evt');
-  var equal = require('./ext/equal');
+  var equal = require('gelam/ext/equal');
 
   /**
    * The `logic` module is callable, as a shorthand for `logic.event()`.

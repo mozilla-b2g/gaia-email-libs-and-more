@@ -7,8 +7,6 @@ let mailRep = require('../db/mail_rep');
 let $mailchew = require('../bodies/mailchew');
 let MimeParser = require('mimeparser');
 
-let { messageIdComponentFromUmid } = require('../id_conversions');
-
 let parseGmailMsgId = a64.parseUI64;
 
 function parseRfc2231CharsetEncoding(s) {

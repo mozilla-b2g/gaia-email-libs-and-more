@@ -10,8 +10,9 @@ return [
   require('./vanilla_tasks/sync_grow'),
   require('./vanilla_tasks/sync_refresh'),
   require('./vanilla_tasks/sync_message'),
-  require('./vanilla_tasks/merge_conversations'),
+  require('./vanilla_tasks/sync_conv'),
+  //require('./vanilla_tasks/merge_conversations'),
 
-  require('./gmail_tasks/store_flags')
+  require('./vanilla_tasks/store_flags')
 ];
 });
