@@ -564,61 +564,7 @@ ActiveSyncAccount.prototype = {
                                                       folderName,
                                                       containOnlyOtherFolders,
                                                       callback) {
-    var account = this;
-
-    var parentFolderServerId = parentFolderId ?
-      this._folderInfos[parentFolderId] : '0';
-
-    var fh = ASCP.FolderHierarchy.Tags;
-    var fhStatus = ASCP.FolderHierarchy.Enums.Status;
-    var folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
-
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(fh.FolderCreate)
-       .tag(fh.SyncKey, this.meta.syncKey)
-       .tag(fh.ParentId, parentFolderServerId)
-       .tag(fh.DisplayName, folderName)
-       .tag(fh.Type, folderType)
-     .etag();
-
-    this.conn.postCommand(w, function(aError, aResponse) {
-      account._reportErrorIfNecessary(aError);
-
-      var e = new $wbxml.EventParser();
-      var status, serverId;
-
-      e.addEventListener([fh.FolderCreate, fh.Status], function(node) {
-        status = node.children[0].textContent;
-      });
-      e.addEventListener([fh.FolderCreate, fh.SyncKey], function(node) {
-        account.meta.syncKey = node.children[0].textContent;
-      });
-      e.addEventListener([fh.FolderCreate, fh.ServerId], function(node) {
-        serverId = node.children[0].textContent;
-      });
-
-      try {
-        e.run(aResponse);
-      }
-      catch (ex) {
-        console.error('Error parsing FolderCreate response:', ex, '\n',
-                      ex.stack);
-        callback('unknown');
-        return;
-      }
-
-      if (status === fhStatus.Success) {
-        var folderMeta = account._addedFolder(serverId, parentFolderServerId,
-                                              folderName, folderType);
-        callback(null, folderMeta);
-      }
-      else if (status === fhStatus.FolderExists) {
-        callback('already-exists');
-      }
-      else {
-        callback('unknown');
-      }
-    });
+    // YYY this code is now in ./protocol/create_folder.js
   }),
 
   /**
@@ -629,51 +575,8 @@ ActiveSyncAccount.prototype = {
    */
   deleteFolder: lazyConnection(1, function asa_deleteFolder(folderId,
                                                             callback) {
-    var account = this;
 
-    var folderMeta = this._folderInfos[folderId].$meta;
-
-    var fh = ASCP.FolderHierarchy.Tags;
-    var fhStatus = ASCP.FolderHierarchy.Enums.Status;
-
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(fh.FolderDelete)
-       .tag(fh.SyncKey, this.meta.syncKey)
-       .tag(fh.ServerId, folderMeta.serverId)
-     .etag();
-
-    this.conn.postCommand(w, function(aError, aResponse) {
-      account._reportErrorIfNecessary(aError);
-
-      var e = new $wbxml.EventParser();
-      var status;
-
-      e.addEventListener([fh.FolderDelete, fh.Status], function(node) {
-        status = node.children[0].textContent;
-      });
-      e.addEventListener([fh.FolderDelete, fh.SyncKey], function(node) {
-        account.meta.syncKey = node.children[0].textContent;
-      });
-
-      try {
-
-        e.run(aResponse);
-      }
-      catch (ex) {
-        console.error('Error parsing FolderDelete response:', ex, '\n',
-                      ex.stack);
-        callback('unknown');
-        return;
-      }
-
-      if (status === fhStatus.Success) {
-        account._deletedFolder(folderMeta.serverId);
-        callback(null, folderMeta);
-      }
-      else {
-        callback('unknown');
-      }
-    });
+    // YYY this code is now in ./protocol/delete_folder.js
   }),
 
   sendMessage: lazyConnection(1, function asa_sendMessage(composer, callback) {

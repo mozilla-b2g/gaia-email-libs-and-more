@@ -9,11 +9,9 @@ let TaskDefiner = require('../../task_definer');
  * @see MixStoreFlagsMixin
  */
 return TaskDefiner.defineComplexTask([
-  require('./mix_store_flags'),
+  require('../../imap/vanilla_tasks/mix_store_flags'),
   {
     name: 'store_flags',
-    // We don't care about the fetch return, so don't bother.
-    imapDataName: 'FLAGS.SILENT',
 
     execute: co.wrap(function*(ctx, persistentState, memoryState,
                                marker) {
@@ -30,6 +28,9 @@ return TaskDefiner.defineComplexTask([
 
       let [ folderId, uid ] = fromDb.umidLocations.get(marker.umid);
       let folderInfo = account.getFolderById(folderId);
+
+      // -- Exclusive access to the sync state needed for the folder syncKey
+      
 
       // -- Issue the manipulations to the server
       if (changes.add && changes.add.length) {

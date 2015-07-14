@@ -8,7 +8,7 @@ let { convIdFromMessageId } = require('../../id_conversions');
 let a64 = require('../../a64');
 
 /**
- * Vanilla IMAP helper logic for sync state manipulation.
+ * Vanilla IMAP helper logic for folder sync state manipulation.
  *
  * Our sync state contains:
  *
