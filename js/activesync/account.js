@@ -120,11 +120,6 @@ function ActiveSyncAccount(universe, accountDef, foldersTOC, dbConn,
   this._lastSyncKey = null;
   this._lastSyncResponseWasEmpty = false;
 
-
-  // Immediately ensure that we have any required local-only folders,
-  // as those can be created even while offline.
-  this.ensureEssentialOfflineFolders();
-
   // Mix in any fields common to all accounts.
   $acctmixins.accountConstructorMixin.call(
     this, /* receivePiece = */ this, /* sendPiece = */ this);
@@ -136,6 +131,15 @@ ActiveSyncAccount.prototype = {
   supportsServerFolders: true,
   toString: function asa_toString() {
     return '[ActiveSyncAccount: ' + this.id + ']';
+  },
+
+  // TODO: evaluate whether the account actually wants to be a RefedResource
+  // with some kind of reaping if all references die and no one re-acquires it
+  // within some timeout horizon.
+  __acquire: function() {
+    return Promise.resolve(this);
+  },
+  __release: function() {
   },
 
   /**

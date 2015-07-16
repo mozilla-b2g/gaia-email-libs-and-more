@@ -7,13 +7,14 @@ const logic = require('logic');
 
 const TaskDefiner = require('../../task_definer');
 
-const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
+const FolderSyncStateHelper = require('../folder_sync_state_helper');
 
-const getFolderSyncKey = require('../protocol/get_folder_sync_key');
-const enumerateFolderChanges = require('../protocol/enum_folder_changes');
+const getFolderSyncKey = require('../smotocol/get_folder_sync_key');
+const inferFilterType = require('../smotocol/infer_filter_type');
+const enumerateFolderChanges = require('../smotocol/enum_folder_changes');
 
 const { convIdFromMessageId, messageIdComponentFromUmid } =
-  require('../id_conversions');
+  require('../../id_conversions');
 
 const churnConversation = require('app_logic/conv_churn');
 
@@ -99,28 +100,30 @@ return TaskDefiner.defineSimpleTask([
         // messages?  We would want that failsafe...)
         if (!syncState.filterType) {
           logic(ctx, 'inferringFilterType');
-          ({ syncKey: syncState.syncKey, filterType: syncState.filterType } =
-            yield inferFilterType(
+          // NB: manual destructing to shut up jslint.
+          let results = yield* inferFilterType(
               conn,
               {
                 folderServerId: folderInfo.serverId,
                 desiredMessageCount: SYNC_WHOLE_FOLDER_AT_N_MESSAGES
-              }));
+              });
+          syncState.syncKey = results.syncKey;
+          syncState.filterType = results.filterType;
         }
 
         // - Get a sync key if needed
         if (!syncState.syncKey || syncState.syncKey === '0') {
-          ({ syncKey: syncState.syncKey } = yield getFolderSyncKey(
+          syncState.syncKey = (yield* getFolderSyncKey(
             conn,
             {
               folderServerId: folderInfo.serverId,
               filterType: syncState.filterType
-            }));
+            })).syncKey;
         }
 
         // - Try and sync
         let { invalidSyncKey, syncKey, moreToSync } =
-          yield enumerateFolderChanges(
+          yield* enumerateFolderChanges(
             conn,
             {
               issueIds,

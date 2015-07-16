@@ -30,7 +30,8 @@ return TaskDefiner.defineComplexTask([
       let folderInfo = account.getFolderById(folderId);
 
       // -- Exclusive access to the sync state needed for the folder syncKey
-      
+
+      // XXX XXX XXX XXX XXX this is still the IMAP code
 
       // -- Issue the manipulations to the server
       if (changes.add && changes.add.length) {

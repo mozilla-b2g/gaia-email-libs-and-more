@@ -33,11 +33,11 @@ function* inferFilterType(
 
   // -- Get a 2-week syncKey
   let filterType = Type.TwoWeeksBack;
-  let { syncKey } = yield getFolderSyncKey(
+  let { syncKey } = yield* getFolderSyncKey(
     conn, { folderServerId, filterType });
 
   // -- Get the item estimate for that 2-week syncKey
-  let { estimate } = yield getItemEstimate(
+  let { estimate } = yield* getItemEstimate(
     conn, { folderSyncKey: syncKey, folderServerId, filterType });
 
   // -- Math!
@@ -62,10 +62,10 @@ function* inferFilterType(
     // if the messages are not homogeneously distributed, like if this is an
     // archive folder that only contains messages older than a month.
     filterType = Type.NoFilter;
-    ({ syncKey }) = yield getFolderSyncKey(
-      conn, { folderServerId, filterType });
-    ({ estimate }) = yield getItemEstimate(
-      conn, { folderSyncKey: syncKey, folderServerId, filterType });
+    syncKey = (yield* getFolderSyncKey(
+      conn, { folderServerId, filterType })).syncKey;
+    estimate = (yield* getItemEstimate(
+      conn, { folderSyncKey: syncKey, folderServerId, filterType })).estimate;
 
     if (estimate > desiredMessageCount) {
       desiredFilterType = Type.OneMonthBack;
@@ -77,11 +77,11 @@ function* inferFilterType(
 
   if (filterType !== desiredFilterType) {
     filterType = desiredFilterType;
-    ({ syncKey }) = yield getFolderSyncKey(
-      conn, { folderServerId, filterType });
+    syncKey = (yield* getFolderSyncKey(
+      conn, { folderServerId, filterType })).syncKey;
   }
 
-  logic(folderConn, 'inferFilterType', { filterType });
+  logic(conn, 'inferFilterType', { filterType });
   return { filterType, syncKey };
 }
 

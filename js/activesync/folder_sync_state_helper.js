@@ -3,10 +3,10 @@ define(function(require) {
 
 let logic = require('logic');
 
-let { convIdFromMessageId } = require('../../id_conversions');
+let { convIdFromMessageId } = require('../id_conversions');
 let { shallowClone } = require('../util');
 
-let a64 = require('../../a64');
+let a64 = require('../a64');
 
 /**
  * ActiveSync helper logic for folder sync state manipulation.

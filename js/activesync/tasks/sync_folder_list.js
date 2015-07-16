@@ -8,7 +8,7 @@ const TaskDefiner = require('../../task_definer');
 const normalizeFolder = require('../normalize_folder');
 const AccountSyncStateHelper = require('../account_sync_state_helper');
 
-const enumerateHierarchyChanges = require('../protocol/enum_hierarchy_changes');
+const enumerateHierarchyChanges = require('../smotocol/enum_hierarchy_changes');
 
 
 /**
@@ -51,7 +51,7 @@ return TaskDefiner.defineSimpleTask([
       function tryAndAddFolder(folderArgs) {
         let maybeFolderInfo = normalizeFolder(
           {
-            idMaker: syncState.issueFolderId,
+            idMaker: syncState.issueFolderId.bind(syncState),
             serverIdToFolderId: syncState.serverIdToFolderId,
             folderIdToFolderInfo: foldersTOC.foldersById
           },
@@ -70,18 +70,19 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      evt.on('add', (folderArgs) => {
+      emitter.on('add', (folderArgs) => {
         tryAndAddFolder(folderArgs);
       });
-      evt.on('remove', (serverId) => {
+      emitter.on('remove', (serverId) => {
         syncState.removedFolder(serverId);
         let folderId = syncState.serverIdToFolderId.get(serverId);
         foldersTOC.foldersTOC.removeFolderById(folderId);
       });
 
-      yield enumerateHierarchyChanges(
+      syncState.hierarchySyncKey = (yield* enumerateHierarchyChanges(
         conn,
-        { hierarchySyncKey: syncState.hierarchySyncKey, emitter });
+        { hierarchySyncKey: syncState.hierarchySyncKey, emitter }
+      )).hierarchySyncKey;
 
       // It's possible we got some folders in an inconvenient order (i.e. child
       // folders before their parents). Keep trying to add folders until we're
@@ -99,7 +100,7 @@ return TaskDefiner.defineSimpleTask([
 
       yield ctx.finishTask({
         mutations: {
-          syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
+          syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
           folders: new Map([
             [account.id, account.foldersTOC.generatePersistenceInfo()]
           ]),

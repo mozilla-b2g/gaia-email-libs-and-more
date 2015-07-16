@@ -10,7 +10,7 @@ const { applyChanges } = require('../../delta_algebra');
  * other sync logic.
  */
 return TaskDefiner.defineSimpleTask([
-  require('./mix_sync_conv'),
+  require('../../imap/vanilla_tasks/mix_sync_conv'),
   {
     name: 'sync_conv',
 

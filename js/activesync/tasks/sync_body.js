@@ -5,14 +5,14 @@ const co = require('co');
 
 const TaskDefiner = require('../../task_definer');
 
-const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
+const FolderSyncStateHelper = require('../folder_sync_state_helper');
 
 const churnConversation = require('app_logic/conv_churn');
 
 const { processMessageContent } = require('../../bodies/mailchew');
 
-const downloadBody = require('../protocol/download_body');
-const downloadBody25 = require('../protocol/download_body_25');
+const downloadBody = require('../smotocol/download_body');
+const downloadBody25 = require('../smotocol/download_body_25');
 
 const { Enums: fhEnum } = require('activesync/codepages/FolderHierarchy');
 const Type = fhEnum.Type;
@@ -138,7 +138,7 @@ return TaskDefiner.defineComplexTask([
           // the destructuring assignment expression into existing variables
           // really annoys jshint (known bug), so I'm doing things manually for
           // now.
-          let result = yield downloadBody25(
+          let result = yield* downloadBody25(
             conn,
             {
               folderSyncKey: syncState.syncKey,
@@ -149,14 +149,14 @@ return TaskDefiner.defineComplexTask([
           bodyContent = result.bodyContent;
           syncState.syncKey = result.syncKey;
         } else {
-          bodyContent = yield downloadBody(
+          bodyContent = (yield* downloadBody(
             conn,
             {
               folderServerId,
               messageServerId,
               bodyType,
               truncationSize
-            }).bodyContent;
+            })).bodyContent;
         }
 
         // - Update the message

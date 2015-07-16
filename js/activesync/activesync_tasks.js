@@ -10,9 +10,9 @@ return [
   // ActiveSync has no need for refresh.  But maybe we want a stub?
   //require('./tasks/sync_grow'),
   require('./tasks/sync_refresh'),
-  require('./sync_conv'),
-  require('./sync_body'),
+  require('./tasks/sync_conv'),
+  require('./tasks/sync_body'),
 
-  require('./vanilla_tasks/store_flags')
+  require('./tasks/store_flags')
 ];
 });
