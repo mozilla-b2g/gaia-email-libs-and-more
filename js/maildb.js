@@ -866,12 +866,17 @@ MailDB.prototype = evt.mix({
    *   mutations.  See maildb.md for more.
    */
   beginMutate: function(ctx, mutateRequests) {
+    // disabling guard here because TaskContext has protections and a cop-out.
+    /*
     if (ctx._preMutateStates) {
       throw new Error('Context already has mutation states tracked?!');
     }
+    */
 
     return this.read(ctx, mutateRequests).then(() => {
-      let preMutateStates = ctx._preMutateStates = {};
+      // XXX the _preMutateStates || {} is because we're allowing multiple
+      // calls.
+      let preMutateStates = ctx._preMutateStates = (ctx._preMutateStates || {});
 
       // (nothing to do for "syncStates")
 

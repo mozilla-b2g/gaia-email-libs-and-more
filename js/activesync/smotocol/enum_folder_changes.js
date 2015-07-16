@@ -75,6 +75,18 @@ function* enumerateFolderChanges(
 
   let response = yield conn.postCommand(w);
 
+  // Blank responses are the server's way of telling us nothing has changed.
+  // So just fast-path out and leave the syncState the same.
+  if (!response) {
+    logic(conn, 'syncComplete', { emptyResponse: true });
+    return {
+      invalidSyncKey: false,
+      syncKey: folderSyncKey,
+      moreAvailable: false,
+      noChanges: true
+    };
+  }
+
   let e = new $wbxml.EventParser();
   let base = [as.Sync, as.Collections, as.Collection];
 

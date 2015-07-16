@@ -14,8 +14,7 @@ const { processMessageContent } = require('../../bodies/mailchew');
 const downloadBody = require('../smotocol/download_body');
 const downloadBody25 = require('../smotocol/download_body_25');
 
-const { Enums: fhEnum } = require('activesync/codepages/FolderHierarchy');
-const Type = fhEnum.Type;
+const { Enums: asbEnum } = require('activesync/codepages/AirSyncBase');
 
 
 const { MAX_SNIPPET_BYTES } = require('../../syncbase');
@@ -130,7 +129,8 @@ return TaskDefiner.defineComplexTask([
             truncationSize = DESIRED_TEXT_SNIPPET_BYTES;
           }
         }
-        let asBodyType = bodyType === 'html' ? Type.HTML : Type.PlainText;
+        let asBodyType = bodyType === 'html' ? asbEnum.Type.HTML
+                                             : asbEnum.Type.PlainText;
 
         // - Issue the fetch
         let bodyContent;
@@ -154,7 +154,7 @@ return TaskDefiner.defineComplexTask([
             {
               folderServerId,
               messageServerId,
-              bodyType,
+              bodyType: asBodyType,
               truncationSize
             })).bodyContent;
         }
