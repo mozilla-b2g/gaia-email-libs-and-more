@@ -79,7 +79,7 @@ return TaskDefiner.defineSimpleTask([
       });
 
       emitter.on('change', (serverMessageId, changes) => {
-        syncState.messageChanged(serverMessageId, changes.flagChanges);
+        syncState.messageChanged(serverMessageId, changes);
       });
 
       emitter.on('remove', (serverMessageId) => {
@@ -144,7 +144,13 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      syncState.generateSyncConvTasks();
+      // -- Issue name reads if needed.
+      if (syncState.umidNameReads.size) {
+        yield ctx.read({
+          umidNames: syncState.umidNameReads // mutated as a side-effect.
+        });
+        syncState.generateSyncConvTasks();
+      }
       // XXX lastSyncedAt / lastFolderSyncAt needs to get updated.
 
       yield ctx.finishTask({

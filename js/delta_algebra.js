@@ -91,21 +91,25 @@ function mergeChanges(existingChanges, newChanges) {
     // newChanges.remove and existingChanges.add cancel each other out
     derivedAdd = [];
     let pendingRemove = new Set(newChanges.remove);
-    for (let item of existingChanges.add) {
-      if (pendingRemove.has(item)) {
-        pendingRemove.delete(item);
-      } else {
-        derivedAdd.push(item);
+    if (existingChanges.add) {
+      for (let item of existingChanges.add) {
+        if (pendingRemove.has(item)) {
+          pendingRemove.delete(item);
+        } else {
+          derivedAdd.push(item);
+        }
       }
     }
     // newChanges.add and existingChanges.remove cancel each other out
     derivedRemove = [];
     let pendingAdd = new Set(newChanges.add);
-    for (let item of existingChanges.remove) {
-      if (pendingAdd.has(item)) {
-        pendingAdd.delete(item);
-      } else {
-        derivedRemove.push(item);
+    if (existingChanges.remove) {
+      for (let item of existingChanges.remove) {
+        if (pendingAdd.has(item)) {
+          pendingAdd.delete(item);
+        } else {
+          derivedRemove.push(item);
+        }
       }
     }
     // Now stitch together the results of those two cancellation passes.

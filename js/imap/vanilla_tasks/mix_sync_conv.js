@@ -81,11 +81,6 @@ return {
         umidNames: umidNameWrites
       }
     });
-
-    yield ctx.finishTask({
-      // no further processing required.
-      taskState: null
-    });
   }),
 
   execute: null
