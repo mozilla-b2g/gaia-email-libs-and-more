@@ -15,12 +15,16 @@
 define(function(require, exports) {
 'use strict';
 
+const logic = require('logic');
+
 var $util = require('../util');
 var $mailchewStrings = require('./mailchew_strings');
 var $quotechew = require('./quotechew');
 var $htmlchew = require('./htmlchew');
 
 var { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+
+const scope = logic.scope('MailChew');
 
 /**
  * Generate the default compose body for a new e-mail
@@ -195,12 +199,13 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
   if (identity.signature && identity.signatureEnabled) {
     // Thunderbird wraps its signature in a:
     // <pre class="moz-signature" cols="72"> construct and so we do too.
-    if (htmlMsg)
+    if (htmlMsg) {
       htmlMsg += $htmlchew.wrapTextIntoSafeHTMLString(
                    identity.signature, 'pre', false,
                    ['class', 'moz-signature', 'cols', '72']);
-    else
+    } else {
       textMsg += '\n\n-- \n' + identity.signature;
+    }
   }
 
   return {
@@ -217,9 +222,9 @@ exports.generateForwardMessage =
   function(author, date, subject, headerInfo, bodyInfo, identity) {
   var textMsg = '\n\n', htmlMsg = null;
 
-  if (identity.signature && identity.signatureEnabled)
+  if (identity.signature && identity.signatureEnabled) {
     textMsg += '-- \n' + identity.signature + '\n\n';
-
+  }
   textMsg += '-------- ' + l10n_originalMessageString + ' --------\n';
   // XXX l10n! l10n! l10n!
 
@@ -243,18 +248,21 @@ exports.generateForwardMessage =
   textMsg += l10n_forward_header_labels['from'] + ': ' +
                $util.formatAddresses([author]) + '\n';
   // : reply-to
-  if (headerInfo.replyTo)
+  if (headerInfo.replyTo) {
     textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
                  $util.formatAddresses([headerInfo.replyTo]) + '\n';
+  }
   // : organization
   // : to
-  if (headerInfo.to)
+  if (headerInfo.to) {
     textMsg += l10n_forward_header_labels['to'] + ': ' +
                  $util.formatAddresses(headerInfo.to) + '\n';
+  }
   // : cc
-  if (headerInfo.cc)
+  if (headerInfo.cc) {
     textMsg += l10n_forward_header_labels['cc'] + ': ' +
                  $util.formatAddresses(headerInfo.cc) + '\n';
+  }
   // (bcc should never be forwarded)
   // : newsgroups
   // : followup-to
@@ -313,7 +321,7 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
 
 /**
  * Generate the snippet and parsed body from the message body's content.  This
- * is currently a synchrnonous process that can take a while.
+ * is currently a synchronous process that can take a while.
  *
  * TODO: Consider making async and (much further out) even farming this out to
  * sub-workers.  This may be addressed by the conversion to a streaming
@@ -334,7 +342,7 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
  *   here.
  */
 exports.processMessageContent = function processMessageContent(
-    content, type, isDownloaded, generateSnippet, _LOG) {
+    content, type, isDownloaded, generateSnippet) {
 
   // Strip any trailing newline.
   if (content.slice(-1) === '\n') {
@@ -348,7 +356,7 @@ exports.processMessageContent = function processMessageContent(
         parsedContent = $quotechew.quoteProcessTextBody(content);
       }
       catch (ex) {
-        _LOG.textChewError(ex);
+        logic(scope, 'textChewError', { ex: ex });
         // An empty content rep is better than nothing.
         parsedContent = [];
       }
@@ -360,7 +368,7 @@ exports.processMessageContent = function processMessageContent(
           );
         }
         catch (ex) {
-          _LOG.textSnippetError(ex);
+          logic(scope, 'textSnippetError', { ex: ex });
           snippet = '';
         }
       }
@@ -373,7 +381,7 @@ exports.processMessageContent = function processMessageContent(
           snippet = $htmlchew.generateSnippet(content);
         }
         catch (ex) {
-          _LOG.htmlSnippetError(ex);
+          logic(scope, 'htmlSnippetError', { ex: ex });
           snippet = '';
         }
       }
@@ -385,7 +393,7 @@ exports.processMessageContent = function processMessageContent(
           contentBlob = new Blob([parsedContent], { type: 'text/html' });
         }
         catch (ex) {
-          _LOG.htmlParseError(ex);
+          logic(scope, 'htmlParseError', { ex: ex });
           parsedContent = '';
         }
       }

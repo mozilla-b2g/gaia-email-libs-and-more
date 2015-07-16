@@ -7,7 +7,9 @@ let logic = require('logic');
  * Provides helpers and standard arguments/context for tasks.
  */
 function TaskContext(taskThing, universe) {
-  logic.defineScope(this, 'TaskContext', { id: taskThing.id });
+  // We are used as the scope for all logging by the task, so just call
+  // ourselves "Task".
+  logic.defineScope(this, 'Task', { id: taskThing.id });
   this.id = taskThing.id;
   this.isTask = !taskThing.type; // it's a TaskMarker if the type is on the root
   this._taskThing = taskThing;
@@ -131,6 +133,36 @@ TaskContext.prototype = {
       this, consultWhat, argDict);
   },
 
+  /**
+   * In the event our task throws an error, we want you to plan the tasks we
+   * pass in now in order to repair our state.  This should be used in those
+   * cases where a complex task is altering its in-memory aggregated state
+   * during the execute() phase and new plan() calls when executed in parallel
+   * may accumulate additional state into the complex state that is not easily
+   * reconciled.  (If it is easily reconciled, the complex task can just wrap
+   * everything in a try/catch and put stuff back in in the catch.)
+   *
+   * The goal here is to avoid having already complex tasks grow even more
+   * complex with a try/catch with a lot of complexity.
+   *
+   * In the case a planning task is executed for the complex task, these given
+   * tasks would want to be spilled to disk as part of the commit for that
+   * complex task to handle the crash case.  And this task context would then
+   * want to automatically augment its commit to nuke those tasks from disk upon
+   * successful completion.
+   *
+   * TODO: implement this
+   * TODO: think more on also having a variant of this where we issue the
+   * defensive commit immediately (with durability) for those cases where it
+   * is essential that we 100% know if we attempted to do something rather than
+   * just tracking the "maybe we started this".  Alternately, maybe that's
+   * silly and if we're needing to do that we should just break the task up
+   * into distinct sub-tasks.
+   */
+  setFailureTasks: function(tasks) {
+
+  },
+
   read: function(what) {
     return this.universe.db.read(this, what);
   },
@@ -141,6 +173,28 @@ TaskContext.prototype = {
         'Cannot switch to mutate state from state: ' + this.state);
     }
     this.state = 'mutate';
+    return this.universe.db.beginMutate(this, what);
+  },
+
+  /**
+   * Acquire more stuff for mutation.  Using this is not a good sign.  When we
+   * go parallel and the locking mechanism happens, we would ideally be rid of
+   * this.  However, for the parallel work with our goal of never delaying
+   * local/planning operations, we'll probably already be splitting many
+   * mutate calls into a read followed by online action followed by mutate
+   * exclusive acquisition.
+   *
+   * Usage wise right now we've got:
+   * - ActiveSync's sync_body implementation that needs this for v2.5 support
+   *   because I'm trying to reuse the mix-in IMAP uses.  Using this could
+   *   be avoided by some refactoring or giving ActiveSync its own full
+   *   implementation.
+   */
+  mutateMore: function(what) {
+    if (this.state !== 'mutate') {
+      throw new Error(
+        'You should already be mutating, not in state: ' + this.state);
+    }
     return this.universe.db.beginMutate(this, what);
   },
 

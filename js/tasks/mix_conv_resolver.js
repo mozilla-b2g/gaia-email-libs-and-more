@@ -1,9 +1,10 @@
 define(function(require) {
 'use strict';
 
-let { extractReferences, extractMessageIdHeader } = require('../imap/imapchew');
+const { extractReferences, extractMessageIdHeader } =
+  require('../imap/imapchew');
 
-let { convIdFromMessageId, messageIdComponentFromUmid } =
+const { convIdFromMessageId, messageIdComponentFromUmid } =
   require('../id_conversions');
 
 /**

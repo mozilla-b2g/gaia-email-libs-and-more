@@ -505,7 +505,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
  *    //    and set its value.
  *
  */
-exports.updateMessageWithFetch = function(message, req, res, _LOG) {
+exports.updateMessageWithFetch = function(message, req, res) {
   var bodyRep = message.bodyReps[req.bodyRepIndex];
 
   // check if the request was unbounded or we got back less bytes then we
@@ -524,8 +524,7 @@ exports.updateMessageWithFetch = function(message, req, res, _LOG) {
   bodyRep.amountDownloaded += res.bytesFetched;
 
   var { contentBlob, snippet } = $mailchew.processMessageContent(
-    res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet, _LOG
-  );
+    res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet);
 
   if (req.createSnippet) {
     message.snippet = snippet;

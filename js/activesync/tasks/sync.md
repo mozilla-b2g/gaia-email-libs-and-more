@@ -118,7 +118,7 @@ Future enhancements could be:
 ### Vanilla IMAP code re-use ###
 
 Since we're sticking with the vanilla IMAP umid model, we find ourselves able
-to reuse a lot of code.  In general this means that code solely deals with the
+to reuse a lot of code.  In general this means code that solely deals with the
 "local" side of the house through umid's can be reused verbatim, usually in
 mix-ins.  Things that interact with server state are more likely to just look
 the same.  I'm currently optimizing for control flow simplicity with the aim of

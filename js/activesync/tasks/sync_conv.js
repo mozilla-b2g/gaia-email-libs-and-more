@@ -1,7 +1,9 @@
 define(function(require) {
 'use strict';
 
-let TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_definer');
+
+const { applyChanges } = require('../../delta_algebra');
 
 /**
  * Planning-only task that applies modifications to a conversation based on
@@ -12,8 +14,8 @@ return TaskDefiner.defineSimpleTask([
   {
     name: 'sync_conv',
 
-    applyChanges: function(message, newFlags) {
-      message.flags = newFlags;
+    applyChanges: function(message, flagChanges) {
+      applyChanges(message.flags, flagChanges);
     },
   }
 ]);

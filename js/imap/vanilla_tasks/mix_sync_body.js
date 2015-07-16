@@ -14,13 +14,13 @@ let { TextParser } = require('../protocol/textparser');
 
 let asyncFetchBlob = require('../../async_blob_fetcher');
 
+const { MAX_SNIPPET_BYTES } = require('../../syncbase');
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
  */
-let MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
+const MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
 
-let FETCH_FOR_SNIPPET_BYTES = 4096;
 
 /**
  * @typedef {null} SyncBodyPersistentState
@@ -52,8 +52,8 @@ let FETCH_FOR_SNIPPET_BYTES = 4096;
  * @prop {'snippet'|Number} amount
  *   How much of each message should be fetched.  If omitted, the entirety of
  *   the message will be fetched.  If 'snippet' is provided, an appropriate
- *   value will automatically be chosen.  (Currently, the constant
- *   `FETCH_FOR_SNIPPET_BYTES` is used.)
+ *   value will automatically be chosen.  (Currently, the sybase constant
+ *   `MAX_SNIPPET_BYTES` is used.)
  * @prop {Set} fullBodyMessageIds
  *   Messages for which we want to download the whole body.
  **/
@@ -94,11 +94,6 @@ return TaskDefiner.defineComplexTask([
 
     plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
       // - Check whether we already have a pending request for the conversation.
-      // TODO: concurrency interacting with failure recovery here.  We don't
-      // want to plan a task while execute is running online since that can
-      // result in racing state.  We also don't want to block, but it's critical
-      // that in the event the execute task fails that it still gets run to
-      // completion.
       let planned = memoryState.get(rawTask.convId);
       if (planned) {
         // If the new task has an amount and we either don't have an existing
@@ -187,7 +182,7 @@ return TaskDefiner.defineComplexTask([
       // whole thing.
       let maxBytesPerMessage = 0;
       if (req.amount === 'snippet') {
-        maxBytesPerMessage = FETCH_FOR_SNIPPET_BYTES;
+        maxBytesPerMessage = MAX_SNIPPET_BYTES;
       } else if (req.amount) {
         maxBytesPerMessage = req.amount;
       }
@@ -288,6 +283,11 @@ return TaskDefiner.defineComplexTask([
       let convInfo = churnConversation(req.convId, null, loadedMessages);
 
       // since we're successful at this point, clear it out of the memory state.
+      // TODO: when parallelizing, move this up the top and use it at the same
+      // time as ctx.setFailureTasks in order to implement proper recovery
+      // semantics.  (Although, honestly, sync_body is an inherently idempotent
+      // sort of thing where the front-end is likely to re-issue requests, so
+      // it's not the end of the world if we lose the request.)
       memoryState.delete(req.convId);
 
       yield ctx.finishTask({

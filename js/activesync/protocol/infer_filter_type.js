@@ -28,17 +28,17 @@ const getItemEstimate = require('./get_item_estimate');
  */
 function* inferFilterType(
   conn,
-  { protocolVersion, folderServerId, desiredMessageCount }) {
+  { folderServerId, desiredMessageCount }) {
   const Type = $AirSync.Enums.FilterType;
 
   // -- Get a 2-week syncKey
   let filterType = Type.TwoWeeksBack;
-  let { syncKey } = yield getFolderSyncKey({
-    protocolVersion, folderServerId, filterType });
+  let { syncKey } = yield getFolderSyncKey(
+    conn, { folderServerId, filterType });
 
   // -- Get the item estimate for that 2-week syncKey
-  let { estimate } = yield getItemEstimate({
-    protocolVersion, folderSyncKey: syncKey, folderServerId, filterType });
+  let { estimate } = yield getItemEstimate(
+    conn, { folderSyncKey: syncKey, folderServerId, filterType });
 
   // -- Math!
   let messagesPerDay = estimate / 14; // Two weeks. Twoooo weeeeeeks.
@@ -62,10 +62,10 @@ function* inferFilterType(
     // if the messages are not homogeneously distributed, like if this is an
     // archive folder that only contains messages older than a month.
     filterType = Type.NoFilter;
-    ({ syncKey }) = yield getFolderSyncKey({
-      protocolVersion, folderServerId, filterType });
-    ({ estimate }) = yield getItemEstimate({
-      protocolVersion, folderSyncKey: syncKey, folderServerId, filterType });
+    ({ syncKey }) = yield getFolderSyncKey(
+      conn, { folderServerId, filterType });
+    ({ estimate }) = yield getItemEstimate(
+      conn, { folderSyncKey: syncKey, folderServerId, filterType });
 
     if (estimate > desiredMessageCount) {
       desiredFilterType = Type.OneMonthBack;
@@ -77,8 +77,8 @@ function* inferFilterType(
 
   if (filterType !== desiredFilterType) {
     filterType = desiredFilterType;
-    ({ syncKey }) = yield getFolderSyncKey({
-      protocolVersion, folderServerId, filterType });
+    ({ syncKey }) = yield getFolderSyncKey(
+      conn, { folderServerId, filterType });
   }
 
   logic(folderConn, 'inferFilterType', { filterType });

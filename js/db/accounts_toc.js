@@ -73,7 +73,7 @@ AccountsTOC.prototype = evt.mix({
   removeAccountById: function(accountId) {
     let accountDef = this.accountDefsById.get(accountId);
     let idx = this.accountDefs.indexOf(accountDef);
-    logic(this, 'removeAccountbyId', { accountId: accountId, index: idx });
+    logic(this, 'removeAccountById', { accountId: accountId, index: idx });
 
     this.accountDefsById.delete(accountId);
     this.accountDefs.splice(idx, 1);

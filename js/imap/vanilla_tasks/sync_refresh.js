@@ -13,7 +13,7 @@ let parseImapDateTime = imapchew.parseImapDateTime;
 
 
 /**
- * This is the steady-state sync task that drives all of our gmail sync.
+ * Steady state vanilla IMAP folder sync.
  */
 return TaskDefiner.defineSimpleTask([
   {

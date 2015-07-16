@@ -16,8 +16,6 @@ const em = require('activesync/codepages/Email').Tags;
  *
  * @param {ActiveSyncConnection} conn
  * @param {Object} args
- * @param args.protocolVersion
- *   The protocol version in use for minor variation.
  * @param {String} args.folderServerId
  * @param {Map<MessageServerId, BeRead>} args.read
  * @param {Map<MessageServerId, BeFlagged>} args.flag
@@ -26,7 +24,7 @@ const em = require('activesync/codepages/Email').Tags;
  *   Should deletions be irrevocable (versus moving to the trash folder)?
  */
 function* modifyFolderMessages(conn, args) {
-  let { folderServerId, folderSyncKey, protocolVersion, permanentDeletion } =
+  let { folderServerId, folderSyncKey, permanentDeletion } =
     args;
   let readMap = args.read || new Map();
   let flagMap = args.flag || new Map();
@@ -37,7 +35,7 @@ function* modifyFolderMessages(conn, args) {
      .stag(as.Collections)
        .stag(as.Collection);
 
-  if (protocolVersion.lt('12.1')) {
+  if (conn.currentVersion.lt('12.1')) {
         w.tag(as.Class, 'Email');
   }
 

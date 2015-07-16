@@ -4,6 +4,7 @@ define(function(require) {
 let logic = require('logic');
 
 let { convIdFromMessageId } = require('../../id_conversions');
+let { shallowClone } = require('../util');
 
 let a64 = require('../../a64');
 
@@ -51,6 +52,7 @@ function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId) {
   // A running list of tasks to spin-off
   this._tasksByConvId = new Map();
   this.tasksToSchedule = [];
+  this.umidNameWrites = new Map();
   this.umidLocationWrites = new Map();
 }
 FolderSyncStateHelper.prototype = {
@@ -84,28 +86,21 @@ FolderSyncStateHelper.prototype = {
    * the legwork has to have already been done by the caller.  (All the message
    * processing is way too much for us to do in here.)
    */
-  newMessageWithNewConversation: function(conversation, message) {
-    let umid = this.issueUniqueMessageId();
-    this.umidLocationWrites.set(umid, [this._folderId, uid]);
-    this._makeMessageTask(uid, umid, dateTS, flags);
-    this._uidInfo.set(uid, { umid, flagSlot });
+  newMessageWithNewConversation: function(serverId, message) {
+    let umid = message.umid;
+    this.umidNameWrites.set(umid, message.id);
+    this.umidLocationWrites.set(umid, [this._folderId, serverId]);
+    this._serverIdInfo.set(serverId, umid);
   },
 
-
   /**
-   *
+   * Process changes by tracking the flag changes by umid and noting the umid
+   * for a name-read so that we can cluster sync_conv requests later on.
    */
-  messageChanged: function(serverId, flagChanges) {
-    let info = this._uidInfo.get(uid);
-    let oldFlagSlot = info.flagSlot;
-    let newFlagSlot = this._findFlagSlot(flags);
-    if (newFlagSlot !== oldFlagSlot) {
-      this._decrFlagSlot(oldFlagSlot);
-      this._incrFlagSlot(newFlagSlot);
-      info.flagSlot = newFlagSlot;
-      this.umidFlagChanges.set(info.umid, flags);
-      this.umidNameReads.set(info.umid, null);
-    }
+  messageChanged: function(serverId, changes) {
+    let umid = this._serverIdInfo.get(serverId);
+    this.umidFlagChanges.set(umid, changes.flagChanges);
+    this.umidNameReads.set(umid, null);
   },
 
   /**
@@ -119,14 +114,24 @@ FolderSyncStateHelper.prototype = {
       return;
     }
     this._serverIdInfo.delete(serverId);
-    umidDeletions.add(umid);
-    umidNameReads.set(umid, null);
+    this.umidDeletions.add(umid);
+    this.umidNameReads.set(umid, null);
 
     // Nuke the umid location record.  The sync_conv job will take care of the
     // umidName for consistency reasons.
-    umidLocationWrites.set(umid, null);
+    this.umidLocationWrites.set(umid, null);
   },
 
+  /**
+   * The sync key was no good, so delete all the messages.  Also, invalidate the
+   * syncKey.  Couldn't fit that second sentence in the function name, sorry!
+   */
+  syncKeyInvalidatedSoDeleteAllMessages: function() {
+    this.syncKey = '0';
+    for (let serverId of this._serverIdInfo.keys()) {
+      this.messageDeleted(serverId);
+    }
+  },
 
   /**
    * Now that the umidNameReads should have been satisfied, group all flag
@@ -166,23 +171,6 @@ FolderSyncStateHelper.prototype = {
     task.removedUmids.add(umid);
   },
 
-  /**
-   * Create a sync_message task for a newly added message.
-   */
-  _makeMessageTask: function(uid, umid, dateTS, flags) {
-    let task = {
-      type: 'sync_message',
-      accountId: this._accountId,
-      folderId: this._folderId,
-      uid,
-      umid,
-      dateTS,
-      flags
-    };
-    this.tasksToSchedule.push(task);
-    return task;
-  },
-
   _ensureConvTask: function(convId) {
     if (this._tasksByConvId.has(convId)) {
       return this._tasksByConvId(convId);
@@ -192,12 +180,23 @@ FolderSyncStateHelper.prototype = {
       type: 'sync_conv',
       accountId: this._accountId,
       convId,
-      modifiedUmids: null, // Map<UniqueMessageId, Flags>
+      modifiedUmids: null, // Map<UniqueMessageId, FlagChanges>
       removedUmids: null // Set<UniqueMessageId>
     };
     this.tasksToSchedule.push(task);
     this._tasksByConvId.set(convId, task);
     return task;
+  },
+
+  /**
+   * Just clone the task that triggered us and nuke the stuff that raw tasks
+   * aren't supposed to have.  NB: This is probably not the best idea.
+   */
+  scheduleAnotherRefreshLikeThisOne: function(req) {
+    let rawTask = shallowClone(req);
+    delete rawTask.exclusiveResources;
+    delete rawTask.priorityTags;
+    this.tasksToSchedule.push(rawTask);
   }
 };
 

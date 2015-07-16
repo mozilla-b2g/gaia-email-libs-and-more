@@ -8,32 +8,30 @@ const ie = require('activesync/codepages/ItemEstimate').Tags;
 /**
  * Get an estimate of the number of messages to be synced.
  * TODO: document how/why this needs both a syncKey and a filterType.  Very
- * confusing.
+ * confusing.  (Probably just the protocol being silly, but we should say that.)
  *
  * @param {ActiveSyncConnection} conn
  * @param {Object} args
- * @param args.protocolVersion
- *   The protocol version in use for minor variation.
  * @param {String} args.folderServerId
  * @param {String} args.folderSyncKey
  * @param {String} args.filterType
  */
 function* getItemEstimate(
-  conn, { protocolVersion, folderSyncKey, folderServerId, filterType }) {
+  conn, { folderSyncKey, folderServerId, filterType }) {
 
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(ie.GetItemEstimate)
      .stag(ie.Collections)
        .stag(ie.Collection);
 
-  if (protocolVersion.gte('14.0')) {
+  if (conn.currentVersion.gte('14.0')) {
         w.tag(as.SyncKey, folderSyncKey)
          .tag(ie.CollectionId, folderServerId)
          .stag(as.Options)
            .tag(as.FilterType, filterType)
          .etag();
   }
-  else if (protocolVersion.gte('12.0')) {
+  else if (conn.currentVersion.gte('12.0')) {
         w.tag(ie.CollectionId, folderServerId)
          .tag(as.FilterType, filterType)
          .tag(as.SyncKey, folderSyncKey);

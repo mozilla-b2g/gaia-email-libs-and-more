@@ -10,19 +10,17 @@ const as = require('activesync/codepages/AirSync').Tags;
  *
  * @param {ActiveSyncConnection} conn
  * @param {Object} args
- * @param args.protocolVersion
- *   The protocol version in use for minor variation.
  * @param {String} args.folderServerId
  * @param {String} args.filterType
  */
 function* getFolderSyncKey(conn,
-                           { protocolVersion, folderServerId, filterType }) {
+                           { folderServerId, filterType }) {
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(as.Sync)
      .stag(as.Collections)
        .stag(as.Collection);
 
-  if (protocolVersion.lt('12.1')) {
+  if (conn.currentVersion.lt('12.1')) {
         w.tag(as.Class, 'Email');
   }
 

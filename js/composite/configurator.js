@@ -27,8 +27,7 @@ define(
 
 exports.account = $account;
 exports.configurator = {
-  tryToCreateAccount: function(universe, userDetails, domainInfo,
-                               callback, _LOG) {
+  tryToCreateAccount: function(universe, userDetails, domainInfo) {
     var credentials, incomingInfo, smtpConnInfo, incomingType;
     if (domainInfo) {
       incomingType = (domainInfo.type === 'imap+smtp' ? 'imap' : 'pop3');
@@ -159,7 +158,7 @@ exports.configurator = {
      });
  },
 
-  recreateAccount: function(universe, oldVersion, oldAccountInfo, callback) {
+  recreateAccount: function(universe, oldVersion, oldAccountInfo) {
     var oldAccountDef = oldAccountInfo.def;
 
     var credentials = {
@@ -218,8 +217,7 @@ exports.configurator = {
    * so we can immediately put it to work.
    */
   _defineImapAccount: function(universe, engine, userDetails, credentials,
-                               incomingInfo, smtpConnInfo, imapProtoConn,
-                               callback) {
+                               incomingInfo, smtpConnInfo, imapProtoConn) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,
@@ -265,8 +263,7 @@ exports.configurator = {
    * so we can immediately put it to work.
    */
   _definePop3Account: function(universe, engine, userDetails, credentials,
-                               incomingInfo, smtpConnInfo, pop3ProtoConn,
-                               callback) {
+                               incomingInfo, smtpConnInfo, pop3ProtoConn) {
     var accountId = $a64.encodeInt(universe.config.nextAccountNum++);
     var accountDef = {
       id: accountId,

@@ -1,0 +1,113 @@
+define(function(require) {
+'use strict';
+
+const co = require('co');
+const evt = require('evt');
+const TaskDefiner = require('../../task_definer');
+
+const normalizeFolder = require('../normalize_folder');
+const AccountSyncStateHelper = require('../account_sync_state_helper');
+
+const enumerateHierarchyChanges = require('../protocol/enum_hierarchy_changes');
+
+
+/**
+ * Sync the folder list for an ActiveSync account.
+ */
+return TaskDefiner.defineSimpleTask([
+  {
+    name: 'sync_folder_list',
+    args: ['accountId'],
+
+    exclusiveResources: function(args) {
+      return [
+        // Nothing else that touches folder info is allowed in here.
+        `folderInfo:${args.accountId}`,
+      ];
+    },
+
+    priorityTags: function() {
+      return [
+        'view:folders'
+      ];
+    },
+
+    execute: co.wrap(function*(ctx, req) {
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let foldersTOC = account.foldersTOC;
+      let conn = yield account.ensureConnection();
+
+      let fromDb = yield ctx.beginMutate({
+        syncStates: new Map([[req.accountId, null]])
+      });
+
+      let rawSyncState = fromDb.syncStates.get(req.accountId);
+      let syncState = new AccountSyncStateHelper(
+        ctx, rawSyncState, req.accountId);
+
+      let emitter = new evt.Emitter();
+      let deferredFolders = [];
+
+      function tryAndAddFolder(folderArgs) {
+        let maybeFolderInfo = normalizeFolder(
+          {
+            idMaker: syncState.issueFolderId,
+            serverIdToFolderId: syncState.serverIdToFolderId,
+            folderIdToFolderInfo: foldersTOC.foldersById
+          },
+          {
+            serverId: folderArgs.ServerId,
+            parentServerId: folderArgs.ParentId,
+            displayName: folderArgs.DisplayName,
+            typeNum: folderArgs.Type
+          }
+        );
+        if (maybeFolderInfo === null) {
+          deferredFolders.push(folderArgs);
+        } else if (maybeFolderInfo !== true) {
+          syncState.addedFolder(maybeFolderInfo);
+          foldersTOC.addFolder(maybeFolderInfo);
+        }
+      }
+
+      evt.on('add', (folderArgs) => {
+        tryAndAddFolder(folderArgs);
+      });
+      evt.on('remove', (serverId) => {
+        syncState.removedFolder(serverId);
+        let folderId = syncState.serverIdToFolderId.get(serverId);
+        foldersTOC.foldersTOC.removeFolderById(folderId);
+      });
+
+      yield enumerateHierarchyChanges(
+        conn,
+        { hierarchySyncKey: syncState.hierarchySyncKey, emitter });
+
+      // It's possible we got some folders in an inconvenient order (i.e. child
+      // folders before their parents). Keep trying to add folders until we're
+      // done.
+      while (deferredFolders.length) {
+        let processFolders = deferredFolders;
+        deferredFolders = [];
+        for (let folder of processFolders) {
+          tryAndAddFolder(folder);
+        }
+        if (processFolders.length === deferredFolders.length) {
+          throw new Error('got some orphaned folders');
+        }
+      }
+
+      yield ctx.finishTask({
+        mutations: {
+          syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
+          folders: new Map([
+            [account.id, account.foldersTOC.generatePersistenceInfo()]
+          ]),
+        },
+        // all done!
+        taskState: null
+      });
+    })
+  }
+]);
+});

@@ -17,10 +17,12 @@ let ConversationTOC = require('./db/conv_toc');
 let TaskManager = require('./task_manager');
 let TaskRegistry = require('./task_registry');
 
-// require lazy_tasks for the side-effect of defining the tasks we implement.
 let globalTasks = require('./global_tasks');
+// TODO: lazy-load these by mapping engine names to modules to dynamically
+// require.
 let gmailTasks = require('./imap/gmail_tasks');
 let vanillaImapTasks = require('./imap/vanilla_tasks');
+let activesyncTasks = require('./activesync/activesync_tasks');
 
 let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
   require('./id_conversions');
@@ -61,9 +63,14 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
                                      this.accountsTOC);
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
+  // TODO: as noted above, these should really be doing lazy requires and
+  // registration as accounts demand to be loaded.  (Note: not particularly
+  // hard, but during current dev phase, we want to fail early, not lazily.)
   this.taskRegistry.registerPerAccountTypeTasks('gmail', gmailTasks);
   this.taskRegistry.registerPerAccountTypeTasks(
     'vanillaImap', vanillaImapTasks);
+  this.taskRegistry.registerPerAccountTypeTasks(
+    'activesync', activesyncTasks);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -411,11 +418,15 @@ MailUniverse.prototype = {
     ], why);
   },
 
+  /**
+   * TODO: This and tryToCreateAccount should be refactored to properly be
+   * tasks.
+   */
   saveAccountDef: function(accountDef, folderDbState, protoConn, callback) {
     this.db.saveAccountDef(this.config, accountDef, folderDbState, callback);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
-      // XXX actually this should exclusively go through the database emitter
+      // TODO: actually this should exclusively go through the database emitter
       // stuff.
       this.accountsTOC.accountModified(accountDef);
     } else {

@@ -190,6 +190,29 @@ ActiveSyncAccount.prototype = {
     }
   },
 
+  /**
+   * Returns a Promise that is resolved with the connection when it has
+   * successfully established, or rejected if we could not establish one.  For
+   * example, because we're offline or the password is bad or whatever.
+   *
+   * Reminder: ActiveSync connections are notional; we're mainly just verifying
+   * our credentials are still good and getting updated options/protocol version
+   * info.  (And being bounced the right endpoint for future requests.)
+   */
+  ensureConnection: function() {
+    if (this.conn) {
+      return Promise.resolve(this.conn);
+    }
+    return new Promise((resolve, reject) => {
+      this.withConnection(
+        reject,
+        () => {
+          resolve(this.conn);
+        }
+      );
+    });
+  },
+
   _isBadUserOrPassError: function(error) {
     return (error &&
             error instanceof $asproto.HttpError &&
@@ -314,210 +337,6 @@ ActiveSyncAccount.prototype = {
   accountDeleted: function() {
     this._alive = false;
     this.shutdown();
-  },
-
-  syncFolderList: lazyConnection(0, function asa_syncFolderList(callback) {
-    var account = this;
-
-    var fh = ASCP.FolderHierarchy.Tags;
-    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
-    w.stag(fh.FolderSync)
-       .tag(fh.SyncKey, this.meta.syncKey)
-     .etag();
-
-    this.conn.postCommand(w, function(aError, aResponse) {
-      if (aError) {
-        account._reportErrorIfNecessary(aError);
-        callback(aError);
-        return;
-      }
-      var e = new $wbxml.EventParser();
-      var deferredAddedFolders = [];
-
-      e.addEventListener([fh.FolderSync, fh.SyncKey], function(node) {
-        account.meta.syncKey = node.children[0].textContent;
-      });
-
-      e.addEventListener([fh.FolderSync, fh.Changes, [fh.Add, fh.Delete]],
-                         function(node) {
-        var folder = {};
-        for (let child of node.children) {
-          folder[child.localTagName] = child.children[0].textContent;
-        }
-
-        if (node.tag === fh.Add) {
-          if (!account._addedFolder(folder.ServerId, folder.ParentId,
-                                    folder.DisplayName, folder.Type)) {
-            deferredAddedFolders.push(folder);
-          }
-        }
-        else {
-          account._deletedFolder(folder.ServerId);
-        }
-      });
-
-      try {
-        e.run(aResponse);
-      }
-      catch (ex) {
-        console.error('Error parsing FolderSync response:', ex, '\n',
-                      ex.stack);
-        callback('unknown');
-        return;
-      }
-
-      // It's possible we got some folders in an inconvenient order (i.e. child
-      // folders before their parents). Keep trying to add folders until we're
-      // done.
-      while (deferredAddedFolders.length) {
-        var moreDeferredAddedFolders = [];
-        for (let folder of deferredAddedFolders) {
-          if (!account._addedFolder(folder.ServerId, folder.ParentId,
-                                    folder.DisplayName, folder.Type)) {
-            moreDeferredAddedFolders.push(folder);
-          }
-        }
-        if (moreDeferredAddedFolders.length === deferredAddedFolders.length) {
-          throw new Error('got some orphaned folders');
-        }
-        deferredAddedFolders = moreDeferredAddedFolders;
-      }
-
-      // Once we've synchonized the folder list, kick off another job
-      // to check that we have all essential online folders. Once that
-      // completes, we'll check to make sure our offline-only folders
-      // (localdrafts, outbox) are in the right place according to
-      // where this server stores other built-in folders.
-      account.ensureEssentialOnlineFolders();
-      account.normalizeFolderHierarchy();
-
-      console.log('Synced folder list');
-      callback && callback(null);
-    });
-  }),
-
-  // Map folder type numbers from ActiveSync to Gaia's types
-  _folderTypes: {
-     1: 'normal', // Generic
-     2: 'inbox',  // DefaultInbox
-     3: 'drafts', // DefaultDrafts
-     4: 'trash',  // DefaultDeleted
-     5: 'sent',   // DefaultSent
-     6: 'normal', // DefaultOutbox
-    12: 'normal', // Mail
-  },
-
-  /**
-   * List of known junk folder names, taken from browserbox.js, and used to
-   * infer folders that are junk folders based on their name since there is
-   * no enumerated type representing junk folders.
-   */
-  _junkFolderNames: [
-    'bulk mail', 'correo no deseado', 'courrier indésirable', 'istenmeyen',
-    'istenmeyen e-posta', 'junk', 'levélszemét', 'nevyžiadaná pošta',
-    'nevyžádaná pošta', 'no deseado', 'posta indesiderata', 'pourriel',
-    'roskaposti', 'skräppost', 'spam', 'spamowanie', 'søppelpost',
-    'thư rác', 'спам', 'דואר זבל', 'الرسائل العشوائية', 'هرزنامه', 'สแปม',
-    '垃圾郵件', '垃圾邮件', '垃圾電郵'],
-
-  /**
-   * Update the internal database and notify the appropriate listeners when we
-   * discover a new folder.
-   *
-   * @param {string} serverId A GUID representing the new folder
-   * @param {string} parentServerId A GUID representing the parent folder, or
-   *  '0' if this is a root-level folder
-   * @param {string} displayName The display name for the new folder
-   * @param {string} typeNum A numeric value representing the new folder's type,
-   *   corresponding to the mapping in _folderTypes above
-   * @param {string} forceType Force a string folder type for this folder.
-   *   Used for synthetic folders like localdrafts.
-   * @param {boolean} suppressNotification (optional) if true, don't notify any
-   *   listeners of this addition
-   * @return {object} the folderMeta if we added the folder, true if we don't
-   *   care about this kind of folder, or null if we need to wait until later
-   *   (e.g. if we haven't added the folder's parent yet)
-   */
-  _addedFolder: function(serverId, parentServerId, displayName, typeNum,
-                         forceType) {
-    if (!forceType && !(typeNum in this._folderTypes)) {
-      return true; // Not a folder type we care about.
-    }
-
-    var path = displayName;
-    var parentFolderId = null;
-    var depth = 0;
-    if (parentServerId !== '0') {
-      var parentInfo = this.getFolderByServerId(parentServerId);
-      // No parent yet?  Return null and the add will get deferred.
-      if (!parent) {
-        return null;
-      }
-      parentFolderId = parentInfo.id;
-      path = parentInfo.path + '/' + path;
-      depth = parentInfo.depth + 1;
-    }
-
-    var useFolderType = this._folderTypes[typeNum];
-    // Check if this looks like a junk folder based on its name/path.  (There
-    // is no type for junk/spam folders, so this regrettably must be inferred
-    // from the name.  At least for hotmail.com/outlook.com, it appears that
-    // the name is "Junk" regardless of the locale in which the account is
-    // created, but our current datapoint is one account created using the
-    // Spanish locale.
-    //
-    // In order to avoid bad detections, we assume that the junk folder is
-    // at the top-level or is only nested one level deep.
-    if (depth < 2) {
-      var normalizedName = displayName.toLowerCase();
-      if (this._junkFolderNames.indexOf(normalizedName) !== -1) {
-        useFolderType = 'junk';
-      }
-    }
-    if (forceType) {
-      useFolderType = forceType;
-    }
-
-    // Handle sentinel Inbox.
-    if (typeNum === $FolderTypes.DefaultInbox) {
-      var existingInboxMeta = this.getFirstFolderWithType('inbox');
-      if (existingInboxMeta) {
-        // Update everything about the folder meta.
-        existingInboxMeta.serverId = serverId;
-        existingInboxMeta.name = displayName;
-        existingInboxMeta.path = path;
-        existingInboxMeta.depth = depth;
-        return existingInboxMeta;
-      }
-    }
-
-    var folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
-    var folderInfo = $folder_info.makeFolderMeta({
-      id: folderId,
-      serverId: serverId,
-      name: displayName,
-      type: useFolderType,
-      path: path,
-      parentId: parentFolderId,
-      depth: depth,
-      lastSyncedAt: 0
-    });
-
-    this.foldersTOC.addFolder(folderInfo);
-
-    return folderInfo;
-  },
-
-  /**
-   * Update the TOC in response to the changes in our folders.
-   *
-   * @param {string} serverId A GUID representing the deleted folder
-   */
-  _deletedFolder: function asa__deletedFolder(serverId) {
-    var folderInfo = this.getFolderByServerId(serverId);
-    if (folderInfo) {
-      this.foldersTOC.removeFolderById(folderInfo.id);
-    }
   },
 
   /**
@@ -654,6 +473,8 @@ ActiveSyncAccount.prototype = {
    * top-level-folders. But since moving folders is easy and doesn't
    * really affect the backend, we'll just ensure they exist here, and
    * fix up their hierarchical location when syncing the folder list.
+   *
+   * XXX just like in the IMAP case, we're not currently doing this.
    */
   ensureEssentialOfflineFolders: function() {
     // On folder type numbers: While there are enum values for outbox

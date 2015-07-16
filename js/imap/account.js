@@ -505,6 +505,7 @@ var properties = {
   //////////////////////////////////////////////////////////////////////////////
   // Folder synchronization
 
+  // TODO factor out to be like activesync's normalize_folder.js.
   _determineFolderType: function(box, path) {
     var attribs = (box.flags || []).map(function(flag) {
       return flag.substr(1).toUpperCase(); // Map "\\Noselect" => "NOSELECT"
@@ -635,9 +636,8 @@ var properties = {
   },
 
   /**
-   * TODO: migrate this and its friends out of here to just be part of the task,
-   * a combination of task and functional helper module(s), cleaning it up as we
-   * go.
+   * TODO: migrate this and its friends above into a helper like activesync's
+   * normalize_folder.js and then invoke it from the syncing task.
    */
   processFolderListUpdates: function(boxesRoot, namespaces) {
     if (namespaces) {
