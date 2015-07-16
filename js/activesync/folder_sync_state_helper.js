@@ -21,7 +21,8 @@ let a64 = require('../a64');
  * - filterType: The filter time range we are using for this folder.  Note that
  *   this exists for canonical consistency purposes and if the value ever gets
  *   exposed to the UI, it'll be as a side-effect of the sync process twiddling
- *   some other state.
+ *   some other state.  *This is currently stored as the string value like you'd
+ *   find in ItemEstimate.Enums.Status.*
  * - serverIdInfo: A map from message serverId to umid.
  */
 function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId) {
@@ -86,7 +87,7 @@ FolderSyncStateHelper.prototype = {
    * the legwork has to have already been done by the caller.  (All the message
    * processing is way too much for us to do in here.)
    */
-  newMessageWithNewConversation: function(serverId, message) {
+  newMessage: function(serverId, message) {
     let umid = message.umid;
     this.umidNameWrites.set(umid, message.id);
     this.umidLocationWrites.set(umid, [this._folderId, serverId]);

@@ -126,7 +126,11 @@ return TaskDefiner.defineSimpleTask([
           yield* enumerateFolderChanges(
             conn,
             {
+              folderSyncKey: syncState.syncKey,
+              folderServerId: folderInfo.serverId,
+              filterType: syncState.filterType,
               issueIds,
+              emitter
             });
 
         if (invalidSyncKey) {

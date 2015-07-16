@@ -2,8 +2,9 @@ define(function(require) {
 'use strict';
 
 const $wbxml = require('wbxml');
-const as = require('activesync/codepages/AirSync').Tags;
-const ie = require('activesync/codepages/ItemEstimate').Tags;
+const { Tags: as }= require('activesync/codepages/AirSync');
+const { Tags: ie, Enums: ieEnum } =
+  require('activesync/codepages/ItemEstimate');
 
 /**
  * Get an estimate of the number of messages to be synced.
@@ -70,7 +71,7 @@ function* getItemEstimate(
     throw 'unknown';
   }
 
-  if (status !== ie.Enums.Status.Success) {
+  if (status !== ieEnum.Status.Success) {
     throw 'unknown';
   }
   else {
