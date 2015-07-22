@@ -23,6 +23,7 @@ let globalTasks = require('./global_tasks');
 let gmailTasks = require('./imap/gmail_tasks');
 let vanillaImapTasks = require('./imap/vanilla_tasks');
 let activesyncTasks = require('./activesync/activesync_tasks');
+let pop3Tasks = require('./pop3/pop3_tasks');
 
 let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
   require('./id_conversions');
@@ -71,6 +72,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
     'vanillaImap', vanillaImapTasks);
   this.taskRegistry.registerPerAccountTypeTasks(
     'activesync', activesyncTasks);
+  this.taskRegistry.registerPerAccountTypeTasks(
+    'pop3', pop3Tasks);
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -1097,9 +1100,10 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Create a folder that is the child/descendant of the given parent folder.
-   * If no parent folder id is provided, we attempt to create a root folder,
-   * but honoring the server's configured personal namespace if applicable.
+   * Schedule a task to create a folder that is the child/descendant of the
+   * given parent folder. If no parent folder id is provided, we attempt to
+   * create a root folder, but honoring the server's configured personal
+   * namespace if applicable.
    *
    * @param [AccountId] accountId
    * @param {String} [parentFolderId]
@@ -1115,14 +1119,12 @@ MailUniverse.prototype = {
    *   Should this folder only contain other folders (and no messages)?
    *   On some servers/backends, mail-bearing folders may not be able to
    *   create sub-folders, in which case one would have to pass this.
-   * @param {Function(err, folderMeta)} callback
-   *   A callback that gets called with the folderMeta of the successfully
-   *   created folder or null if there was an error.  (The error code is also
-   *   provided as the first argument.)
    * ]
    */
   createFolder: function(accountId, parentFolderId, folderName, folderType,
-                         containOtherFolders, callback) {
+                         containOtherFolders) {
+    // XXX implement!
+    return;
     var account = this.getAccountForAccountId(accountId);
     var longtermId = this._queueAccountOp(
       account,

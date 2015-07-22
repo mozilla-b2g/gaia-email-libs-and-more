@@ -1,5 +1,5 @@
 define([
-  'rdcommon/log',
+  'logic',
   '../errbackoff',
   '../composite/incoming',
   './sync',
@@ -23,6 +23,7 @@ function(
   require,
   exports
 ) {
+'use strict';
 
 var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
 
@@ -32,12 +33,11 @@ var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
  * CompositeIncomingAccount.
  */
 function Pop3Account(universe, compositeAccount, accountId, credentials,
-                     connInfo, folderInfos, dbConn, existingProtoConn) {
+                     connInfo, foldersTOC, dbConn, existingProtoConn) {
   logic.defineScope(this, 'Account', { accountId: accountId,
                                        accountType: 'pop3' });
 
-  CompositeIncomingAccount.apply(
-      this, [pop3sync.Pop3FolderSyncer].concat(Array.slice(arguments)));
+  CompositeIncomingAccount.apply(this, arguments);
 
   // Set up connection information. We can't make much use of
   // connection pooling since the POP3 protocol only allows one client
@@ -56,10 +56,7 @@ function Pop3Account(universe, compositeAccount, accountId, credentials,
 
   // Immediately ensure that we have any required local-only folders,
   // as those can be created even while offline.
-  this.ensureEssentialOfflineFolders();
-
-  this._jobDriver = new pop3jobs.Pop3JobDriver(
-      this, this._folderInfos.$mutationState);
+  //this.ensureEssentialOfflineFolders();
 }
 exports.Account = exports.Pop3Account = Pop3Account;
 Pop3Account.prototype = Object.create(CompositeIncomingAccount.prototype);
@@ -105,6 +102,34 @@ var properties = {
     if (this._pendingConnectionRequests.length === 1) {
       done();
     }
+  },
+
+  /**
+   * Hacky mechanism that depends on the current single-task-at-a-time
+   * implementation limitation of the task infrastructure to insure mutually
+   * exclusive access to the connection.
+   *
+   * We use withConnection which is mainly just concerned about life-cycle
+   * management.  The right future mechanism for this is likely to make the
+   * connection a RefedResource, possibly one that will only let itself be
+   * acquired by one thing at a time.  However, the exclusiveResources mechanism
+   * planned for the task maanger already potentially covers this, so maybe not.
+   *
+   * TODO: address the connection life-cycle issues better.
+   */
+  ensureConnection: function() {
+    if (this._conn && this._conn.state !== 'disconnected') {
+      return Promise.resolve(this._conn);
+    }
+    return new Promise((resolve, reject) => {
+      this.withConnection((err, conn, done) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(conn);
+        }
+      });
+    });
   },
 
   /** @override */

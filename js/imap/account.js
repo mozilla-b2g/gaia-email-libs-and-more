@@ -781,18 +781,16 @@ var properties = {
    * @param {function} callback
    *   Called when all ops have run.
    */
-  ensureEssentialOnlineFolders: function(callback) {
+  ensureEssentialOnlineFolders: function() {
     var essentialFolders = { 'trash': 'Trash', 'sent': 'Sent' };
     var latch = $allback.latch();
 
     for (var type in essentialFolders) {
       if (!this.getFirstFolderWithType(type)) {
         this.universe.createFolder(
-          this.id, null, essentialFolders[type], type, false, latch.defer());
+          this.id, null, essentialFolders[type], type, false);
       }
     }
-
-    latch.then(callback);
   },
 
   /**

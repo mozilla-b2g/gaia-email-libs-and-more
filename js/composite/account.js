@@ -83,7 +83,9 @@ function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
       accountDef.sendConnInfo, dbConn);
 
   // XXX this hiding and all that just ended up confusing.  FIX IT.
+  // XXX and now I'm making this worse since both can't be true.
   this.imapAccount = this._receivePiece;
+  this.popAccount = this._receivePiece;
   this.smtpAccount = this._sendPiece;
 
   // expose public lists that are always manipulated in place.
@@ -234,6 +236,10 @@ CompositeAccount.prototype = {
    */
   ensureEssentialOnlineFolders: function(callback) {
     return this._receivePiece.ensureEssentialOnlineFolders(callback);
+  },
+
+  ensureEssentialOfflineFolders: function(callback) {
+    return this._receivePiece.ensureEssentialOfflineFolders(callback);
   },
 
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,

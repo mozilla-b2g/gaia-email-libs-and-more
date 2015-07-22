@@ -10,45 +10,16 @@ let TaskDefiner = require('../../task_definer');
 let { resolveConversationTaskHelper } =
   require('../../tasks/mix_conv_resolver');
 
-let { chewMessageStructure } = require('../imapchew');
-
 let { conversationMessageComparator } = require('../../db/comparators');
 
 let churnConversation = require('app_logic/conv_churn');
-
-/**
- * What to fetch.  Note that we currently re-fetch the flags even though they're
- * provided as an argument to our task.  We shouldn't, but this is handy for
- * debugging right now and may end up being conditionally necessary in the
- * smarter CONDSTORE/QRESYNC cases.
- */
-let INITIAL_FETCH_PARAMS = [
-  'uid',
-  'internaldate',
-  'bodystructure',
-  'flags',
-  'BODY.PEEK[' +
-    'HEADER.FIELDS ' +
-    '(FROM TO CC BCC SUBJECT REPLY-TO MESSAGE-ID REFERENCES IN-REPLY-TO)]'
-];
-
-/**
- * @typedef {Object} SyncConvTaskArgs
- * @prop accountId
- * @prop folderId
- * @prop uid
- * @prop umid
- * @prop dateTS
- * @prop flags
- **/
 
 const MAX_PRIORITY_BOOST = 99999;
 const ONE_HOUR_IN_MSECS = 60 * 60 * 1000;
 
 /**
- * Fetch the envelope for a message so we have enough info to create the message
- * and to also thread the message into a conversation.  We create or update the
- * conversation during this process.
+ * Fetch the envelope and snippet for a POP3 message and create and thread the
+ * message.
  */
 return TaskDefiner.defineSimpleTask([
   {
@@ -57,9 +28,7 @@ return TaskDefiner.defineSimpleTask([
     plan: co.wrap(function*(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
-      // We don't have any a priori name-able exclusive resources.  Our records
-      // are either orthogonal or will only be dynamically discovered while
-      // we're running.
+      // We don't have any a priori name-able exclusive resources.
       plannedTask.exclusiveResources = [
       ];
 
@@ -87,31 +56,42 @@ return TaskDefiner.defineSimpleTask([
     }),
 
     execute: co.wrap(function*(ctx, req) {
-      // -- Get the envelope
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
-      let folderInfo = account.getFolderById(req.folderId);
+      // -- Exclusively acquire the sync state for the folder
+      // NB: We don't actually need this right now since the connection knows
+      // the UIDL to message number mapping.  But if it gets optimized more, it
+      // would want this persistent state.
+      /*
+      let fromDb = yield ctx.beginMutate({
+        syncStates: new Map([[req.accountId, null]])
+      });
+      let rawSyncState = fromDb.syncStates.get(req.accountId);
+      let syncState = new SyncStateHelper(
+        ctx, rawSyncState, req.accountId, 'message');
+      */
 
-      let { result: rawMessages } = yield account.pimap.listMessages(
-        folderInfo,
-        [req.uid],
-        INITIAL_FETCH_PARAMS,
-        { byUid: true }
-      );
-      let msg = rawMessages[0];
+      // -- Establish the connection
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let popAccount = account.popAccount;
+      let conn = yield popAccount.ensureConnection();
+
+      // -- Make sure the UIDL mapping is active
+      yield conn.loadMessageList(); // we don't care about the return value.
+
+      let messageNumber = conn.uidlToId[req.uidl];
+
+      let messageInfo =
+        yield conn.downloadPartialMessageByNumber(messageNumber);
 
       // -- Resolve the conversation this goes in.
       let { convId, existingConv, messageId, headerIdWrites, extraTasks } =
-        yield* resolveConversationTaskHelper(ctx, msg, req.accountId, req.umid);
+        yield* resolveConversationTaskHelper(
+          ctx, messageInfo, req.accountId, req.umid);
 
-      let messageInfo = chewMessageStructure(
-        msg,
-        [req.folderId],
-        msg.flags,
-        convId,
-        req.umid,
-        messageId
-      );
-
+      // Perform fixups to make the messageInfo valid.
+      let inboxInfo = account.getFirstFolderWithType('inbox');
+      messageInfo.id = messageId;
+      messageInfo.umid = req.umid;
+      messageInfo.folderIds.push(inboxInfo.id);
 
       // -- If the conversation existed, load it for re-churning
       let oldConvInfo;

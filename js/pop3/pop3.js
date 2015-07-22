@@ -6,6 +6,7 @@ define(['module', 'exports', 'logic', 'tcp-socket', 'md5',
 function(module, exports, logic, tcpSocket, md5,
          transport, MimeParser, imapchew,
          syncbase, dateMod, mimefuncs, mimeMapper, allback) {
+'use strict';
 
   /**
    * The Pop3Client modules and classes are organized according to
@@ -49,7 +50,7 @@ function(module, exports, logic, tcpSocket, md5,
   exports.setTimeoutFunctions = function(set, clear) {
     setTimeout = set;
     clearTimeout = clear;
-  }
+  };
 
   /***************************************************************************
    * Pop3Client
@@ -94,7 +95,7 @@ function(module, exports, logic, tcpSocket, md5,
     options.debug = options.debug || false;
     options.authMethods = ['apop', 'sasl', 'user-pass'];
 
-    logic.defineScope(this, 'Pop3Client');
+    logic.defineScope(this, 'Pop3Client', {});
 
     if (options.preferredAuthMethod) {
       // if we prefer a certain auth method, try that first.
@@ -146,7 +147,7 @@ function(module, exports, logic, tcpSocket, md5,
                            options.crypto === true)
     });
 
-    var connectTimeout = setTimeout(function() {
+    var connectTimeout = setTimeout(() => {
       this.state = 'disconnected';
       if (connectTimeout) {
         clearTimeout(connectTimeout);
@@ -159,13 +160,13 @@ function(module, exports, logic, tcpSocket, md5,
         message: 'Could not connect to ' + options.host + ':' + options.port +
           ' with ' + options.crypto + ' encryption.',
       });
-    }.bind(this), options.connTimeout);
+    }, options.connTimeout);
 
     // Hook the protocol and socket together:
     this.socket.ondata = this.protocol.onreceive.bind(this.protocol);
     this.protocol.onsend = this.socket.send.bind(this.socket);
 
-    this.socket.onopen = function() {
+    this.socket.onopen = () => {
       console.log('pop3:onopen');
       if (connectTimeout) {
         clearTimeout(connectTimeout);
@@ -174,9 +175,9 @@ function(module, exports, logic, tcpSocket, md5,
       this.state = 'greeting';
       // No further processing is needed here. We wait for the server
       // to send a +OK greeting before we try to authenticate.
-    }.bind(this);
+    };
 
-    this.socket.onerror = function(evt) {
+    this.socket.onerror = (evt) => {
       var err = evt && evt.data || evt;
       console.log('pop3:onerror', err);
       if (connectTimeout) {
@@ -190,26 +191,26 @@ function(module, exports, logic, tcpSocket, md5,
         message: 'Socket exception: ' + JSON.stringify(err),
         exception: err,
       });
-    }.bind(this);
+    };
 
     // sync cares about listening for us closing; it has no way to be informed
     // by disaster recovery otherwise
     this.onclose = null;
-    this.socket.onclose = function() {
+    this.socket.onclose = () => {
       console.log('pop3:onclose');
       this.protocol.onclose();
       this.close();
       if (this.onclose) {
         this.onclose();
       }
-    }.bind(this);
+    };
 
     // To track requests/responses in the presence of a server
     // greeting, store an empty request here. Our request/response
     // matching logic will pair the server's greeting with this
     // request.
     this.protocol.pendingRequests.push(
-    new transport.Request(null, [], false, function(err, rsp) {
+    new transport.Request(null, [], false, (err, rsp) => {
       if (err) {
         cb && cb({
           scope: 'connection',
@@ -224,17 +225,17 @@ function(module, exports, logic, tcpSocket, md5,
       // Store the greeting line, it might be needed in authentication
       this._greetingLine = rsp.getLineAsString(0);
 
-      this._maybeUpgradeConnection(function(err) {
+      this._maybeUpgradeConnection((err) => {
         if (err) { cb && cb(err); return; }
-        this._thenAuthorize(function(err) {
+        this._thenAuthorize((err) => {
           if (!err) {
             this.state = 'ready';
           }
           cb && cb(err);
         });
-      }.bind(this));
-    }.bind(this)));
-  }
+      });
+    }));
+  };
 
   /**
    * Disconnect from the server forcibly. Do not issue a QUIT command.
@@ -416,7 +417,7 @@ function(module, exports, logic, tcpSocket, md5,
         cb && cb();
       }
     }.bind(this));
-  }
+  };
 
   /**
    * Load a mapping of server message numbers to UIDLs, so that we
@@ -424,78 +425,82 @@ function(module, exports, logic, tcpSocket, md5,
    * this fetches a LIST of the messages so that we have a list of
    * message sizes in addition to their UIDLs.
    */
-  Pop3Client.prototype._loadMessageList = function(cb) {
-    // if we've already loaded IDs this session, we don't need to
-    // compute them again, because POP3 shows a frozen state of your
-    // mailbox until you disconnect.
-    if (this._messageList) {
-      cb(null, this._messageList);
-      return;
-    }
-    // First, get UIDLs for each message.
-    this.protocol.sendRequest('UIDL', [], true, function(err, rsp) {
-      if (err) {
-        cb && cb({
-          scope: 'mailbox',
-          request: err.request,
-          name: 'server-problem',
-          message: err.getStatusLine(),
-          response: err,
-        });
+  Pop3Client.prototype.loadMessageList = function() {
+    return new Promise((resolve, reject) => {
+      // if we've already loaded IDs this session, we don't need to
+      // compute them again, because POP3 shows a frozen state of your
+      // mailbox until you disconnect.
+      if (this._messageList) {
+        resolve(this._messageList);
         return;
       }
+      // First, get UIDLs for each message.
+      this.protocol.sendRequest('UIDL', [], true, (err, rsp) => {
+        if (err) {
+          reject({
+            scope: 'mailbox',
+            request: err.request,
+            name: 'server-problem',
+            message: err.getStatusLine(),
+            response: err,
+          });
+          return;
+        }
 
-      var lines = rsp.getDataLines();
-      for (var i = 0; i < lines.length; i++) {
-        var words = lines[i].split(' ');
-        var number = words[0];
-        var uidl = words[1];
-        this.idToUidl[number] = uidl;
-        this.uidlToId[uidl] = number
-      }
-      // because POP3 servers process requests serially, the next LIST
-      // will not run until after this completes.
-    }.bind(this));
+        var lines = rsp.getDataLines();
+        for (var i = 0; i < lines.length; i++) {
+          var words = lines[i].split(' ');
+          var number = words[0];
+          var uidl = words[1];
+          this.idToUidl[number] = uidl;
+          this.uidlToId[uidl] = number;
+        }
+        // because POP3 servers process requests serially, the next LIST
+        // will not run until after this completes.
+      });
 
-    // Then, get a list of messages so that we can track their size.
-    this.protocol.sendRequest('LIST', [], true, function(err, rsp) {
-      if (err) {
-        cb && cb({
-          scope: 'mailbox',
-          request: err.request,
-          name: 'server-problem',
-          message: err.getStatusLine(),
-          response: err,
-        });
-        return;
-      }
+      // Then, get a list of messages so that we can track their size.
+      this.protocol.sendRequest('LIST', [], true, (err, rsp) => {
+        if (err) {
+          reject({
+            scope: 'mailbox',
+            request: err.request,
+            name: 'server-problem',
+            message: err.getStatusLine(),
+            response: err,
+          });
+          return;
+        }
 
-      var lines = rsp.getDataLines();
-      var allMessages = [];
-      for (var i = 0; i < lines.length; i++) {
-        var words = lines[i].split(' ');
-        var number = words[0];
-        var size = parseInt(words[1], 10);
-        this.idToSize[number] = size;
-        // Push the message onto the front, so that the last line
-        // becomes the first message in allMessages. Most POP3 servers
-        // seem to return messages in ascending date order, so we want
-        // to process the newest messages first. (Tested with Dovecot,
-        // Gmail, and AOL.) The resulting list here contains the most
-        // recent message first.
-        allMessages.unshift({
-          uidl: this.idToUidl[number],
-          size: size,
-          number: number
-        });
-      }
+        var lines = rsp.getDataLines();
+        var allMessages = [];
+        for (var i = 0; i < lines.length; i++) {
+          var words = lines[i].split(' ');
+          var number = words[0];
+          var size = parseInt(words[1], 10);
+          this.idToSize[number] = size;
+          // Push the message onto the front, so that the last line
+          // becomes the first message in allMessages. Most POP3 servers
+          // seem to return messages in ascending date order, so we want
+          // to process the newest messages first. (Tested with Dovecot,
+          // Gmail, and AOL.) The resulting list here contains the most
+          // recent message first.
+          allMessages.unshift({
+            uidl: this.idToUidl[number],
+            size: size,
+            number: number
+          });
+        }
 
-      this._messageList = allMessages;
-      cb && cb(null, allMessages);
-    }.bind(this));
-  }
+        this._messageList = allMessages;
+        resolve(allMessages);
+      });
+    });
+  };
 
   /**
+   * XXX MOOT!  Being migrated into SyncStateHelper and sync_* tasks.
+   *
    * Fetch the headers and snippets for all messages. Only retrieves
    * messages for which filterFunc(uidl) returns true.
    *
@@ -531,7 +536,7 @@ function(module, exports, logic, tcpSocket, md5,
     var overflowMessages = [];
 
     // Get a mapping of number->UIDL.
-    this._loadMessageList(function(err, unfilteredMessages) {
+    this.loadMessageList(function(err, unfilteredMessages) {
       if (err) { cb && cb(err); return; }
 
       // Calculate which messages we would need to download.
@@ -635,7 +640,7 @@ function(module, exports, logic, tcpSocket, md5,
       nextBatch();
 
     }.bind(this));
-  }
+  };
 
   /**
    * Retrieve the full body (+ attachments) of a message given a UIDL.
@@ -643,14 +648,14 @@ function(module, exports, logic, tcpSocket, md5,
    * @param {string} uidl The message's UIDL as reported by the server.
    */
   Pop3Client.prototype.downloadMessageByUidl = function(uidl, cb) {
-    this._loadMessageList(function(err) {
+    this.loadMessageList(function(err) {
       if (err) {
         cb && cb(err);
       } else {
         this.downloadMessageByNumber(this.uidlToId[uidl], cb);
       }
     }.bind(this));
-  }
+  };
 
   /**
    * Retrieve a portion of one message. The returned message is
@@ -665,34 +670,36 @@ function(module, exports, logic, tcpSocket, md5,
   // it creates unnecessary garbage. Clean this up when we switch over
   // to jsmime.
   Pop3Client.prototype.downloadPartialMessageByNumber = function(number, cb) {
-    // Based on SNIPPET_SIZE_GOAL, calculate approximately how many
-    // lines we'll need to fetch in order to roughly retrieve
-    // SNIPPET_SIZE_GOAL bytes.
-    var numLines = Math.floor(syncbase.POP3_SNIPPET_SIZE_GOAL / 80);
-    this.protocol.sendRequest('TOP', [number, numLines],
-                              true, function(err, rsp) {
-      if(err) {
-        cb && cb({
-          scope: 'message',
-          request: err.request,
-          name: 'server-problem',
-          message: err.getStatusLine(),
-          response: err,
-        });
-        return;
-      }
+    return new Promise((resolve, reject) => {
+      // Based on SNIPPET_SIZE_GOAL, calculate approximately how many
+      // lines we'll need to fetch in order to roughly retrieve
+      // SNIPPET_SIZE_GOAL bytes.
+      var numLines = Math.floor(syncbase.POP3_SNIPPET_SIZE_GOAL / 80);
+      this.protocol.sendRequest('TOP', [number, numLines],
+                                true, (err, rsp) => {
+        if(err) {
+          reject({
+            scope: 'message',
+            request: err.request,
+            name: 'server-problem',
+            message: err.getStatusLine(),
+            response: err,
+          });
+          return;
+        }
 
-      var fullSize = this.idToSize[number];
-      var data = rsp.getDataAsString();
-      var isSnippet = (!fullSize || data.length < fullSize);
-      // If we didn't get enough data, msg.body.bodyReps may be empty.
-      // The values we use for retrieving snippets are
-      // sufficiently large that we really shouldn't run into this
-      // case in nearly all cases. We assume that the UI will
-      // handle this (exceptional) case reasonably.
-      cb(null, this.parseMime(data, isSnippet, number));
-    }.bind(this));
-  }
+        var fullSize = this.idToSize[number];
+        var data = rsp.getDataAsString();
+        var isSnippet = (!fullSize || data.length < fullSize);
+        // If we didn't get enough data, msg.body.bodyReps may be empty.
+        // The values we use for retrieving snippets are
+        // sufficiently large that we really shouldn't run into this
+        // case in nearly all cases. We assume that the UI will
+        // handle this (exceptional) case reasonably.
+        resolve(this.parseMime(data, isSnippet, number));
+      });
+    });
+  };
 
   /**
    * Retrieve a message in its entirety, given a server-centric number.
@@ -793,7 +800,7 @@ function(module, exports, logic, tcpSocket, md5,
   // This function is made visible for test logic external to this module.
   Pop3Client.parseMime = function(content) {
     return Pop3Client.prototype.parseMime.call(this, content);
-  }
+  };
 
   Pop3Client.prototype.parseMime = function(mimeContent, isSnippet, number) {
     var mp = new MimeParser();
@@ -843,8 +850,13 @@ function(module, exports, logic, tcpSocket, md5,
       bodystructure: mimeTreeToStructure(rootNode, '1', partMap, partialNode)
     };
 
-    var rep = imapchew.chewHeaderAndBodyStructure(msg, null, null);
-    var bodyRepIdx = imapchew.selectSnippetBodyRep(rep.header, rep.bodyInfo);
+    // We have no idea what the conversation id is at this point and so we don't
+    // know the message id either.  The umid and folderId are known, but are not
+    // plumbed into these depths at this time.  So we stub them all.  Our
+    // consumer will fix them up.
+    var messageInfo = imapchew.chewMessageStructure(
+      msg, [], [], 'stub', 'stub', 'stub');
+    var bodyRepIdx = imapchew.selectSnippetBodyRep(messageInfo);
 
     // Calculate the proper size for all of the parts. Any part we've
     // seen will have been fully downloaded, so we have the whole
@@ -854,7 +866,9 @@ function(module, exports, logic, tcpSocket, md5,
     var usedSize = 0;
     var partialPartKey = partMap['partial'];
     for (var k in partMap) {
-      if (k === 'partial') { continue; };
+      if (k === 'partial') {
+        continue;
+      }
       if (k !== partialPartKey) {
         usedSize += partMap[k].length;
         partSizes[k] = partMap[k].length;
@@ -864,8 +878,8 @@ function(module, exports, logic, tcpSocket, md5,
       partSizes[partialPartKey] = estSize - usedSize;
     }
 
-    for (var i = 0; i < rep.bodyInfo.bodyReps.length; i++) {
-      var bodyRep = rep.bodyInfo.bodyReps[i];
+    for (var i = 0; i < messageInfo.bodyReps.length; i++) {
+      var bodyRep = messageInfo.bodyReps[i];
 
       content = mimefuncs.charset.decode(partMap[bodyRep.part], 'utf-8');
       var req = {
@@ -883,15 +897,15 @@ function(module, exports, logic, tcpSocket, md5,
           bytesFetched: content.length,
           text: content
         };
-        imapchew.updateMessageWithFetch(rep.header, rep.bodyInfo, req, res);
+        imapchew.updateMessageWithFetch(messageInfo, req, res);
       }
     }
 
 
     // Convert attachments and related parts to Blobs if we've
     // downloaded the whole thing:
-    for (var i = 0; i < rep.bodyInfo.relatedParts.length; i++) {
-      var relatedPart = rep.bodyInfo.relatedParts[i];
+    for (var i = 0; i < messageInfo.relatedParts.length; i++) {
+      var relatedPart = messageInfo.relatedParts[i];
       relatedPart.sizeEstimate = partSizes[relatedPart.part];
       content = partMap[relatedPart.part];
       if (content != null && partialPartKey !== relatedPart.part) {
@@ -899,8 +913,8 @@ function(module, exports, logic, tcpSocket, md5,
       }
     }
 
-    for (var i = 0; i < rep.bodyInfo.attachments.length; i++) {
-      var att = rep.bodyInfo.attachments[i];
+    for (var i = 0; i < messageInfo.attachments.length; i++) {
+      var att = messageInfo.attachments[i];
       content = partMap[att.part];
       att.sizeEstimate = partSizes[att.part];
       if (content != null && partialPartKey !== att.part &&
@@ -912,11 +926,11 @@ function(module, exports, logic, tcpSocket, md5,
     // If it's a snippet and we aren't sure that we have attachments,
     // guess based on what we know.
     if (isSnippet &&
-        !rep.header.hasAttachments &&
+        !messageInfo.hasAttachments &&
         (safeHeader(rootNode, 'x-ms-has-attach') ||
          /multipart\/mixed/.test(rootNode.contentType.value) ||
          estSize > syncbase.POP3_INFER_ATTACHMENTS_SIZE)) {
-      rep.header.hasAttachments = true;
+      messageInfo.hasAttachments = true;
     }
 
     // If we haven't downloaded the entire message, we need to have
@@ -927,7 +941,7 @@ function(module, exports, logic, tcpSocket, md5,
     // POP3, we _don't_ know that we have all bodyReps until we've
     // downloaded the whole thing. There could be parts hidden in the
     // data we haven't downloaded yet.
-    rep.bodyInfo.bodyReps.push({
+    messageInfo.bodyReps.push({
       type: 'fake', // not 'text' nor 'html', so it won't be rendered
       part: 'fake',
       sizeEstimate: 0,
@@ -942,10 +956,10 @@ function(module, exports, logic, tcpSocket, md5,
     // unfortunately, no matter how much we've already downloaded, if
     // we haven't downloaded the whole thing, we can't start from the
     // middle.
-    rep.header.bytesToDownloadForBodyDisplay = (isSnippet ? estSize : 0);
+    messageInfo.bytesToDownloadForBodyDisplay = (isSnippet ? estSize : 0);
 
     // to fill: suid, id
-    return rep;
+    return messageInfo;
   }
 
   /**

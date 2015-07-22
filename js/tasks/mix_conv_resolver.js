@@ -13,8 +13,17 @@ const { convIdFromMessageId, messageIdComponentFromUmid } =
  */
 function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
   // -- Perform message-id header lookups
-  let msgIdHeader = extractMessageIdHeader(msg);
-  let references = extractReferences(msg, msgIdHeader);
+  let msgIdHeader, references;
+  // Is this an already valid-ish MessageInfo from POP3?
+  if (msg.umid === 'stub') {
+    // XXX obviously, this is not a great place for the difference in inputs to
+    // be compensated for
+    msgIdHeader = msg.guid;
+    references = msg.references;
+  } else {
+    msgIdHeader = extractMessageIdHeader(msg);
+    references = extractReferences(msg, msgIdHeader);
+  }
 
   let headerIdLookupRequests = new Map();
   for (let ref of references) {

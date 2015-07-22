@@ -12,26 +12,13 @@ const enumerateHierarchyChanges = require('../smotocol/enum_hierarchy_changes');
 
 
 /**
- * Sync the folder list for an ActiveSync account.
+ * Sync the folder list for an ActiveSync account.  We leverage IMAP's mix-in
+ * for the planning phase.  It's a 50/50 thing on the execute case; we need our
+ * sync state, which would bloat the mixin.
  */
 return TaskDefiner.defineSimpleTask([
+  require('../../imap/vanilla_tasks/mix_sync_folder_list'),
   {
-    name: 'sync_folder_list',
-    args: ['accountId'],
-
-    exclusiveResources: function(args) {
-      return [
-        // Nothing else that touches folder info is allowed in here.
-        `folderInfo:${args.accountId}`,
-      ];
-    },
-
-    priorityTags: function() {
-      return [
-        'view:folders'
-      ];
-    },
-
     execute: co.wrap(function*(ctx, req) {
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let foldersTOC = account.foldersTOC;
