@@ -135,17 +135,22 @@ let MixStoreFlagsMixin = {
           }
         }
 
-        umidChanges.set(umid, actualChanges);
-        modifyTaskMarkers.set(
-          markerId,
-          {
-            type: this.name,
-            id: markerId,
-            accountId: req.accountId,
-            umid,
-            priorityTags: [],
-            exclusiveResources: []
-          });
+        // Accumulate state iff there's an execute implementation.  POP3 is
+        // local-only.  (We don't need to worry about the unify logic above
+        // because umidChanges never gets any state put in it.)
+        if (this.execute) {
+          umidChanges.set(umid, actualChanges);
+          modifyTaskMarkers.set(
+            markerId,
+            {
+              type: this.name,
+              id: markerId,
+              accountId: req.accountId,
+              umid,
+              priorityTags: [],
+              exclusiveResources: []
+            });
+        }
       }
     } // (end per-message loop)
 
