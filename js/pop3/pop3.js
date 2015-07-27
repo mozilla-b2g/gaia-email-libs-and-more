@@ -647,14 +647,10 @@ function(module, exports, logic, tcpSocket, md5,
    *
    * @param {string} uidl The message's UIDL as reported by the server.
    */
-  Pop3Client.prototype.downloadMessageByUidl = function(uidl, cb) {
-    this.loadMessageList(function(err) {
-      if (err) {
-        cb && cb(err);
-      } else {
-        this.downloadMessageByNumber(this.uidlToId[uidl], cb);
-      }
-    }.bind(this));
+  Pop3Client.prototype.downloadMessageByUidl = function(uidl) {
+    return this.loadMessageList().then(() => {
+        return this.downloadMessageByNumber(this.uidlToId[uidl]);
+      });
   };
 
   /**
@@ -669,7 +665,7 @@ function(module, exports, logic, tcpSocket, md5,
   // here. This is generally safe (converting to and from UTF-8), but
   // it creates unnecessary garbage. Clean this up when we switch over
   // to jsmime.
-  Pop3Client.prototype.downloadPartialMessageByNumber = function(number, cb) {
+  Pop3Client.prototype.downloadPartialMessageByNumber = function(number) {
     return new Promise((resolve, reject) => {
       // Based on SNIPPET_SIZE_GOAL, calculate approximately how many
       // lines we'll need to fetch in order to roughly retrieve
@@ -707,21 +703,23 @@ function(module, exports, logic, tcpSocket, md5,
    * @param {string} number The message number (on the server)
    * @param {function(err, msg)} cb
    */
-  Pop3Client.prototype.downloadMessageByNumber = function(number, cb) {
-    this.protocol.sendRequest('RETR', [number], true, function(err, rsp) {
-      if(err) {
-        cb && cb({
-          scope: 'message',
-          request: err.request,
-          name: 'server-problem',
-          message: err.getStatusLine(),
-          response: err,
-        });
-        return;
-      }
-      cb(null, this.parseMime(rsp.getDataAsString(), false, number));
-    }.bind(this));
-  }
+  Pop3Client.prototype.downloadMessageByNumber = function(number) {
+    return new Promise((resolve, reject) => {
+      this.protocol.sendRequest('RETR', [number], true, (err, rsp) => {
+        if(err) {
+          reject({
+            scope: 'message',
+            request: err.request,
+            name: 'server-problem',
+            message: err.getStatusLine(),
+            response: err,
+          });
+          return;
+        }
+        resolve(this.parseMime(rsp.getDataAsString(), false, number));
+      });
+    });
+  };
 
   /**
    * Retrieve a header from a MimeNode given a lowercase headerName.

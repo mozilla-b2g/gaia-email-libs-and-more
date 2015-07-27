@@ -178,8 +178,9 @@ return TaskDefiner.defineComplexTask([
 
       let prepared = yield* this.prepForMessages(ctx, account, loadedMessages);
 
-      // Determine our byte budget for each message.  If omitted, we fetch the
-      // whole thing.
+      // Determine our byte budget for each message.  A zero budget means that
+      // for fullBodyMessageIds-listed messages we will download them in their
+      // entirety and do nothing else for the other messages.
       let maxBytesPerMessage = 0;
       if (req.amount === 'snippet') {
         maxBytesPerMessage = MAX_SNIPPET_BYTES;
@@ -190,6 +191,13 @@ return TaskDefiner.defineComplexTask([
       // -- For each message...
       for (let message of loadedMessages) {
         let remainingByteBudget = maxBytesPerMessage;
+        // If this message isn't explicitly opted-in and we have no snippety
+        // budget, then skip this message.
+        if (!remainingByteBudget &&
+            (!req.fullBodyMessageIds ||
+             !req.fullBodyMessageIds.has(message.id))) {
+          continue;
+        }
         let bodyRepIndex = imapchew.selectSnippetBodyRep(message);
 
         // -- For each body part...

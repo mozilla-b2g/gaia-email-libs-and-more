@@ -70,7 +70,8 @@ SyncStateHelper.prototype = {
   },
 
   issueUniqueMessageId: function() {
-    return a64.encodeInt(this.rawSyncState.nextUmidSuffix++);
+    return (this._accountId + '.' +
+            a64.encodeInt(this.rawSyncState.nextUmidSuffix++));
   },
 
   /**
@@ -154,7 +155,7 @@ SyncStateHelper.prototype = {
    * Track a message as living in overflow for future synchronizing.
    */
   newOverflowMessage: function(uidl, size) {
-    this._overflowUidlsToSizeset(uidl, size);
+    this._overflowUidlsToSize.set(uidl, size);
   },
 
   /**
@@ -168,6 +169,21 @@ SyncStateHelper.prototype = {
       this._uidlToUmid.delete(uidl);
       this.umidNameWrites.set(umid, null);
       this.umidLocationWrites.set(umid, null);
+    }
+  },
+
+  /**
+   * Take `count` messages from the overflow bucket and sync them like they were
+   * new and not overflow.
+   *
+   * TODO: recency awareness heuristic.
+   */
+  syncOverflowMessages: function(count) {
+    let uidlsToSync =
+      Array.from(this._overflowUidlsToSize.keys()).slice(0, count);
+    for (let uidl of uidlsToSync) {
+      this._overflowUidlsToSize.delete(uidl);
+      this.newMessageToSync(uidl);
     }
   },
 

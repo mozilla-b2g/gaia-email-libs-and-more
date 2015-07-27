@@ -61,7 +61,7 @@ let { accountIdFromConvId } = require('../id_conversions');
  * @property {Boolean} hasUnread
  * @property {Boolean} hasStarred
  * @property {Boolean} hasDraft
- * @property {Boolean} hasAttachment
+ * @property {Boolean} hasAttachments
  */
 function MailConversation(api, wireRep, slice, handle) {
   evt.Emitter.call(this);
