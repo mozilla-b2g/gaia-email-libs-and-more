@@ -32,33 +32,88 @@ Most important first:
   are actually executing the task.
 - When a draft is saved to the server, the draft is fixed-up to have sync state.
 
+### The outbox, complex state, and notional folders ###
+
+The v1.x outbox was a local only folder that effectively captured complex task
+state rather than depending on the (poorly suited for that task) job-op queue.
+
+Now that we have complex task state, it begs the question of whether it's
+appropriate to have the folder behave in a magical fashion or whether the
+authoritative data for the "send me" list should be in a complex task state
+that happens to be reflected.
+
+The answer?  Complex state.  Why?:
+- Because of the conversation view, the magical nature of the current folder is
+  no longer sufficient for the UI to display the right thing.  It needs to know
+  on a per-message basis what is a draft or what is currently queued to be sent
+  or is actively being sent.
+  - Queued to be sent / actively being sent implies overlay mechanisms or other
+    meta-data that exists at a finer granularity than labels/folders support.
+- In v1.x messages in the outbox already had more complex state than just being
+  in the outbox.  They also had a sendStatus and could have errors, etc.  This
+  is an argument for tracking the status in a separate and explicit data
+  structure that exists orthogonally to the message data.  (AKA store task
+  state in a task, don't just keep randomly adding data to the the message.
+  Noting that this absolutely depends on overlays and was not a viable option
+  in v1.x and the v1.x decision was the right one.)
+
 ### The naming/id problem ###
 
 The server name for a draft changes each time we save it since we must create a
-new message-id header and a new UID will be allocated.
+new message-id header and a new UID will be allocated.  Happily, the adoption of
+"umid" identifiers with corresponding indirection largely addresses this need.
 
-We want our UI to be able to main stability despite the underlying identifier
-changes as the user saves drafts as they type.  This most significantly impacts
-the current prototype react.js quasi-functional flow where MessageComposition
-instances are hung off of MailMessage instances.  In this case, two things are
-critical:
+### Tasks and Flows ###
 
-- We need the MailMessage to maintain its object identity / instance.  It can't
-  be instantaneously nuked and re-recreated.
-- We need there to not be a vulnerability window where the draft has the server
-  id "oldServerId", we issue a save, and then the draft has server id
-  "newServerId" and there's a time window where the front-end knows
-  "oldServerId" but the front-end only knows "newServerId".
+- draft_create creates a new local message, be it a blank message or a reply or
+  forward of an existing message.
+- draft_save updates the local message's non-attachment state.  That is, the
+  sending identity, recipients, subject, and body are updated.  Attachments
+  are instead manipulated using draft_attach and draft_detach.
+  - When we implement saving drafts to the server, the save process will also
+    result in a draft_upload task being enqueued.
+- draft_attach/draft_detach handle attaching attachments to the message and
+  detaching them again, respectively.
+- draft_discard handles removing a draft.  We have an explicit task for this
+  because deletion got nebulous as soon as gmail entered the picture, and
+  because drafts-on-server potentially benefits from this being very explicit.
+- draft_send moves a message to the outbox and ensures outbox_send gets
+  kicked-off.
+- outbox_abort_send moves a message back to the drafts folder if it isn't
+  actively being sent.
 
-An exploration of our options, skip this if you don't care about what was
-considered:
+#### draft_upload ####
 
-- Create a stable id, dealt with at some consistent abstraction boundary:
-  - The ListView implementations could be aware of magic "stableId" values that,
-    if present, should key the object such that in a single batch an object
-    instance can be deleted from one id and re-created with a new id and have
-    the instance make the jump.  This avoids contaminating the backend with
-    persistence concerns, but doesn't address the vulnerability window.
-  - Deal with this at the sync boundary; the back-end only ever sees the stable
-    id, and the sync logic just has the idea of a bounded-size alias table for
-    the finite number of messages falling into this case.
+draft_upload will be a complex task whose state tracks the set of local drafts
+which are dirty with respect to the server and need to be updated.
+
+Draft uploads are intended to be atomic removals of any prior version of the
+draft with replacement of the new state.  When REPLACE is available, it will be
+used, but in the meantime, APPEND followed by deletion/expunge is the plan for
+IMAP.
+
+A local draft's state as it relates to uploads is one of the following:
+- local-only: The draft only exists locally.
+- synchronized: The draft exists locally and on the server with the same state.
+- stale-server: The draft exists on the server but it's stale, the most recent
+  state exists only locally.
+
+You can think of there existing a notional state "local-stale" where the server
+has the most recent data and our local data is stale.  However, because messages
+are immutable for low-level sync purposes, our sync logic will interpret this
+situation as a "synchronized" message being deleted and remove our draft.
+Coincidentally, an entirely new draft may also happen to show up which humans
+know is the successor to that draft, but which the sync process views as
+completely new and different.
+
+When a draft transitions from "synchronized" to "stale-server" we want it to be
+impossible for the synchronization logic to delete that draft.  This can be
+accomplished by breaking the umidName mapping used by the synchronization logic
+or by making the deletion logic in sync_conv capable of ignoring the deletion.
+Sync logic is resilient to umidNames no longer existing, so that works and
+avoids complexity-inducing cross-task consultations, but it does create a
+potential race where the name can be resolved and the deletion issued around the
+time the draft is being saved.  However, such a scenario is already somewhat
+byzantine in nature and is hard to fight.  Our best option is to have active
+composition contexts endeavor to keep themselves in a "stale-server" state as
+much as possible while active.
