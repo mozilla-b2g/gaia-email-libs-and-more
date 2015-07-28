@@ -184,6 +184,20 @@ function(module, exports, logic, tcpSocket, md5,
         clearTimeout(connectTimeout);
         connectTimeout = null;
       }
+      // XXX improve connection life-cycle management.  What we want this to do
+      // is:
+      // - if there is an active call using us, have us reject that request
+      //   with an error.
+      // - remove the connection from the parent.
+      //
+      // What's notably happening right now is we aren't actively using the
+      // connection and then it generates an error.  But we don't really care.
+      // XXX investigate better why an error is being generated if it's just a
+      // timeout?
+      if (this.state !== 'disconnected') {
+        console.log('pop3:ignoring-error', 'we were connected');
+        return;
+      }
       cb && cb({
         scope: 'connection',
         request: null,
