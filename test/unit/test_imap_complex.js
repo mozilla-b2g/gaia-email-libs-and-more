@@ -246,7 +246,7 @@ commonCase('sliceOpenMostRecent', function(T) {
      { count: 11, full: 11, flags: 0, deleted: 0,
        startTS: 1336521600000, endTS: 1337472000000 },
      { count: 8, full: 8, flags: 0, deleted: 0,
-       startTS: 1337472000000, endTS: 1338422400000 }],
+       startTS: 1337472000000, endTS: null }],
     // This will result in us covering the entire span, so we will be at the
     // bottom too.
     { top: true, bottom: true, grow: true, newCount: 21 },
