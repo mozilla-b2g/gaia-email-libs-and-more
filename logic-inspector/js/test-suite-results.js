@@ -123,8 +123,8 @@ class Event extends React.Component {
             <span className="event-detail" key={index}>
               <span className="event-detail-key">{key}</span>
               <span className="event-detail-value">
-                {typeof details[key] !== 'object' && (details[key]+'').length < 50 ?
-                 details[key] :
+                {(details[key] === null || (typeof details[key] !== 'object' && (details[key]+'').length < 50)) ?
+                 (details[key] + '') :
                  <span className="complex"
                      title={JSON.stringify(details[key], null, ' ')}>
                    [...]

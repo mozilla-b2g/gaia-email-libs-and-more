@@ -3259,15 +3259,15 @@ var TestCompositeAccountMixins = {
             // some tests explicitly specify the date-stamps
             else {
               testFolder.connActor.expect('syncDateRange_begin', {
-                // startTS: einfo.startTS,
-                // endTS: einfo.endTS
+                startTS: einfo.startTS,
+                endTS: einfo.endTS
               });
               testFolder.connActor.expect('syncDateRange_end', {
                 full: einfo.full,
                 flags: einfo.flags,
                 deleted: einfo.deleted,
-                // startTS: einfo.startTS,
-                // endTS: einfo.endTS
+                startTS: einfo.startTS,
+                endTS: einfo.endTS
               });
             }
           // implied: this.type === 'pop3'

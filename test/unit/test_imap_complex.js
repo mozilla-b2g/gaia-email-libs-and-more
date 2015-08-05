@@ -235,7 +235,7 @@ commonCase('sliceOpenMostRecent', function(T) {
     // Because of the overflow, we trigger bisection logic, so this sync
     // gets aborted which logs all null values:
     [{ count: 0, full: null, flags: null, deleted: null,
-       startTS: 631152000000, endTS: 1338249600000 },
+       startTS: 631152000000, endTS: null },
     // The bisection logic falls back from the 'all of time ever' case,
     // falling back to the startTS of the actual message coverage and then using
     // a hard-coded 1/3 divvying.
@@ -246,7 +246,7 @@ commonCase('sliceOpenMostRecent', function(T) {
      { count: 11, full: 11, flags: 0, deleted: 0,
        startTS: 1336521600000, endTS: 1337472000000 },
      { count: 8, full: 8, flags: 0, deleted: 0,
-       startTS: 1337472000000, endTS: 1338422400000 }],
+       startTS: 1337472000000, endTS: null }],
     // This will result in us covering the entire span, so we will be at the
     // bottom too.
     { top: true, bottom: true, grow: true, newCount: 21 },
@@ -601,7 +601,7 @@ commonCase('growth into already-synced does not skip any time', function(T) {
   folderView = testAccount.do_openFolderView(
     'reopens with refresh', testFolder,
     { count: 3, full: 0, flags: 3, deleted: 0,
-      startTS: 1327536000000, endTS: 1327708800000 },
+      startTS: 1327708800000, endTS: null },
     { top: true, bottom: false, grow: false, newCount: 0 });
 
   T.group('grow pastwards');
@@ -830,10 +830,10 @@ commonCase('repeated refresh is stable', function(T) {
     { top: true, bottom: false, grow: false,
       // This is a deepening sync that covers everything, so we will have a
       // wider time span only on this one.
-      startTS: 946339200000, endTS: 947030400000 },
+      startTS: 946684800000, endTS: null },
     { syncedToDawnOfTime: true });
-  var refreshSpanStart = 946771200000, // Jan 2nd midnight UTC
-      refreshSpanEnd = 947030400000; // Jan 5th midnight UTC
+  var refreshSpanStart = 946684800000,
+      refreshSpanEnd = null;
   testAccount.do_refreshFolderView(
     testView,
     { count: fillSize, full: 0, flags: fillSize, deleted: 0,
