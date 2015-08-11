@@ -1,17 +1,21 @@
 define(function(require) {
 'use strict';
 
-let evt = require('evt');
+const evt = require('evt');
 
-let MailSenderIdentity = require('./mail_sender_identity');
-
-let asyncFetchBlob = require('../async_blob_fetcher');
+const asyncFetchBlob = require('../async_blob_fetcher');
 
 /**
- * Represents a draft that you're currently editing.  If you want to display a
- * draft, just use the `MailMessage`.  If you want to edit/compose, use
- * `MailMessage.replyToMessage`, `MailMessage.forwardMessage`,
- * `MailAPI.beginMessageComposition`, or `MailAPI.resumeMessageComposition`.
+ * Your scratchpad for storing your in-progress draft state and a place where
+ * context-aware helpers live (or will live in the future).
+ *
+ * This is asynchronously initialized in the front-end from the same back-end
+ * raw MessageInfo representation that is used to populate a MailMessage.
+ *
+ * If you don't have a draft MailMessage yet, then use
+ * `MailMessage.replyToMessage`, `MailMessage.forwardMessage`, or
+ * `MailAPI.beginMessageComposition`.  If you do have a MailMessage, use its
+ * `MailMessage.editAsDraft` method.
  *
  * ## On Content and Blobs ##
  *
@@ -31,20 +35,27 @@ let asyncFetchBlob = require('../async_blob_fetcher');
  * empty drafts that pile up if the user does not explicitly delete a draft and
  * our app ends up getting closed.
  *
- * ## Drafts and their Wire Protocol ##
+ * Note that although composition sessions aren't tracked, each instance of us
+ * keeps a live MailMessage around for updates, and so you do need to call
+ * release when done with us.
  *
- * The representation we send across the wire and receive is not the same as the
- * representation used for `MailMessage` instances.
+ * ## Drafts Have No Custom Rep ##
+ *
+ * We used to have a representation for drafts that we sent in both directions,
+ * but it added complexity and made things more confusing.  (Note that the
+ * requests we issue to save/update our draft state inherently have a wire
+ * protocol of sorts, but it's really just argument propagation.)
  *
  * ## Other clients and drafts ##
  *
- * If another client deletes our draft out from under us, we currently won't
- * notice.  Some day we want to be able to recognize this (and not be tricked
- * into thinking what we ourselves did was done by someone else).
+ * If the draft gets removed, a 'remove' event will fire.
+ * TODO: That's not actually implemented yet, but the hookup in this class is.
+ * So the todo is to remove this comment once the backend is clever enough.
  */
-function MessageComposition(api, handle) {
+function MessageComposition(api) {
+  evt.Emitter.call(this);
   this.api = api;
-  this._handle = handle;
+  this._message = null;
 
   this.senderIdentity = null;
 
@@ -86,18 +97,22 @@ MessageComposition.prototype = evt.mix({
     };
   },
 
-  __asyncInitFromWireRep: function(wireRep) {
+  __asyncInitFromMessage: function(message) {
+    this._message = message;
+    message.on('change', this._onMessageChange.bind(this));
+    message.on('remove', this._onMessageRemove.bind(this));
+    let wireRep = message._wireRep;
     this.serial++;
 
     this.id = wireRep.id;
-    this.senderIdentity = new MailSenderIdentity(this.api, wireRep.identity);
+    // TODO: use draftInfo to grab the MailSenderIdentity off the accounts, etc.
     this.subject = wireRep.subject;
-    this.cc = wireRep.cc;
     this.to = wireRep.to;
+    this.cc = wireRep.cc;
     this.bcc = wireRep.bcc;
-    this._references = wireRep.referencesStr;
     this.attachments = wireRep.attachments;
-    this.sendStatus = wireRep.sendStatus; // For displaying "Send failed".
+    // For displaying "Send failed".
+    this.sendStatus = wireRep.draftInfo.sendStatus;
 
     this.htmlBlob = wireRep.htmlBlob;
     return asyncFetchBlob(wireRep.body.textBlob, 'json').then((textRep) => {
@@ -108,13 +123,42 @@ MessageComposition.prototype = evt.mix({
       } else {
         this.textBody = '';
       }
+      return this;
     });
   },
 
+  /**
+   * Process change events reported by the MailMessage that we are a
+   * representation of.
+   *
+   * We intentionally do not want to update when the subject/to/cc/bcc change.
+   *
+   * We do, however, care about the following right now:
+   * - sendStatus: We want to reflect send errors.
+   * And will care about in the future:
+   * - attachments: When we start encoding these on demand as part of the send
+   *   process and retain the Blob as a usable binary, we will want to just be
+   *   a live view of the attachments from the message with the ability to
+   *   expose the Blob for viewing and also detach it.  In the meantime, our
+   *   local manipulations as we issue commands is sufficient.
+   */
+  _onMessageChange: function() {
+    let wireRep = this._message._wireRep;
+    this.sendStatus = wireRep.draftInfo.sendStatus;
+    this.emit('change');
+  },
+
+  /**
+   * Propagate the remove event.
+   */
+  _onMessageRemove: function() {
+    this.emit('remove');
+  },
+
   release: function() {
-    if (this._handle) {
-      this.api._composeDone(this._handle, 'release', null, null);
-      this._handle = null;
+    if (this._message) {
+      this._message.release();
+      this._message = null;
     }
   },
 
@@ -226,14 +270,13 @@ MessageComposition.prototype = evt.mix({
    */
   _buildWireRep: function() {
     return {
-      senderId: this.senderIdentity.id,
+      // snapshot the timestamp of this state.
+      date: Date.now(),
       to: this.to,
       cc: this.cc,
       bcc: this.bcc,
       subject: this.subject,
-      body: this.body,
-      referencesStr: this._references,
-      attachments: this.attachments,
+      textBody: this.textBody
     };
   },
 

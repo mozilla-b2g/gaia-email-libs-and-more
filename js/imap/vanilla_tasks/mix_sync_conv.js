@@ -1,9 +1,9 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
+const co = require('co');
 
-let churnConversation = require('app_logic/conv_churn');
+const churnConversation = require('app_logic/conv_churn');
 
 /**
  * Planning-only task mix-in that applies modifications to a conversation based

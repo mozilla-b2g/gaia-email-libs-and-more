@@ -8,37 +8,30 @@ logic.realtimeLogEverything = true;
 
 // Use a relative link so that consumers do not need to create
 // special config to use main-frame-setup.
-var addressparser = require('./ext/addressparser');
-var evt = require('evt');
+const addressparser = require('./ext/addressparser');
+const evt = require('evt');
 
-var MailAccount = require('./clientapi/mail_account');
-var MailSenderIdentity = require('./clientapi/mail_sender_identity');
-var MailFolder = require('./clientapi/mail_folder');
+const MailAccount = require('./clientapi/mail_account');
+const MailSenderIdentity = require('./clientapi/mail_sender_identity');
+const MailFolder = require('./clientapi/mail_folder');
 
-var MailConversation = require('./clientapi/mail_conversation');
+const MailConversation = require('./clientapi/mail_conversation');
+const MailMessage = require('./clientapi/mail_message');
 
-var ContactCache = require('./clientapi/contact_cache');
-var UndoableOperation = require('./clientapi/undoable_operation');
+const ContactCache = require('./clientapi/contact_cache');
+const UndoableOperation = require('./clientapi/undoable_operation');
 
-var AccountsViewSlice = require('./clientapi/accounts_view_slice');
-var FoldersListView = require('./clientapi/folders_list_view');
-var ConversationsListView = require('./clientapi/conversations_list_view');
-var MessagesListView = require('./clientapi/messages_list_view');
+const AccountsViewSlice = require('./clientapi/accounts_view_slice');
+const FoldersListView = require('./clientapi/folders_list_view');
+const ConversationsListView = require('./clientapi/conversations_list_view');
+const MessagesListView = require('./clientapi/messages_list_view');
 
-var MessageComposition = require('./clientapi/message_composition');
+const MessageComposition = require('./clientapi/message_composition');
 
-var { accountIdFromConvId, accountIdFromMessageId, convIdFromMessageId } =
+const { accountIdFromConvId, accountIdFromMessageId, convIdFromMessageId } =
   require('./id_conversions');
 
-var Linkify = require('./clientapi/bodies/linkify');
-
-function objCopy(obj) {
-  var copy = {};
-  Object.keys(obj).forEach(function (key) {
-    copy[key] = obj[key];
-  });
-  return copy;
-}
+const Linkify = require('./clientapi/bodies/linkify');
 
 /**
  * Given a list of MailFolders (that may just be null and not a list), map those
@@ -289,6 +282,25 @@ MailAPI.prototype = evt.mix({
   },
 
   /**
+   * Return a promise that's resolved with a MailMessage instance that is
+   * live-updating with events until `release` is called on it.
+   *
+   * @param {[MessageId, DateMS]} messageNamer
+   */
+  getMessage: function(messageNamer, priorityTags) {
+    let messageId = messageNamer[0];
+    // We need the account for the conversation in question to be loaded for
+    // safety, dependency reasons.
+    return this.eventuallyGetAccountById(accountIdFromMessageId(messageId))
+      .then(() => {
+        // account is ignored, we just needed to ensure it existed for
+        // _mapLabels to be a friendly, happy, synchronous API.
+        return this._getItemAndTrackUpdates(
+          'msg', messageNamer, MailMessage, priorityTags);
+      });
+  },
+
+  /**
    * Sends a message with a freshly allocated single-use handle, returning a
    * Promise that will be resolved when the MailBridge responds to the message.
    * (Someday it may also be rejected if we lose the back-end.)
@@ -305,6 +317,7 @@ MailAPI.prototype = evt.mix({
   },
 
   _recv_promisedResult: function(msg) {
+    let handle = msg.handle;
     let pending = this._pendingRequests[handle];
     delete this._pendingRequests[handle];
     pending.resolve(msg);
@@ -464,22 +477,6 @@ MailAPI.prototype = evt.mix({
       attachmentIndices: attachmentIndices,
       registerAttachments: registerAttachments
     });
-  },
-
-  _recv_downloadedAttachments: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for got body:', msg.handle);
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    // We used to update the attachment representations here.  This is now
-    // handled by `bodyModified` notifications which are guaranteed to occur
-    // prior to this callback being invoked.
-
-    if (req.callback)
-      req.callback.call(null, req.body);
   },
 
   /**
@@ -1225,90 +1222,75 @@ MailAPI.prototype = evt.mix({
    * inferred.  Message may be null if there are no messages in the folder.
    * Folder is not required if a message is provided.
    *
-   * NOTE: The composition object returned is not "live".  We don't expect
-   * the current front-end to get into situations where another client could
-   * effectively claim ownership of a draft out from under us, so we don't
-   * bother.  In the future we will likely make it live with very minimal events
-   * covering "draft went away!" and "draft superseded by another draft!", both
-   * of which would likely be dealt with in the same fashion.
-   *
    * @param {MailMessage} message
    * @param {MailFolder} folder
    * @param {Object} options
    * @param {'reply'|'forward'} options.command
-   * @param {null|'list'|'all'} options.mode
+   * @param {'sender'|'all'} options.mode
    *   The reply mode.  This will eventually indicate the forwarding mode too.
-   * @return {Promise<Messagecomposition>}
-   *   A MessageComposition instance populated for use.
+   * @param {Boolean} [options.noComposer=false]
+   *   Don't actually want the MessageComposition instance created for you?
+   *   Pass true for this.  You can always call resumeMessageComposition
+   *   yourself; that's all we do anyways.
+   * @return {Promise<MessageComposition>}
+   *   A MessageComposition instance populated for use.  You need to call
+   *   release on it when you are done.
    */
-  beginMessageComposition: function(message, folder, options, callback) {
+  beginMessageComposition: function(message, folder, options) {
     if (!options) {
       options = {};
     }
     return this._sendPromisedRequest({
-      type: 'beginCompose',
-      messageId: message ? message.id : null,
-      messageDate: message ? message.date.valueOf() : null,
-      folderId: folder ? folder.id : null,
-      command: options.command,
-      mode: options.mode
+      type: 'createDraft',
+      draftType: options.command,
+      mode: options.mode,
+      refMessageId: message ? message.id : null,
+      refMessageDate: message ? message.date.valueOf() : null,
+      folderId: folder ? folder.id : null
     }).then((msg) => {
-      let composer = new MessageComposition(this, msg.data, handle);
-      return composer;
+      let namer = { id: msg.messageId, date: msg.messageDate };
+      if (options.noComposer) {
+        return namer;
+      } else {
+        return this.resumeMessageComposition(namer);
+      }
     });
   },
 
   /**
    * Open a message as if it were a draft message (hopefully it is), returning
-   * a MessageComposition object that will be asynchronously populated.  The
-   * provided callback will be notified once all composition state has been
-   * loaded.
+   * a Promise that will be resolved with a fully valid MessageComposition
+   * object.  You will need to call release
    *
-   * The underlying message will be replaced by other messages as the draft
-   * is updated and effectively deleted once the draft is completed.  (A
-   * move may be performed instead.)
+   * @param {MailMessage|MessageObjNamer} namer
    */
-  resumeMessageComposition: function(message) {
-    return this._sendPromisedRequest({
-      type: 'resumeCompose',
-      messageId: message ? message.id : null,
-      messageDate: message ? message.date.valueOf() : null
-    }).then((msg) => {
-      let composer = new MessageComposition(this, msg.data, handle);
-      return composer;
+  resumeMessageComposition: function(namer) {
+    return this.getMessage([namer.id, namer.date.valueOf()]).then((msg) => {
+      let composer = new MessageComposition(this);
+      return composer.__asyncInitFromMessage(msg);
     });
   },
 
-  _composeAttach: function(messageId, attachmentDef, callback) {
-    return this._sendPromisedRequest({
+  _composeAttach: function(messageId, attachmentDef) {
+    this.__bridgeSend({
       type: 'attachBlobToDraft',
       messageId,
       attachmentDef
-    }).then((msg) => {
-      return msg.err;
     });
   },
 
-  _composeDetach: function(messageId, attachmentIndex, callback) {
-    return this._sendPromisedRequest({
+  _composeDetach: function(messageId, attachmentIndex) {
+    this.__bridgeSend({
       type: 'detachAttachmentFromDraft',
       messageId,
       attachmentIndex
-    }).then((msg) => {
-      return msg.err;
     });
   },
 
-  _composeDone: function(messageId, command, state, callback) {
-    return this._sendPromisedRequest({
+  _composeDone: function(messageId, command, draftFields) {
+    this.__bridgeSend({
       type: 'doneCompose',
-      messageId, command, state
-    }).then((msg) => {
-      return {
-        sentDate: msg.sentDate,
-        messageId: msg.messageId,
-        sendStatus: msg.sendStatus
-      };
+      messageId, command, draftFields
     });
   },
 

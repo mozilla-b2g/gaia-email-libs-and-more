@@ -173,7 +173,14 @@ TaskManager.prototype = evt.mix({
 
   /**
    * Return a promise that will be resolved when the tasks with the given id's
-   * have been planned.
+   * have been planned.  The resolved value is a list of the declared results
+   * of each task having been planned.  Tasks may optionally return a result;
+   * if they return no result, `undefined` will be returned.
+   *
+   * Note that there is no corresponding method for the execute stage because
+   * timely execution of `execute` tasks is no guaranteed and so it's deemed
+   * a foot-gun.  The results of task execution should be propagated through
+   * manipulations to database records or via the overlay mechanism.
    */
   waitForTasksToBePlanned: function(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
@@ -370,13 +377,13 @@ TaskManager.prototype = evt.mix({
     let ctx = new TaskContext(wrappedTask, this._universe);
     let planResult = this._registry.planTask(ctx, wrappedTask);
     if (planResult) {
-      planResult.then(() => {
+      planResult.then((returnedResult) => {
         logic(this, 'planning:end', { task: wrappedTask });
-        this.emit('planned:' + wrappedTask.id);
+        this.emit('planned:' + wrappedTask.id, returnedResult);
       });
     } else {
       logic(this, 'planning:end', { moot: true, task: wrappedTask });
-      this.emit('planned:' + wrappedTask.id);
+      this.emit('planned:' + wrappedTask.id, undefined);
     }
     return planResult;
   },

@@ -8,14 +8,15 @@ const churnConversation = require('app_logic/conv_churn');
 
 
 /**
- * Update the non-attachment parts of an existing draft.
+ * Delete the draft without any type of undo mechanism.
+ * TODO: Any type of undo mechanism ;)
  *
  * This is quite simple right now.  We just load the conversation, re-chew it,
- * and save the modified conversation and message.
+ * and save the modified conversation with the message deleted.
  */
 return TaskDefiner.defineSimpleTask([
   {
-    name: 'draft_save',
+    name: 'draft_delete',
 
     plan: co.wrap(function*(ctx, req) {
       let { messageId } = req;
@@ -28,27 +29,13 @@ return TaskDefiner.defineSimpleTask([
       let messages = fromDb.messagesByConversation.get(convId);
       let modifiedMessagesMap = new Map();
 
-      let messageInfo = messages.find(msg => msg.id === messageId);
-      if (messageInfo === null) {
+      let draftIndex = messages.findIndex(msg => msg.id === messageId);
+      if (draftIndex === -1) {
         throw new Error('moot');
       }
+      messages.splice(draftIndex, 1);
 
-      // -- Update the message.
-      let draftFields = req.draftFields;
-      messageInfo.date = draftFields.date;
-      messageInfo.to = draftFields.to;
-      messageInfo.cc = draftFields.cc;
-      messageInfo.bcc = draftFields.bcc;
-      messageInfo.subject = draftFields.subject;
-      // - Update the body rep
-      let textRep = messageInfo.bodyReps.find((rep) => {
-        return rep.type === 'plain';
-      });
-      textRep.contentBlob =
-        new Blob([JSON.stringify([0x1, draftFields.textBody])],
-                                 { type: 'application/json' });
-
-      modifiedMessagesMap.set(messageId, messageInfo);
+      modifiedMessagesMap.set(messageId, null);
 
       let oldConvInfo = fromDb.conversations.get(req.convId);
       let convInfo = churnConversation(convId, oldConvInfo, messages);

@@ -12,19 +12,6 @@ let BatchManager = require('./bridge/batch_manager');
 let EntireListProxy = require('./bridge/entire_list_proxy');
 let WindowedListProxy = require('./bridge/windowed_list_proxy');
 
-function checkIfAddressListContainsAddress(list, addrPair) {
-  if (!list) {
-    return false;
-  }
-  let checkAddress = addrPair.address;
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].address === checkAddress) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /**
  * There is exactly one `MailBridge` instance for each `MailAPI` instance.
  * `same-frame-setup.js` is the only place that hooks them up together right
@@ -392,6 +379,11 @@ MailBridge.prototype = {
         // just fold this into the eventHandler once things stabilize.
         eventArgsToRaw = ((id, convInfo) => { return convInfo; });
         break;
+      case 'msg':
+        requests.messages = idRequestMap;
+        rawToWireRep = (x => x);
+        eventArgsToRaw = ((id, messageInfo) => { return messageInfo; });
+        break;
       default:
         throw new Error('unsupported item type: ' + msg.itemType);
     }
@@ -447,6 +439,7 @@ MailBridge.prototype = {
   },
 
   _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
+    // XXX OLD
     var self = this;
     this.universe.downloadMessageAttachments(
       msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
@@ -490,6 +483,7 @@ MailBridge.prototype = {
   },
 
   _cmd_sendOutboxMessages: function(msg) {
+    // XXX OLD
     var account = this.universe.getAccountForAccountId(msg.accountId);
     this.universe.sendOutboxMessages(account, {
       reason: 'api request'
@@ -502,6 +496,7 @@ MailBridge.prototype = {
   },
 
   _cmd_setOutboxSyncEnabled: function(msg) {
+    // XXX OLD
     var account = this.universe.getAccountForAccountId(msg.accountId);
     this.universe.setOutboxSyncEnabled(
       account, msg.outboxSyncEnabled, function() {
@@ -513,6 +508,7 @@ MailBridge.prototype = {
   },
 
   _cmd_undo: function mb__cmd_undo(msg) {
+    // XXX OLD
     this.universe.undoMutation(msg.longtermIds);
   },
 
@@ -520,165 +516,24 @@ MailBridge.prototype = {
   // Composition
 
   _cmd_beginCompose: function(msg) {
-    this.universe.beginCompose();
-
-    require(['./drafts/composer', 'mailchew'], function ($composer, $mailchew) {
-      // - figure out the identity to use
-      var account, identity, folderId;
-      if (msg.mode === 'new' && msg.submode === 'folder')
-        account = this.universe.getAccountForFolderId(msg.refSuid);
-      else
-        account = this.universe.getAccountForMessageSuid(msg.refSuid);
-      req.account = account;
-
-      identity = account.identities[0];
-
-      var bodyText = $mailchew.generateBaseComposeBody(identity);
-      if (msg.mode !== 'reply' && msg.mode !== 'forward') {
-        return this.__sendMessage({
-          type: 'composeBegun',
-          handle: msg.handle,
-          error: null,
-          identity: identity,
-          subject: '',
-          body: { text: bodyText, html: null },
-          to: [],
-          cc: [],
-          bcc: [],
-          references: null,
-          attachments: [],
-        });
-      }
-
-      var folderStorage =
-        this.universe.getFolderStorageForMessageSuid(msg.refSuid);
-      var self = this;
-      folderStorage.getMessage(
-        msg.refSuid, msg.refDate, { withBodyReps: true }, function(res) {
-
-        if (!res) {
-          // cannot compose a reply/fwd message without a header/body
-          return console.warn(
-            'Cannot compose message missing header/body: ',
-            msg.refSuid
-          );
-        }
-
-        var header = res.header;
-        var bodyInfo = res.body;
-
-        if (msg.mode === 'reply') {
-          var rTo, rCc, rBcc;
-          // clobber the sender's e-mail with the reply-to
-          var effectiveAuthor = {
-            name: msg.refAuthor.name,
-            address: (header.replyTo && header.replyTo.address) ||
-                     msg.refAuthor.address,
-          };
-          switch (msg.submode) {
-            case 'list':
-              // XXX we can't do this without headers we're not retrieving,
-              // fall through for now.
-            case null:
-            case 'sender':
-              rTo = [effectiveAuthor];
-              rCc = rBcc = [];
-              break;
-            case 'all':
-              // No need to change the lists if the author is already on the
-              // reply lists.
-              //
-              // nb: Our logic here is fairly simple; Thunderbird's
-              // nsMsgCompose.cpp does a lot of checking that we should
-              // audit, although much of it could just be related to its
-              // much more extensive identity support.
-              if (checkIfAddressListContainsAddress(header.to,
-                                                    effectiveAuthor) ||
-                  checkIfAddressListContainsAddress(header.cc,
-                                                    effectiveAuthor)) {
-                rTo = header.to;
-              }
-              // add the author as the first 'to' person
-              else {
-                if (header.to && header.to.length) {
-                  rTo = [effectiveAuthor].concat(header.to);
-                } else {
-                  rTo = [effectiveAuthor];
-                }
-              }
-
-              // For reply-all, don't reply to your own address.
-              var notYourIdentity = function(person) {
-                return person.address !== identity.address;
-              };
-
-              rTo = rTo.filter(notYourIdentity);
-              rCc = (header.cc || []).filter(notYourIdentity);
-              rBcc = header.bcc;
-              break;
-          }
-
-          var referencesStr;
-          if (bodyInfo.references) {
-            referencesStr = bodyInfo.references.concat([msg.refGuid])
-                              .map(function(x) { return '<' + x + '>'; })
-                              .join(' ');
-          }
-          else if (msg.refGuid) {
-            referencesStr = '<' + msg.refGuid + '>';
-          }
-          // ActiveSync does not thread so good
-          else {
-            referencesStr = '';
-          }
-          req.active = null;
-
-          self.__sendMessage({
-            type: 'composeBegun',
-            handle: msg.handle,
-            error: null,
-            identity: identity,
-            subject: $mailchew.generateReplySubject(msg.refSubject),
-            // blank lines at the top are baked in
-            body: $mailchew.generateReplyBody(
-                    bodyInfo.bodyReps, effectiveAuthor, msg.refDate,
-                    identity, msg.refGuid),
-            to: rTo,
-            cc: rCc,
-            bcc: rBcc,
-            referencesStr: referencesStr,
-            attachments: [],
-          });
-        }
-        else {
-          req.active = null;
-          self.__sendMessage({
-            type: 'composeBegun',
-            handle: msg.handle,
-            error: null,
-            identity: identity,
-            subject: $mailchew.generateForwardSubject(msg.refSubject),
-            // blank lines at the top are baked in by the func
-            body: $mailchew.generateForwardMessage(
-                    msg.refAuthor, msg.refDate, msg.refSubject,
-                    header, bodyInfo, identity),
-            // forwards have no assumed envelope information
-            to: [],
-            cc: [],
-            bcc: [],
-            // XXX imitate Thunderbird current or previous behaviour; I
-            // think we ended up linking forwards into the conversation
-            // they came from, but with an extra header so that it was
-            // possible to detect it was a forward.
-            references: null,
-            attachments: [],
-          });
-        }
+    this.universe.createDraft({
+      draftType: msg.draftType,
+      mode: msg.mode,
+      refMessageId: msg.refMessageId,
+      refMessageDate: msg.refMessageDate,
+      folderId: msg.folderId
+    }).then(({ messageId, messageDate }) => {
+      this.__sendMessage({
+        type: 'promisedResult',
+        handle: msg.handle,
+        messageId,
+        messageDate
       });
-    }.bind(this));
+    });
   },
 
   _cmd_attachBlobToDraft: function(msg) {
+    // XXX OLD
     // for ordering consistency reasons with other draft logic, this needs to
     // require composer as a dependency too.
     require(['./drafts/composer'], function ($composer) {
@@ -705,6 +560,7 @@ MailBridge.prototype = {
   },
 
   _cmd_detachAttachmentFromDraft: function(msg) {
+    // XXX OLD
     // for ordering consistency reasons with other draft logic, this needs to
     // require composer as a dependency too.
     require(['./drafts/composer'], function ($composer) {
@@ -728,6 +584,7 @@ MailBridge.prototype = {
   },
 
   _cmd_resumeCompose: function(msg) {
+    // XXX OLD
     var req = this._pendingRequests[msg.handle] = {
       type: 'compose',
       active: 'resume',
@@ -821,112 +678,19 @@ MailBridge.prototype = {
    * Drafts are saved in our IndexedDB storage. This is notable because we are
    * told about attachments via their Blobs.
    */
-  _cmd_doneCompose: function mb__cmd_doneCompose(msg) {
-    require(['./drafts/composer'], function ($composer) {
-      var req = this._pendingRequests[msg.handle], self = this;
-      if (!req) {
-        return;
-      }
-      if (msg.command === 'die') {
-        if (req.active) {
-          req.die = true;
-        }
-        else {
-          delete this._pendingRequests[msg.handle];
-        }
-        return;
-      }
-      var account;
-      if (msg.command === 'delete') {
-        let sendDeleted = function() {
-          self.__sendMessage({
-            type: 'doneCompose',
-            handle: msg.handle
-          });
-        }
-        if (req.persistedNamer) {
-          account = this.universe.getAccountForMessageSuid(
-                      req.persistedNamer.suid);
-          this.universe.deleteDraft(account, req.persistedNamer, sendDeleted);
-        }
-        else {
-          sendDeleted();
-        }
-        delete this._pendingRequests[msg.handle];
-        // XXX if we have persistedFolder/persistedUID, enqueue a delete of that
-        // message and try and execute it.
-        return;
-      }
+  _cmd_doneCompose: function(msg) {
+    // Delete and be done if delete.
+    if (msg.command === 'delete') {
+      this.universe.deleteDraft(msg.messageId);
+      return;
+    }
 
-      var wireRep = msg.state;
-      account = this.universe.getAccountForSenderIdentityId(wireRep.senderId);
-      var identity = this.universe.getIdentityForSenderIdentityId(
-                       wireRep.senderId);
-
-      if (msg.command === 'send') {
-        // To enqueue a message for sending:
-        //   1. Save the draft.
-        //   2. Move the draft to the outbox.
-        //   3. Fire off a job to send pending outbox messages.
-
-        req.persistedNamer = this.universe.saveDraft(
-          account, req.persistedNamer, wireRep,
-          function(err, newRecords) {
-            req.active = null;
-            if (req.die) {
-              delete this._pendingRequests[msg.handle];
-            }
-
-            var outboxFolder = account.getFirstFolderWithType('outbox');
-            this.universe.moveMessages([req.persistedNamer], outboxFolder.id);
-
-            // We only want to display notifications if the universe
-            // is online, i.e. we expect this sendOutboxMessages
-            // invocation to actually fire immediately. If we're in
-            // airplane mode, for instance, this job won't actually
-            // run until we're online, in which case it no longer
-            // makes sense to emit notifications for this job.
-            this.universe.sendOutboxMessages(account, {
-              reason: 'moved to outbox',
-              emitNotifications: this.universe.online
-            });
-          }.bind(this));
-
-        var initialSendStatus = {
-          accountId: account.id,
-          suid: req.persistedNamer.suid,
-          state: (this.universe.online ? 'sending' : 'pending'),
-          emitNotifications: true
-        };
-
-        // Send 'doneCompose' nearly immediately, as saveDraft might
-        // take a while to complete if other stuff is going on. We'll
-        // pass along the initialSendStatus so that we can immediately
-        // display status information.
-        this.__sendMessage({
-          type: 'doneCompose',
-          handle: msg.handle,
-          sendStatus: initialSendStatus
-        });
-
-        // Broadcast the send status immediately here as well.
-        this.universe.__notifyBackgroundSendStatus(initialSendStatus);
-      }
-      else if (msg.command === 'save') {
-        // Save the draft, updating our persisted namer.
-        req.persistedNamer = this.universe.saveDraft(
-          account, req.persistedNamer, wireRep,
-          function(err) {
-            req.active = null;
-            if (req.die)
-              delete self._pendingRequests[msg.handle];
-            self.__sendMessage({
-              type: 'doneCompose',
-              handle: msg.handle
-            });
-          });
-      }
-    }.bind(this));
+    // We must be 'save' or 'send', so we want to save.
+    this.universe.saveDraft(msg.messageId, msg.draftFields);
+    // Actually send if send.
+    if (msg.command === 'send') {
+      this.universe.outboxSend(msg.messageId);
+    }
   },
 
   notifyCronSyncStart: function mb_notifyCronSyncStart(accountIds) {

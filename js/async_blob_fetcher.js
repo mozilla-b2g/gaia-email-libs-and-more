@@ -12,6 +12,9 @@ define(function(require) {
  * would be.
  *
  * @param {Blob} blob
+ * @param {'text'|'arraybuffer'|'json'|'document'} responseType
+ *   You could pick "blob" too, but that would be pointless since you're already
+ *   giving us a blob.
  * @return {Promise}
  */
 return function asyncFetchBlob(blob, responseType) {

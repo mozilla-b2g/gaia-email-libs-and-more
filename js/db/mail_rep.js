@@ -83,6 +83,10 @@ define(function() {
  *   Information on the message body that is only for full message display.
  *   The to/cc/bcc information may get moved up to the header in the future,
  *   but our driving UI doesn't need it right now.
+ * @property {DraftInfo} [draftInfo=null]
+ *   If this is a draft, the metadata about the draft.  Note that with our
+ *   current continued localdrafts requirement, this also serves as our magic
+ *   `isDraft` indicator.
  */
 function makeMessageInfo(raw) {
   // All messages absolutely need the following; the caller needs to make up
@@ -119,7 +123,57 @@ function makeMessageInfo(raw) {
     attachments: raw.attachments,
     relatedParts: raw.relatedParts || null,
     references: raw.references || null,
-    bodyReps: raw.bodyReps
+    bodyReps: raw.bodyReps,
+    draftInfo: raw.draftInfo || null
+  };
+}
+
+/**
+ * Create local-only meta-data to be stored on a MessageInfo that represents a
+ * draft.  This is information about a draft that cannot be directly
+ * synchronized to a server for some combination of privacy and representation
+ * fidelity.  In many cases, if/when we get fancy, we can re-derive some of this
+ * information (with ambiguity) by doing some additional processing when saving
+ * the information from the server.
+ *
+ * The compose features this allows us to support:
+ * - Marking a replied-to or forwarded message as replied-to/forwarded only
+ *   when it has actually been replied-to.  (By knowing the MessageId of the
+ *   related message.)
+ * - FUTURE: Allowing a draft to change from reply-to-sender to reply-all.
+ * - FUTURE: Allowing a draft to change from a reply to a forward (which
+ *   requires regenerating the quoted/forwarded body).
+ * - FUTURE: Allowin specific identities of an account (or different accounts
+ *   with different identities) to be switched between, which potentially means
+ *   different signatures and different signature configurations, probably
+ *   requiring regeneration of the quoted/forwarded body.
+ *
+ * Error reporting feedback this allows:
+ * - Send failures that seem to be specific to the message (rather than being
+ *   offline, etc.) can be conveyed.
+ *
+ * @typedef {Object} DraftInfo
+ * @prop {'blank'|'reply'|'forward'} draftType
+ *   The type of message this (currently is).  This cannot change for a draft
+ *   at the current time.
+ * @prop {'sender'|'all'} [mode=null]
+ *   If this is a reply, the type of reply it currently is.  This may also have
+ *   meaning in the future when dealing with forwards.
+ * @prop {MessageId} [refMessageId=null]
+ *   Our local identifier for the message we are replying to/forwarding.
+ * @prop {DateMS} [refMessageDate=null]
+ *   The date of the message, used for random access to the message without
+ *   loading the rest of the messages in the conversation.
+ * @prop {Object} [sendStatus=null]
+ *   v1.x style sendStatus representation.  We want to overhaul/normalize this.
+ */
+function makeDraftInfo(raw) {
+  return {
+    draftType: raw.draftType,
+    mode: raw.mode || null,
+    refMessageId: raw.refMessageId || null,
+    refMessageDate: raw.refMessageDate || null,
+    sendStatus: raw.sendStatus || null
   };
 }
 
@@ -261,9 +315,10 @@ function makeAttachmentPart(raw) {
 }
 
 return {
-  makeMessageInfo: makeMessageInfo,
-  makeBodyPart: makeBodyPart,
-  makeAttachmentPart: makeAttachmentPart
+  makeMessageInfo,
+  makeDraftInfo,
+  makeBodyPart,
+  makeAttachmentPart
 };
 
 }); // end define

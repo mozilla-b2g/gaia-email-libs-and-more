@@ -199,6 +199,13 @@ TaskContext.prototype = {
   },
 
   /**
+   *
+   */
+  dangerousIncrementalWrite: function(mutations) {
+    return this.universe.db.dangerousIncrementalWrite(this, mutations);
+  },
+
+  /**
    * @param {Object} finishData
    * @param {Object} finishData.mutations
    *   The mutations to finish as a result of the one preceding call to

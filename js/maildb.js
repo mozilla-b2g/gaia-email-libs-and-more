@@ -299,7 +299,7 @@ function wrapReq(idbRequest) {
  */
 function wrapTrans(idbTransaction) {
   return new Promise(function(resolve, reject) {
-    idbTransaction.oncomplete = function(event) {
+    idbTransaction.oncomplete = function() {
       resolve();
     };
     idbTransaction.onerror = function(event) {
@@ -427,7 +427,7 @@ function MailDB(testOptions) {
   }
   this._dbPromise = new Promise((resolve, reject) => {
     let openRequest = indexedDB.open('b2g-email', dbVersion);
-    openRequest.onsuccess = (event) => {
+    openRequest.onsuccess = () => {
       this._db = openRequest.result;
 
       resolve();
@@ -531,7 +531,7 @@ MailDB.prototype = evt.mix({
     configReq.onerror = analyzeAndLogErrorEvent;
     // no need to track success, we can read it off folderInfoReq
     folderInfoReq.onerror = analyzeAndLogErrorEvent;
-    folderInfoReq.onsuccess = (event) => {
+    folderInfoReq.onsuccess = () => {
       var configObj = null, accounts = [], i, obj;
 
       // - Check for lazy carryover.
@@ -715,9 +715,16 @@ MailDB.prototype = evt.mix({
    *   cache.  This is a little weird but it's assumed you have previously
    *   loaded the (now potentially stale) MessageInfo and so have the
    *   information at hand.
+   * @param {Boolean} [requests.flushedMessageReads=false]
+   *   Should this read bypass the cache when reading and when read, clobber
+   *   the cache state?  This should only be done for Blob-memory-shenanigans
+   *   and should be done with a (de facto) mutate lock held.  Currently, to
+   *   ensure the Blobs propagate, a final write should occur which is a
+   *   redudnant write so that listeners are notified.  But in the future we
+   *   could enhance this by just generating change notifications on the read.
    */
   read: function(ctx, requests) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       logic(this, 'read:begin', { ctxId: ctx.id });
       let trans = this._db.transaction(TASK_MUTATION_STORES, 'readonly');
 
@@ -801,10 +808,11 @@ MailDB.prototype = evt.mix({
         // the awkward tuples.
         let messageRequestsMap = requests.messages;
         let messageResultsMap = requests.messages = new Map();
+        let flushedRead = requests.flushedMessageReads || false;
         for (let [unlatchedMessageId, date] of messageRequestsMap.keys()) {
           let messageId = unlatchedMessageId;
           // fill from cache if available
-          if (messageCache.has(messageId)) {
+          if (!flushedRead && messageCache.has(messageId)) {
             messageResultsMap.set(messageId, messageCache.get(messageId));
             continue;
           }
@@ -824,7 +832,7 @@ MailDB.prototype = evt.mix({
               let message = req.result;
               // Put it in the cache unless it's already there (reads must
               // not clobber writes/mutations!)
-              if (!messageCache.has(messageId)) {
+              if (flushedRead || !messageCache.has(messageId)) {
                 messageCache.set(messageId, message);
               }
               messageResultsMap.set(messageId, message);
@@ -865,7 +873,7 @@ MailDB.prototype = evt.mix({
    * - Track active mutations so we can detect collisions and serialize
    *   mutations.  See maildb.md for more.
    */
-  beginMutate: function(ctx, mutateRequests) {
+  beginMutate: function(ctx, mutateRequests, options) {
     // disabling guard here because TaskContext has protections and a cop-out.
     /*
     if (ctx._preMutateStates) {
@@ -873,7 +881,7 @@ MailDB.prototype = evt.mix({
     }
     */
 
-    return this.read(ctx, mutateRequests).then(() => {
+    return this.read(ctx, mutateRequests, options).then(() => {
       // XXX the _preMutateStates || {} is because we're allowing multiple
       // calls.
       let preMutateStates = ctx._preMutateStates = (ctx._preMutateStates || {});
@@ -1237,6 +1245,31 @@ MailDB.prototype = evt.mix({
     let trans = this._db.transaction([TBL_TASKS], 'readwrite');
     this._addRawTasks(trans, wrappedTasks);
     return wrapTrans(trans);
+  },
+
+  /**
+   * Dangerously perform a write in a write transaction that's not part of a
+   * coherent/atomic change.  This is intended to be used *ONLY* for the
+   * write-blob-then-read-blob idiom and only for messages.  Pre-mutate-state
+   * must have been saved off already for message id naming purposes.
+   *
+   * This method may be replaced by a single write-then-read implementation that
+   * does better with event emitting to minimize wackiness, but right now it's
+   * on the caller to issue the flushed read and we expose the constituent
+   * methods as a sort-of experiment as we iterate.
+   */
+  dangerousIncrementalWrite: function(ctx, mutations) {
+    logic(this, 'dangerousIncrementalWrite:begin', { ctxId: ctx.id });
+    let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
+
+    if (mutations.messages) {
+      this._processMessageMutations(
+        trans, ctx._preMutateStates.messages, mutations.messages);
+    }
+
+    return wrapTrans(trans).then(() => {
+      logic(this, 'dangerousIncrementalWrite:end', { ctxId: ctx.id });
+    });
   },
 
   finishMutate: function(ctx, data, taskData) {

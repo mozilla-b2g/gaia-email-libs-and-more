@@ -3,7 +3,6 @@ define(function(require) {
 
 let logic = require('logic');
 let slog = require('./slog');
-let $date = require('./date');
 let $syncbase = require('./syncbase');
 let MailDB = require('./maildb');
 let $acctcommon = require('./accountcommon');
@@ -443,7 +442,7 @@ MailUniverse.prototype = {
           accountDef,
           this.accountFoldersTOCs.get(accountDef.id),
           protoConn)
-        .then((account) => {
+        .then(() => {
           return {
             error: null,
             errorDetails: null,
@@ -503,7 +502,7 @@ MailUniverse.prototype = {
    * Asynchronous. Calls callback with the account object.
    */
   _loadAccount: function (accountDef, foldersTOC, receiveProtoConn) {
-    let promise = new Promise((resolve, reject) => {
+    let promise = new Promise((resolve) => {
       $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
         if (!constructor) {
           logic(this, 'badAccountType', { type: accountDef.type });
@@ -547,8 +546,9 @@ MailUniverse.prototype = {
     var waitCount = this.accounts.length;
     // (only used if a 'callback' is passed)
     function accountShutdownCompleted() {
-      if (--waitCount === 0)
+      if (--waitCount === 0) {
         callback();
+      }
     }
     for (var iAcct = 0; iAcct < this.accounts.length; iAcct++) {
       var account = this.accounts[iAcct];
@@ -561,8 +561,9 @@ MailUniverse.prototype = {
     }
     this.db.close();
 
-    if (!this.accounts.length)
+    if (!this.accounts.length) {
       callback();
+    }
   },
 
   syncFolderList: function(accountId, why) {
@@ -650,6 +651,114 @@ MailUniverse.prototype = {
   },
 
   /**
+   * Enqueue the planning of a task that creates a draft (either blank, reply,
+   * or forward), returning a Promise that will be resolved with the MessageId
+   * of the resulting draft and the ConversationId of the conversation to which
+   * it belongs.
+   *
+   * The underlying creation task is non-persistent because draft creation is
+   * an interactive, stateful task.  If the app crashes before the draft is
+   * created, it's not guaranteed the user will go immediately try to resume
+   * composing.  And if they do, they might not do so via our created draft, so
+   * it's best to avoid creating the draft on app restart.  For now at least.
+   */
+  createDraft: function({ draftType, mode, refMessageId, refMessageDate,
+                          folderId }) {
+    return this.taskManager.scheduleNonPersistentTasks([
+      {
+        type: 'draft_create',
+        draftType,
+        mode,
+        refMessageId,
+        refMessageDate,
+        folderId
+      }
+    ]).then((taskIds) => {
+      return this.taskManager.waitForTasksToBePlanned(taskIds);
+    }).then((results) => {
+      // (Although the signatures support multiple tasks, we only issued one.)
+      return results[0];
+    });
+  },
+
+
+  /**
+   * Update an existing draft.
+   *
+   * Unlike draft creation and blob attachment, this is a persisted task.
+   * It's persisted because:
+   * - We absolutely don't want to lose this user-authored data.
+   * - The Blob sizes aren't too big.
+   * - Our IndexedDB implementation allegedly has magic so that even if we don't
+   *   write-then-read the blobs back-out immediately, the separate transaction
+   *   writing the same Blob will still be stored using the same underlying
+   *   reference-counted backing Blob.  So there's no harm.
+   */
+  saveDraft: function(messageId, draftFields) {
+    return this.taskManager.scheduleTasks([{
+      type: 'draft_save',
+      accountId: accountIdFromMessageId(messageId),
+      messageId,
+      draftFields
+    }]);
+  },
+
+  /**
+   * Delete an existing (local) draft.  This may end up just using the normal
+   * message deletion logic under the hood, but right now
+   */
+  deleteDraft: function(messageId) {
+    return this.taskManager.scheduleTasks([{
+      type: 'draft_delete',
+      accountId: accountIdFromMessageId(messageId),
+      messageId
+    }]);
+  },
+
+
+  /**
+   * Move a message from being a draft to being in the outbox, potentially
+   * initiating the send if we're online.
+   */
+  outboxSendDraft: function(messageId) {
+    return this.taskManager.scheduleTasks([{
+      type: 'outbox_send',
+      command: 'send',
+      accountId: accountIdFromMessageId(messageId),
+      messageId
+    }]);
+  },
+
+  /**
+   * Abort the sending of a message draft (if reliably possible), moving it back
+   * to be a draft.
+   */
+  outboxAbortSend: function(messageId) {
+    return this.taskManager.scheduleTasks([{
+      type: 'outbox_send',
+      command: 'abort',
+      accountId: accountIdFromMessageId(messageId),
+      messageId
+    }]);
+  },
+
+  /**
+   * Pause/unpause the outbox for an account.  The UI may want to pause the
+   * outbox so that the user has a chance to cause `outboxAbortSend` to be
+   * invoked before it's too late.  (If the user is frantically trying to
+   * stop a message from getting sent, we want to give them a fighting chance.)
+   */
+  outboxSetPaused: function(accountId, bePaused) {
+    return this.taskManager.scheduleTasks([{
+      type: 'outbox_send',
+      command: 'setPaused',
+      accountId: accountId,
+      pause: bePaused
+    }]);
+  },
+
+
+  /**
    * Download one or more related-part or attachments from a message.
    * Attachments are named by their index because the indices are stable and
    * flinging around non-authoritative copies of the structures might lead to
@@ -673,51 +782,11 @@ MailUniverse.prototype = {
                                        relPartIndices, attachmentIndices,
                                        registerAttachments,
                                        callback) {
-    var account = this.getAccountForMessageSuid(messageSuid);
-    var longtermId = this._queueAccountOp(
-      account,
-      {
-        type: 'download',
-        longtermId: null,
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: null,
-        tryCount: 0,
-        humanOp: 'download',
-        messageSuid: messageSuid,
-        messageDate: messageDate,
-        relPartIndices: relPartIndices,
-        attachmentIndices: attachmentIndices,
-        registerAttachments: registerAttachments
-      },
-      callback);
+    // XXX OLD
   },
 
   modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
-    var self = this, longtermIds = [];
-    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
-      this._taskManager.scheduleTask({
-
-      });
-      var longtermId = self._queueAccountOp(
-        x.account,
-        {
-          type: 'modtags',
-          longtermId: null,
-          lifecycle: 'do',
-          localStatus: null,
-          serverStatus: null,
-          tryCount: 0,
-          humanOp: humanOp,
-          messages: x.messages,
-          addTags: addTags,
-          removeTags: removeTags,
-          // how many messages have had their tags changed already.
-          progress: 0,
-        });
-      longtermIds.push(longtermId);
-    }.bind(this));
-    return longtermIds;
+    // XXX OLD
   },
 
   moveMessages: function(messageSuids, targetFolderId, callback) {
@@ -939,62 +1008,6 @@ MailUniverse.prototype = {
     );
   },
 
-  /**
-   * Save a new (local) draft or update an existing (local) draft.  A new namer
-   * is synchronously created and returned which will be the name for the draft
-   * assuming the save completes successfully.
-   *
-   * This function is implemented as a job/operation so it is inherently ordered
-   * relative to other draft-related calls.
-   *
-   * @method saveDraft
-   * @param account
-   * @param [existingNamer] {MessageNamer}
-   * @param draftRep
-   * @param callback {Function}
-   * @return {MessageNamer}
-   *
-   */
-  saveDraft: function(account, existingNamer, draftRep, callback) {
-    var draftsFolderMeta = account.getFirstFolderWithType('localdrafts');
-    var draftsFolderStorage = account.getFolderStorageForFolderId(
-                                draftsFolderMeta.id);
-    var newId = draftsFolderStorage._issueNewHeaderId();
-    var newDraftInfo = {
-      id: newId,
-      suid: draftsFolderStorage.folderId + '.' + newId,
-      // There are really 3 possible values we could use for this; when the
-      // front-end initiates the draft saving, when we, the back-end observe and
-      // enqueue the request (now), or when the draft actually gets saved to
-      // disk.
-      //
-      // This value does get surfaced to the user, so we ideally want it to
-      // occur within a few seconds of when the save is initiated.  We do this
-      // here right now because we have access to $date, and we should generally
-      // be timely about receiving messages.
-      date: $date.NOW(),
-    };
-    this._queueAccountOp(
-      account,
-      {
-        type: 'saveDraft',
-        longtermId: null,
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a', // local-only currently
-        tryCount: 0,
-        humanOp: 'saveDraft',
-        existingNamer: existingNamer,
-        newDraftInfo: newDraftInfo,
-        draftRep: draftRep,
-      },
-      callback
-    );
-    return {
-      suid: newDraftInfo.suid,
-      date: newDraftInfo.date
-    };
-  },
 
   /**
    * Kick off a job to send pending outgoing messages. See the job
@@ -1073,30 +1086,6 @@ MailUniverse.prototype = {
         humanOp: 'setOutboxSyncEnabled'
       },
       callback);
-  },
-
-  /**
-   * Delete an existing (local) draft.
-   *
-   * This function is implemented as a job/operation so it is inherently ordered
-   * relative to other draft-related calls.
-   */
-  deleteDraft: function(account, messageNamer, callback) {
-    this._queueAccountOp(
-      account,
-      {
-        type: 'deleteDraft',
-        longtermId: null,
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a', // local-only currently
-        tryCount: 0,
-        humanOp: 'deleteDraft',
-        messageNamer: messageNamer
-      },
-      callback
-    );
-
   },
 
   /**

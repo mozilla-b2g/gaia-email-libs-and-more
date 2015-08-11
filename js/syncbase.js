@@ -367,6 +367,22 @@ exports.SYNC_RANGE_ENUMS_TO_MS = {
  */
 exports.DESIRED_SNIPPET_LENGTH = 160;
 
+/**
+ * How big a chunk of an attachment should we encode in a single read?  Because
+ * we want our base64-encoded lines to be 76 bytes long (before newlines) and
+ * there's a 4/3 expansion factor, we want to read a multiple of 57 bytes.
+ *
+ * I initially chose the largest value just under 1MiB.  This appeared too
+ * chunky on the ZTE open, so I'm halving to just under 512KiB.  Calculated via
+ * Math.floor(512 * 1024 / 57) = 9198.  The encoded size of this ends up to be
+ * 9198 * 78 which is ~700 KiB.  So together that's ~1.2 megs if we don't
+ * generate a ton of garbage by creating a lot of intermediary strings.
+ *
+ * This seems reasonable given goals of not requiring the GC to run after every
+ * block and not having us tie up the CPU too long during our encoding.
+ */
+exports.BLOB_BASE64_BATCH_CONVERT_SIZE = 9198 * 57;
+
 ////////////////////////////////////////////////////////////////////////////////
 // Cronsync/periodic sync stuff
 

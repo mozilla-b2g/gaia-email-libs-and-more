@@ -17,12 +17,16 @@ define(function(require, exports) {
 
 const logic = require('logic');
 
-var $util = require('../util');
-var $mailchewStrings = require('./mailchew_strings');
-var $quotechew = require('./quotechew');
-var $htmlchew = require('./htmlchew');
+const $util = require('../util');
+const $mailchewStrings = require('./mailchew_strings');
+const $quotechew = require('./quotechew');
+const $htmlchew = require('./htmlchew');
 
-var { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+const { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+
+const { makeBodyPart } = require('../db/mail_rep');
+
+const asyncFetchBlob = require('../async_blob_fetcher');
 
 const scope = logic.scope('MailChew');
 
@@ -31,16 +35,18 @@ const scope = logic.scope('MailChew');
  * @param  {MailSenderIdentity} identity The current composer identity
  * @return {String} The text to be inserted into the body
  */
-exports.generateBaseComposeBody = function generateBaseComposeBody(identity) {
+exports.generateBaseComposeParts = function generateBaseComposeBody(identity) {
+  let textMsg;
   if (identity.signatureEnabled &&
       identity.signature &&
       identity.signature.length > 0) {
 
-    var body = '\n\n--\n' + identity.signature;
-    return body;
+    textMsg = '\n\n--\n' + identity.signature;
   } else {
-    return '';
+    textMsg = '';
   }
+
+  return makeBodyPartsFromTextAndHTML(textMsg, null);
 };
 
 
@@ -99,6 +105,23 @@ exports.generateForwardSubject = function generateForwardSubject(origSubject) {
   return fwd;
 };
 
+/**
+ * Create an unquoted message-id header (no arrow braces!).
+ */
+exports.generateMessageIdHeaderValue = function() {
+  // We previously used Date.now() for the first part of the string as part of
+  // an intentional anti-collision technique, but at that time we were always
+  // generating the id at send time, which meant that there was also no
+  // privacy leakage from including a timestamp.  Since we now generate the id
+  // when we create the draft, including a date could leak when the user first
+  // created the draft and thereby some level of inference about how long they
+  // spent on the message, unless we reissue it.  (Which we probably will
+  // do anyways on each draft update since we know GMail has somewhat aggressive
+  // anti-duplication heuristics and it would be horrible for the drafts to not
+  // reliably update.  But why take any risks with privacy?)
+  return Math.random().toString(16).substr(2) +
+         Math.random().toString(16).substr(1) + '@mozgaia';
+};
 
 var l10n_wroteString = '{name} wrote',
     l10n_originalMessageString = 'Original Message';
@@ -143,26 +166,68 @@ $mailchewStrings.events.on('strings', function(strings) {
   exports.setLocalizedStrings(strings);
 });
 
+function makeBodyPartsFromTextAndHTML(textMsg, htmlMsg) {
+  let bodyReps = [];
+
+  // - Text part
+  bodyReps.push(makeBodyPart({
+    type: 'plain',
+    part: null,
+    sizeEstimate: textMsg.length,
+    amountDownloaded: textMsg.length,
+    isDownloaded: true,
+    _partInfo: {},
+    contentBlob: new Blob([JSON.stringify([0x1, textMsg])],
+                           { type: 'application/json' })
+  }));
+
+  // - HTML Party (maybe)
+  if (htmlMsg) {
+    bodyReps.push(makeBodyPart({
+      type: 'html',
+      part: null,
+      sizeEstimate: htmlMsg.length,
+      amountDownloaded: htmlMsg.length,
+      isDownloaded: true,
+      _partInfo: {},
+      contentBlob: new Blob([htmlMsg], { type: 'text/html' })
+    }));
+  }
+
+  return bodyReps;
+}
+
 /**
  * Generate the reply body representation given info about the message we are
- * replying to.
+ * replying to.  Right now this generates one or two body reps, but in the
+ * future relatedParts and attachments could also end up involved as we start
+ * doing a better job of replying to and forwarding HTML content.
+ *
+ * Note that this is an asynchronous generator because we need to load the
+ * content of the blobs.  We also wrap our results into a Blob so they're valid
+ * body rep structures.
  *
  * This does not include potentially required work such as propagating embedded
  * attachments or de-sanitizing links/embedded images/external images.
  */
-exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
-                                                          msgDate,
-                                                          identity, refGuid) {
+exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
+                                       refGuid) {
   var useName = authorPair.name ? authorPair.name.trim() : authorPair.address;
 
+  // TODO: clean up the l10n manipulation here; this manipulation is okay
+  // (except potentially for the colon?), but we want to use the l20n lib or
+  // some other normalized helper.
   var textMsg = '\n\n' +
                 l10n_wroteString.replace('{name}', useName) + ':\n',
       htmlMsg = null;
 
-  for (var i = 0; i < reps.length; i++) {
-    var repType = reps[i].type, rep = reps[i].content;
+  for (let i = 0; i < reps.length; i++) {
+    let repType = reps[i].type;
+    let repBlob = reps[i].contentBlob;
 
+    let rep;
     if (repType === 'plain') {
+      rep = yield asyncFetchBlob(repBlob, 'json');
       var replyText = $quotechew.generateReplyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
@@ -174,6 +239,7 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
       }
     }
     else if (repType === 'html') {
+      rep = yield asyncFetchBlob(repBlob, 'text');
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -208,18 +274,16 @@ exports.generateReplyBody = function generateReplyMessage(reps, authorPair,
     }
   }
 
-  return {
-    text: textMsg,
-    html: htmlMsg
-  };
+  return makeBodyPartsFromTextAndHTML(textMsg, htmlMsg);
 };
 
 /**
- * Generate the body of an inline forward message.  XXX we need to generate
- * the header summary which needs some localized strings.
+ * Generate the body parts of an inline forward message.
+ *
+ * XXX the l10n string building here screws up when RTL enters the picture.
+ * See https://bugzilla.mozilla.org/show_bug.cgi?id=1177350
  */
-exports.generateForwardMessage =
-  function(author, date, subject, headerInfo, bodyInfo, identity) {
+exports.generateForwardParts = function*(sourceMessage, identity) {
   var textMsg = '\n\n', htmlMsg = null;
 
   if (identity.signature && identity.signatureEnabled) {
@@ -234,7 +298,8 @@ exports.generateForwardMessage =
   // localized.)
 
   // : subject
-  textMsg += l10n_forward_header_labels['subject'] + ': ' + subject + '\n';
+  textMsg += l10n_forward_header_labels['subject'] + ': ' +
+               sourceMessage.subject + '\n';
 
   // We do not track or remotely care about the 'resent' headers
   // : resent-comments
@@ -243,25 +308,26 @@ exports.generateForwardMessage =
   // : resent-to
   // : resent-cc
   // : date
-  textMsg += l10n_forward_header_labels['date'] + ': ' + new Date(date) + '\n';
+  textMsg += l10n_forward_header_labels['date'] + ': ' +
+    new Date(sourceMessage.date) + '\n';
   // : from
   textMsg += l10n_forward_header_labels['from'] + ': ' +
-               $util.formatAddresses([author]) + '\n';
+               $util.formatAddresses([sourceMessage.author]) + '\n';
   // : reply-to
-  if (headerInfo.replyTo) {
+  if (sourceMessage.replyTo) {
     textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
-                 $util.formatAddresses([headerInfo.replyTo]) + '\n';
+                 $util.formatAddresses([sourceMessage.replyTo]) + '\n';
   }
   // : organization
   // : to
-  if (headerInfo.to) {
+  if (sourceMessage.to && sourceMessage.to.length) {
     textMsg += l10n_forward_header_labels['to'] + ': ' +
-                 $util.formatAddresses(headerInfo.to) + '\n';
+                 $util.formatAddresses(sourceMessage.to) + '\n';
   }
   // : cc
-  if (headerInfo.cc) {
+  if (sourceMessage.cc && sourceMessage.cc.length) {
     textMsg += l10n_forward_header_labels['cc'] + ': ' +
-                 $util.formatAddresses(headerInfo.cc) + '\n';
+                 $util.formatAddresses(sourceMessage.cc) + '\n';
   }
   // (bcc should never be forwarded)
   // : newsgroups
@@ -270,12 +336,15 @@ exports.generateForwardMessage =
 
   textMsg += '\n';
 
-  var reps = bodyInfo.bodyReps;
-  for (var i = 0; i < reps.length; i++) {
-    var repType = reps[i].type, rep = reps[i].content;
+  let reps = sourceMessage.bodyReps;
+  for (let i = 0; i < reps.length; i++) {
+    let repType = reps[i].type;
+    let repBlob = reps[i].contentBlob;
 
+    let rep;
     if (repType === 'plain') {
-      var forwardText = $quotechew.generateForwardBodyText(rep);
+      rep = yield asyncFetchBlob(repBlob, 'json');
+      let forwardText = $quotechew.generateForwardBodyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
         htmlMsg += $htmlchew.wrapTextIntoSafeHTMLString(forwardText) + '\n';
@@ -284,8 +353,10 @@ exports.generateForwardMessage =
       else {
         textMsg += forwardText;
       }
+
     }
     else if (repType === 'html') {
+      rep = yield asyncFetchBlob(repBlob, 'text');
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -297,10 +368,7 @@ exports.generateForwardMessage =
     }
   }
 
-  return {
-    text: textMsg,
-    html: htmlMsg
-  };
+  return makeBodyPartsFromTextAndHTML(textMsg, htmlMsg);
 };
 
 var HTML_WRAP_TOP =

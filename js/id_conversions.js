@@ -2,6 +2,11 @@ define(function(require) {
 'use strict';
 
 return {
+  // From Folder Id's
+  accountIdFromFolderId: function(folderId) {
+    return folderId.split(/\./g, 1)[0];
+  },
+
   // -- From Conversation Id's
   // These look like: "accountId.gmailConvId"
   accountIdFromConvId: function(convId) {

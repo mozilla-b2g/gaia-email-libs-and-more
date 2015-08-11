@@ -77,10 +77,10 @@ new message-id header and a new UID will be allocated.  Happily, the adoption of
 - draft_discard handles removing a draft.  We have an explicit task for this
   because deletion got nebulous as soon as gmail entered the picture, and
   because drafts-on-server potentially benefits from this being very explicit.
-- draft_send moves a message to the outbox and ensures outbox_send gets
-  kicked-off.
-- outbox_abort_send moves a message back to the drafts folder if it isn't
-  actively being sent.
+- outbox_send handles moving a draft to the outbox and sending it as well as
+  aborting the send process by moving the message back to be a draft.  As
+  discussed above, pending sends are tracked as complex state rather than simply
+  being present in a folder, so this needs to be a single task.
 
 #### draft_upload ####
 

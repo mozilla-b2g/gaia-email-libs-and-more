@@ -108,7 +108,11 @@ MailMessage.prototype = evt.mix({
     this.isRepliedTo = wireRep.flags.indexOf('\\Answered') !== -1;
     this.isForwarded = wireRep.flags.indexOf('$Forwarded') !== -1;
     this.isJunk = wireRep.flags.indexOf('$Junk') !== -1;
-    this.isDraft = wireRep.flags.indexOf('\\Draft') !== -1;
+    // NB:
+    this.isDraft = wireRep.draftInfo !== null;
+    this.isServerDraft = wireRep.flags.indexOf('\\Draft') !== -1;
+    // TODO: this really wants a first-class mapping along the lines of how
+    // labels works.
     this.tags = filterOutBuiltinFlags(wireRep.flags);
     this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
@@ -119,7 +123,7 @@ MailMessage.prototype = evt.mix({
     //   badAddresses: null,
     //   sendFailures: 2
     // }
-    this.sendStatus = wireRep.sendStatus || {};
+    this.sendStatus = (wireRep.draftInfo && wireRep.draftInfo.sendStatus) || {};
 
     // Related parts and bodyReps have no state we need to maintain.  Just
     // replace them with the new copies for simplicity.
@@ -153,7 +157,6 @@ MailMessage.prototype = evt.mix({
       // probably won't ever, apart from detachedAttachments above
       // which are a different thing.
     }
-
   },
 
   /**
@@ -260,6 +263,9 @@ MailMessage.prototype = evt.mix({
    * with a populated `MessageComposition` instance.
    */
   editAsDraft: function() {
+    if (!this.isDraft) {
+      throw new Error('Nice try, but I am not a magical localdraft.');
+    }
     return this._api.resumeMessageComposition(this);
   },
 
@@ -270,28 +276,43 @@ MailMessage.prototype = evt.mix({
    *   - sender: Reply to just the sender/author of the message.
    *   - all: Reply to all; everyone on the to/cc and the author will end up
    *     either on the "to" or "cc" lines.
+   * @param {Boolean} [options.noComposer=false]
+   *   Pass true if you don't want us to instantiate a MessageComposition
+   *   for you automatically.  In this case the Promise contains a MessageNamer
+   *   object.
    * @return {Promise<MessageComposition>}
    */
-  replyToMessage: function(replyMode) {
+  replyToMessage: function(replyMode, options) {
     return this._slice._api.beginMessageComposition(
-      this, null, { command: 'reply', mode: replyMode });
+      this, null,
+      {
+        command: 'reply',
+        mode: replyMode,
+        noComposer: options && options.noComposer
+      });
   },
 
   /**
    * Start composing a forward of this message.
    *
-   * @args[
-   *   @param[forwardMode @oneof[
-   *     @case['inline']{
-   *       Forward the message inline.
-   *     }
-   *   ]]
-   * ]
-   * @return[MessageComposition]
+   * @param {'inline'} forwardMode
+   *   We only support inline right now, so this pretty much doesn't matter, but
+   *   you want to pass 'inline' for now.
+   * @param {Object} [options]
+   * @param {Boolean} [options.noComposer=false]
+   *   Pass true if you don't want us to instantiate a MessageComposition
+   *   for you automatically.  In this case the Promise contains a MessageNamer
+   *   object.
+   * @return {Promise<MessageComposition>}
    */
-  forwardMessage: function(forwardMode, callback) {
+  forwardMessage: function(forwardMode, options) {
     return this._slice._api.beginMessageComposition(
-      this, null, { command: 'forward', mode: forwardMode }, callback);
+      this, null,
+      {
+        command: 'forward',
+        mode: forwardMode,
+        noComposer: options && options.noComposer
+      });
   },
 
   /**
