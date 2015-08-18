@@ -141,6 +141,17 @@ FoldersTOC.prototype = evt.mix({
     this.emit('remove', id, idx);
   },
 
+  /**
+   * For cases like the sent folder or drafts folder where there is only one
+   * true folder of this type, return that folder.  This supersedes our prior
+   * use of getFirstFolderWithType whose semantics were less good.
+   *
+   * TODO: Actually have our logic not be the same as getFirstFolderWithType.
+   */
+  getCanonicalFolderByType: function(type) {
+    return this.items.find(folder => folder.type === type);
+  },
+
   generatePersistenceInfo: function() {
     return this._foldersDbState;
   },

@@ -444,7 +444,7 @@ ActiveSyncAccount.prototype = {
         }, /* aExtraParams = */ null, /* aExtraHeaders = */ null,
           /* aProgressCallback = */ function() {
           // Keep holding the wakelock as we continue sending.
-          composer.renewSmartWakeLock('ActiveSync XHR Progress');
+          composer.heartbeat('ActiveSync XHR Progress');
         });
       }
       else { // ActiveSync 12.x and lower
@@ -462,7 +462,7 @@ ActiveSyncAccount.prototype = {
         }, { SaveInSent: 'T' }, /* aExtraHeaders = */ null,
           /* aProgressCallback = */ function() {
           // Keep holding the wakelock as we continue sending.
-          composer.renewSmartWakeLock('ActiveSync XHR Progress');
+          composer.heartbeat('ActiveSync XHR Progress');
         });
       }
     }.bind(this));

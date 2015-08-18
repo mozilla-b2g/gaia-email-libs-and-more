@@ -58,14 +58,9 @@ define(function(require) {
      * Renew the timeout, if you're certain that you still need to hold
      * the locks longer.
      */
-    renew: function(/* optional */ reason, callback) {
-      if (typeof reason === 'function') {
-        callback = reason;
-        reason = null;
-      }
-
+    renew: function(/* optional */ reason) {
       // Wait until we've successfully acquired the wakelocks, then...
-      this._readyPromise.then(function() {
+      retrn this._readyPromise.then(() => {
         // If we've already set a timeout, we'll clear that first.
         // (Otherwise, we're just loading time on for the first time,
         // and don't need to clear or log anything.)
@@ -87,7 +82,7 @@ define(function(require) {
         }.bind(this), this.timeoutMs);
 
         callback && callback();
-      }.bind(this));
+      });
     },
 
     /**
@@ -99,7 +94,7 @@ define(function(require) {
       // Make sure weve been locked before we try to unlock. Also,
       // return the promise, throughout the chain of calls here, so
       // that listeners can listen for completion if they need to.
-      return this._readyPromise.then(function() {
+      return this._readyPromise.then(() => {
         var desc = this.toString();
 
         var locks = this.locks;
@@ -107,18 +102,18 @@ define(function(require) {
         clearTimeout(this._timeout);
 
         // Wait for all of them to successfully unlock.
-        return Promise.all(Object.keys(locks).map(function(type) {
+        return Promise.all(Object.keys(locks).map((type) => {
           return new Promise(function(resolve, reject) {
             sendMessage('unlock', [locks[type]], function(lockId) {
               resolve();
             });
           });
-        })).then(function() {
+        })).then(() => {
           this._debug('Unlocked', desc + '.',
                       (reason ? 'Reason: ' + reason : ''));
-        }.bind(this));
+        });
 
-      }.bind(this));
+      });
     },
 
     toString: function() {
@@ -127,6 +122,8 @@ define(function(require) {
 
     _debug: function() {
       var args = Array.slice(arguments);
+      // XXX logic.js-ify our callers; the main thing is to make sure the
+      // universe logs us by default since wakelocks are fairly important.
       console.log.apply(console, ['SmartWakeLock:'].concat(args));
     }
   };

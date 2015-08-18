@@ -1,17 +1,15 @@
-define(
-  [
-    'mailbuild',
-    '../bodies/mailchew',
-    '../util'
-  ],
-  function(
-    MimeNode,
-    $mailchew,
-    $imaputil
-  ) {
+define(function(require) {
 'use strict';
 
-var formatAddresses = $imaputil.formatAddresses;
+const co = require('co');
+
+const MimeNode = require('mailbuild');
+
+const asyncFetchBlob = require('../async_blob_fetcher');
+
+const { mergeUserTextWithHTML } = require('../bodies/mailchew');
+
+const { formatAddresses } = require('../util');
 
 // MimeNode doesn't have a `removeHeader` method, but it's so helpful.
 // Upstream this when possible.
@@ -23,22 +21,6 @@ MimeNode.prototype.removeHeader = function(key) {
     }
   }
 };
-
-/**
- * Ensure that all newlines are of the form \r\n.  Our database representation
- * for composed messages uses just \n at the current time.
- *
- * Test coverage is currently provided by end-to-end tests like test_compose
- * since the SMTP fake server knows to generate a 451 if it sees incorrect
- * newlines.  (Thanks to qmail!)
- */
-function normalizeNewlines(body) {
-  // If regexps supported look-behinds we could avoid the wasted identity
-  // transform on \r\n but that's the only way to find an \n not preceded by
-  // an \r.  We don't really need the lone \r but if we're normalizing why
-  // not normalize 100%?
-  return body.replace(/\r?\n|\r/g, '\r\n');
-}
 
 /**
  * Abstraction around the mailbuild helper library and our efforts to avoid
@@ -80,101 +62,12 @@ function normalizeNewlines(body) {
  *   The HeaderInfo and BodyInfo for the most recent saved copy of the draft.
  *   Used to construct the outgoing message.
  * @param account
- * @param identity
  */
-function Composer(newRecords, account, identity) {
-  var header = this.header = newRecords.header;
-  var body = this.body = newRecords.body;
+function Composer(messageInfo, account, reportHeartbeat) {
+  this.messageInfo = messageInfo;
   this.account = account;
-  this.identity = identity;
-  this.sentDate = new Date(this.header.date);
-  this._smartWakeLock = null;
-
-  // Snapshot data we create for consistency.
-  // We're copying nodemailer here; we might want to include some more.
-  this.messageId =
-    '<' + Date.now() + Math.random().toString(16).substr(1) + '@mozgaia>';
-
-  var messageNode;
-
-  // text/plain and text/html
-  var textContent = body.bodyReps[0].content[1];
-  if (body.bodyReps.length === 2) {
-    var htmlContent = body.bodyReps[1].content;
-    messageNode = new MimeNode('text/html');
-    messageNode.setContent(
-      normalizeNewlines(
-        $mailchew.mergeUserTextWithHTML(textContent, htmlContent)));
-  } else {
-    messageNode = new MimeNode('text/plain');
-    messageNode.setContent(normalizeNewlines(textContent));
-  }
-
-  var root;
-  if (body.attachments.length) {
-    root = this._rootNode = new MimeNode('multipart/mixed');
-    root.appendChild(messageNode);
-  } else {
-    root = this._rootNode = messageNode;
-  }
-
-  root.setHeader('From', formatAddresses([this.identity]));
-  root.setHeader('Subject', header.subject);
-
-  if (this.identity.replyTo) {
-    root.setHeader('Reply-To', this.identity.replyTo);
-  }
-  if (header.to && header.to.length) {
-    root.setHeader('To', formatAddresses(header.to));
-  }
-  if (header.cc && header.cc.length) {
-    root.setHeader('Cc', formatAddresses(header.cc));
-  }
-  // Note: We include the BCC header here, even though we also do some
-  // BCC trickery below, so that the getEnvelope() function includes
-  // the proper "to" addresses in the envelope.
-  if (header.bcc && header.bcc.length) {
-    root.setHeader('Bcc', formatAddresses(header.bcc));
-  }
-
-  root.setHeader('User-Agent', 'GaiaMail/0.2');
-  root.setHeader('Date', this.sentDate.toUTCString());
-  root.setHeader('Message-Id', this.messageId);
-  if (body.references) {
-    root.setHeader('References', body.references);
-  }
-
-  // Set the transfer-encoding to quoted-printable so that mailbuild
-  // doesn't attempt to insert linebreaks in HTML mail.
-  root.setHeader('Content-Transfer-Encoding', 'quoted-printable');
-
-  // Mailbuild doesn't currently support blobs. As a workaround,
-  // insert a unique placeholder separator, which we will replace with
-  // the real contents of the blobs during the sending process.
-  this._blobReplacements = [];
-  this._uniqueBlobBoundary = '{{blob!' + Math.random() + Date.now() + '}}';
-
-  body.attachments.forEach(function(attachment) {
-    try {
-      var attachmentNode = new MimeNode(
-        attachment.type,
-        {
-          // This implies Content-Disposition: attachment
-          filename: attachment.name
-        });
-      // Explicitly indicate that the attachment is base64 encoded.  mailbuild
-      // only picks base64 for non-text/* MIME parts, but our attachment logic
-      // encodes *all* attachments in base64, so base64 is the only correct
-      // answer.  (Also, failure to base64 encode our _uniqueBlobBoundary breaks
-      // the replace logic in withMessageBlob.  So base64 all the things!)
-      attachmentNode.setHeader('Content-Transfer-Encoding', 'base64');
-      attachmentNode.setContent(this._uniqueBlobBoundary);
-      root.appendChild(attachmentNode);
-      this._blobReplacements.push(new Blob(attachment.file));
-    } catch (ex) {
-      console.error('Problem attaching attachment:', ex, '\n', ex.stack);
-    }
-  }.bind(this));
+  this.sentDate = new Date(messageInfo.date);
+  this._heartbeat = reportHeartbeat;
 }
 Composer.prototype = {
 
@@ -191,13 +84,116 @@ Composer.prototype = {
 
   /**
    * Request that a body be produced as a single Blob with the given options.
-   * Multiple calls to this method may overlap concurrently.
    *
    * @param {object} opts
    *   { includeBcc: true } if the BCC header should be included.
-   * @param {function(blob)} callback
+   * @return {Promise<Blob>}
    */
-  withMessageBlob: function(opts, callback) {
+  deriveMessageBlob: co.wrap(function*(opts) {
+    let messageInfo = this.messageInfo;
+    let messageNode;
+
+    // text/plain and text/html
+    // TODO: more elegant/less-assumption making body rep logic.
+    // (The reason we do this at all is because our UI currently can only edit
+    // messages in text form, but if we're sending an HTML message, we want them
+    // unified into a text representation.  The better solution is for all
+    // composition in the mixed scenario to be done directly in/as HTML.
+    let quoteChewedRep =
+      yield asyncFetchBlob(messageInfo.bodyReps[0].contentBlob, 'json');
+    let textContent = quoteChewedRep[1];
+    if (messageInfo.bodyReps.length === 2) {
+      let htmlContent =
+        yield asyncFetchBlob(messageInfo.bodyReps[1].contentBlob, 'text');
+      messageNode = new MimeNode('text/html');
+      messageNode.setContent(
+        normalizeNewlines(
+          mergeUserTextWithHTML(textContent, htmlContent)));
+    } else {
+      messageNode = new MimeNode('text/plain');
+      messageNode.setContent(normalizeNewlines(textContent));
+    }
+
+    var root;
+    if (messageInfo.attachments.length) {
+      root = this._rootNode = new MimeNode('multipart/mixed');
+      root.appendChild(messageNode);
+    } else {
+      root = this._rootNode = messageNode;
+    }
+
+    // - Addresses
+    // Note that our use of formatAddresses isn't really required.  Mailbuild
+    // parses the strings we give it and then re-formats them with punycode
+    // conversion and the like.  If we give it AddressPair objects, it will
+    // first format them and then do the above (re-parse, re-format).
+    //
+    // I am not eliminating our formatAddresses uses right now in the interest of
+    // not randomly breaking things and because we do use formatAddresses in
+    // mailchew to generate our forward/reply strings, so this usage here helps
+    // that logic get extra test coverage.  But it is dumb and we should ideally
+    // unify that code to use the same logic mailbuild uses.
+    root.setHeader('From', formatAddresses([messageInfo.from]));
+    root.setHeader('Subject', messageInfo.subject);
+
+    if (messageInfo.replyTo) {
+      root.setHeader('Reply-To', formatAddresses[messageInfo.replyTo]);
+    }
+    if (messageInfo.to && messageInfo.to.length) {
+      root.setHeader('To', formatAddresses(messageInfo.to));
+    }
+    if (messageInfo.cc && messageInfo.cc.length) {
+      root.setHeader('Cc', formatAddresses(messageInfo.cc));
+    }
+    // Note: We include the BCC header here, even though we also do some
+    // BCC trickery below, so that the getEnvelope() function includes
+    // the proper "to" addresses in the envelope.
+    if (messageInfo.bcc && messageInfo.bcc.length) {
+      root.setHeader('Bcc', formatAddresses(messageInfo.bcc));
+    }
+
+    root.setHeader('User-Agent', 'GaiaMail/0.2');
+    root.setHeader('Date', this.sentDate.toUTCString());
+    // mailbuild handles <> quoting of message-id
+    root.setHeader('Message-Id', messageInfo.guid);
+    // mailbuild performs list-aware <> quoting and joining.
+    if (messageInfo.references && messageInfo.references.length) {
+      root.setHeader('References', messageInfo.references);
+    }
+
+    // Set the transfer-encoding to quoted-printable so that mailbuild
+    // doesn't attempt to insert linebreaks in HTML mail.
+    root.setHeader('Content-Transfer-Encoding', 'quoted-printable');
+
+    // Mailbuild doesn't currently support blobs. As a workaround,
+    // insert a unique placeholder separator, which we will replace with
+    // the real contents of the blobs during the sending process.
+    this._blobReplacements = [];
+    this._uniqueBlobBoundary = '{{blob!' + Math.random() + Date.now() + '}}';
+
+    messageInfo.attachments.forEach(function(attachment) {
+      try {
+        var attachmentNode = new MimeNode(
+          attachment.type,
+          {
+            // This implies Content-Disposition: attachment
+            filename: attachment.name
+          });
+        // Explicitly indicate that the attachment is base64 encoded.  mailbuild
+        // only picks base64 for non-text/* MIME parts, but our attachment logic
+        // encodes *all* attachments in base64, so base64 is the only correct
+        // answer.  (Also, failure to base64 encode our _uniqueBlobBoundary breaks
+        // the replace logic in withMessageBlob.  So base64 all the things!)
+        attachmentNode.setHeader('Content-Transfer-Encoding', 'base64');
+        attachmentNode.setContent(this._uniqueBlobBoundary);
+        root.appendChild(attachmentNode);
+        this._blobReplacements.push(new Blob(attachment.file));
+      } catch (ex) {
+        console.error('Problem attaching attachment:', ex, '\n', ex.stack);
+      }
+    }.bind(this));
+
+
 
     // Another horrible workaround: Mailbuild _never_ includes the
     // 'Bcc' header in the generated output, and there isn't a simple
@@ -209,9 +205,10 @@ Composer.prototype = {
     var TEMP_BCC = 'Bcc-Temp';
     var TEMP_BCC_REGEX = /^Bcc-Temp: /m;
 
-    var hasBcc = opts.includeBcc && this.header.bcc && this.header.bcc.length;
+    var hasBcc = opts.includeBcc && this.messageInfo.bcc &&
+                   this.messageInfo.bcc.length;
     if (hasBcc) {
-      this._rootNode.setHeader(TEMP_BCC, formatAddresses(this.header.bcc));
+      this._rootNode.setHeader(TEMP_BCC, formatAddresses(this.messageInfo.bcc));
     } else {
       this._rootNode.removeHeader(TEMP_BCC);
     }
@@ -242,32 +239,19 @@ Composer.prototype = {
     });
 
     // Build a super-blob from any subparts.
-    callback(new Blob(splits, {
+    return new Blob(splits, {
       type: this._rootNode.getHeader('content-type')
-    }));
-  },
+    });
+  }),
 
   /**
-   * Call setSmartWakeLock to assign a SmartWakeLock instance.
-   * Accounts will call renewSmartWakeLock() during the sending
-   * process, so that the wake lock can continually be renewed during
-   * the sending process. This prevents the lock from expiring.
-   *
-   * @param {SmartWakeLock} wakeLock
-   */
-  setSmartWakeLock: function(wakeLock) {
-    this._smartWakeLock = wakeLock;
-  },
-
-  /**
-   * Renew the SmartWakeLock associated with this composer, if one has
-   * been set. Provide an optional reason, which will be logged.
+   * Propagate heartbeat notifications if our nominal owner told us one to use.
    *
    * @param {String} reason
    */
-  renewSmartWakeLock: function(reason) {
-    if (this._smartWakeLock) {
-      this._smartWakeLock.renew(reason);
+  heartbeat: function(reason) {
+    if (this._heartbeat) {
+      this._heartbeat(reason);
     }
   }
 };

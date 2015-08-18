@@ -15,6 +15,8 @@ let ConversationTOC = require('./db/conv_toc');
 
 let TaskManager = require('./task_manager');
 let TaskRegistry = require('./task_registry');
+let TaskPriorities = require('./task_priorities');
+let TaskResources = require('./task_resources');
 
 let globalTasks = require('./global_tasks');
 // TODO: lazy-load these by mapping engine names to modules to dynamically
@@ -59,8 +61,16 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this._conversationTOCs = new Map();
 
   this.taskRegistry = new TaskRegistry(this.db);
-  this.taskManager = new TaskManager(this, this.db, this.taskRegistry,
-                                     this.accountsTOC);
+  this.taskResources = new TaskResources();
+  this.taskPriorities = new TaskPriorities();
+  this.taskManager = new TaskManager({
+    universe: this,
+    db: this.db,
+    registry: this.taskRegistry,
+    resources: this.taskResources,
+    priorities: this.taskPriorities,
+    accountsTOC: this.accountsTOC
+  });
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
   // TODO: as noted above, these should really be doing lazy requires and
@@ -333,7 +343,8 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Acquire an account's folders TOC.
+   * Acquire an account's folders TOC.  If you don't want the account, just its
+   * folders, use this.
    *
    * Note that folderTOC's are eternal and so don't actually need reference
    * counting, etc.  However, we conform to the idiom.

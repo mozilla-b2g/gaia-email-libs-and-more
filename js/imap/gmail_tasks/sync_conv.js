@@ -4,7 +4,9 @@ define(function(require) {
 let logic = require('logic');
 let co = require('co');
 let { shallowClone } = require('../../util');
-let { NOW } = require('../../date');
+
+let { prioritizeNewer } = require('../../date_priority_adjuster');
+
 
 let TaskDefiner = require('../../task_definer');
 let a64 = require('../../a64');
@@ -54,9 +56,6 @@ let INITIAL_FETCH_PARAMS = [
  * @prop revisedUidState
  **/
 
-const MAX_PRIORITY_BOOST = 99999;
-const ONE_HOUR_IN_MSECS = 60 * 60 * 1000;
-
 /**
  * Fetches the envelopes for new messages in a conversation and also applies
  * flag/label changes discovered by sync_refresh (during planning).
@@ -104,19 +103,9 @@ return TaskDefiner.defineSimpleTask([
         `view:conv:${rawTask.convId}`
       ];
 
-      // If we know how recent the conversation is, use it to provide a priority
-      // boost.  This is a question of quantization/binning and how much range
-      // we have/need/care about.  Since we currently let relative priorities
-      // go from -10k to +10k (exclusive), using hours in the past provides
-      // useful differentiation for ~23 years which is sufficient for our needs.
-      // Note that this relative priority is frozen in time at the instance of
-      // planning
+      // Prioritize syncing the conversation by how new it is.
       if (rawTask.mostRecent) {
-        plannedTask.relPriority = Math.max(
-          -MAX_PRIORITY_BOOST,
-          MAX_PRIORITY_BOOST -
-            (NOW() - rawTask.mostRecent) / ONE_HOUR_IN_MSECS
-        );
+        plannedTask.relPriority = prioritizeNewer(rawTask.mostRecent);
       }
 
       yield ctx.finishTask({

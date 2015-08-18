@@ -163,6 +163,26 @@ TaskContext.prototype = {
 
   },
 
+  /**
+   * Called by a task to indicate that it's still alive.
+   *
+   * Currently used for:
+   * - renewing the wakelocks we keep active for the task.
+   * Probably will be used for:
+   * - a similar set of timeouts we use to figure when a task has died in a way
+   *   that didn't lead to a rejection we got to see.  In that case we try and
+   *   kill the task and cleanup.
+   *
+   * It might be better if instead we just had the tasks return a promise that
+   * also generates progress information and/or let additional progress promises
+   * (or streams?) exist.  But in general our needs are somewhat limited and
+   * we can probably just have the connections tell us when they're trafficking
+   * in data.
+   */
+  heartbeat: function(why) {
+
+  },
+
   read: function(what) {
     return this.universe.db.read(this, what);
   },
@@ -249,7 +269,8 @@ TaskContext.prototype = {
           id: this.id,
           value: this._taskThing
         };
-        this.universe.taskManager.__prioritizeTaskOrMarker(this._taskThing);
+        this.universe.taskManager.__queueTasksOrMarkers(
+          [this._taskThing], this.id, true);
       } else {
         revisedTaskInfo = {
           id: this.id,
@@ -274,12 +295,12 @@ TaskContext.prototype = {
       for (let [markerId, taskMarker] of finishData.taskMarkers) {
         // create / update marker
         if (taskMarker) {
-          this.universe.taskManager.__prioritizeTaskOrMarker(
-            taskMarker, this.id, true);
+          this.universe.taskManager.__queueTasksOrMarkers(
+            [taskMarker], this.id, true);
         }
         // nuke the marker
         else {
-          this.universe.taskManager.__removeMarker(markerId);
+          this.universe.taskManager.__removeTaskOrMarker(markerId);
         }
       }
     }

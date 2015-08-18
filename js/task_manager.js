@@ -1,13 +1,15 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let evt = require('evt');
-let logic = require('logic');
+const co = require('co');
+const evt = require('evt');
+const logic = require('logic');
 
-let TaskContext = require('./task_context');
+const TaskContext = require('./task_context');
 
-let FibonacciHeap = require('./ext/fibonacci-heap');
+const FibonacciHeap = require('./ext/fibonacci-heap');
+
+const { SmartWakeLock } = require('./wakelocks');
 
 /**
  * The public API and ultimate coordinator of all tasks.  Tracks and prioritizes
@@ -18,6 +20,9 @@ let FibonacciHeap = require('./ext/fibonacci-heap');
  *   the actual execution of the tasks once TaskManager has decided what should
  *   get executed.  `TaskManager` and its creator, `MailUniverse` handle some
  *   glue logic.
+ * - `TaskResources`: In charge of tracking available resources, knowing when a
+ *   planned task/markers hould be blocked by an unavailable resource, and
+ *   timer-related issues.  Non-trivially coupld to us.
  * - `TaskContext`: Provides the execution context and helpers for tasks as they
  *   are run.
  *
@@ -25,12 +30,15 @@ let FibonacciHeap = require('./ext/fibonacci-heap');
  * `__restoreFromDB` method and we have fully initialized all complex tasks.
  * (Complex task initialization can be async.)
  */
-function TaskManager(universe, db, registry, accountsTOC) {
+function TaskManager({ universe, db, registry, resources, priorities,
+                       accountsTOC }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'TaskManager');
   this._universe = universe;
   this._db = db;
   this._registry = registry;
+  this._resources = resources;
+  this._priorities = priorities;
   this._accountsTOC = accountsTOC;
 
   // XXX SADNESS.  So we wanted to use autoincrement to avoid collisions or us
@@ -53,46 +61,33 @@ function TaskManager(universe, db, registry, accountsTOC) {
    */
   this._tasksToPlan = [];
 
-  /**
-   *
-   */
-  this._prioritizedTasks = new FibonacciHeap();
-
-  /**
-   * Maps priority tags to the FibonacciHeap nodes holding a simple wrappedTask
-   * or a complex task marker.
-   */
-  this._priorityTagToHeapNodes = new Map();
-  /**
-   * @type {Map<String, Map<String, Number>>}
-   * Maps owners to their current maps of priority tags and their relative
-   * priority boosts.  (Positive numbers are a boost, negative numbers are a
-   * penalty.)
-   */
-  this._priorityTagsByOwner = new Map();
-
-  /**
-   * Maps priority tags to the sum of all of the values in the maps stored in
-   * _priorityTagsByOwner.  Keys/values are deleted when they go to zero.  This
-   * is updated incrementally, not re-tallied.
-   */
-  this._summedPriorityTags = new Map();
-
-  /**
-   * Maps a marker id to the priority heap node that contains it.  Used so that
-   * as complex tasks update their markers (functional-style, they do not
-   * retain a reference to their marker and are forbidden from manipulating the
-   * markers after the fact for sanity reasons) we can re-prioritize the
-   * markers.
-   *
-   * Markers are removed from this map exactly as they are triggered to execute.
-   */
-  this._markerIdToHeapNode = new Map();
 
   // Wedge our processing infrastructure until we have loaded everything from
   // the database.  Note that nothing will actually .then() off of this, and
   // we're just using an already-resolved Promise for typing reasons.
   this._activePromise = Promise.resolve(null);
+
+  /**
+   * The SmartWakeLock we're holding, if any.  We hold the wakelocks rather than
+   * our tasks doing it themselves because we manage their lifecycles anyways
+   * and it's not like the wakelocks are for "highspeed" or anything fancy.  We
+   * need to hold the "cpu" wakelock if we want our code to keep executing, and
+   * we need to hold the "wifi" wakelock if we want to keep our network around.
+   * (There is some ugliness related to the "wifi" wakelock that we won't get
+   * into here.)  In the event wakelocks get fancier, we'll potentially deal
+   * with that by exposing additional data on the task or adding helpers to the
+   * TaskContext.
+   *
+   * Current we:
+   * - Acquire the wakelock when we have any work to do.
+   * - Renew the wakelock at the point we would have acquired it if we didn't
+   *   already hold it.  The SmartWakeLock defaults to a 45 second timeout
+   *   which we're currently calling more than sufficiently generous, but
+   *   long-running tasks are on the hook for invoking TaskContext.heartbeat()
+   *   to help us renew the wakelock while it's still going.
+   * - Release the wakelock when we run out of things to do.
+   */
+  this._activeWakeLock = null;
 }
 TaskManager.prototype = evt.mix({
   __restoreFromDB: co.wrap(function*() {
@@ -104,7 +99,7 @@ TaskManager.prototype = evt.mix({
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
       } else {
-        this.__prioritizeTaskOrMarker(wrappedTask, 'restored', true);
+        this.__queueTasksOrMarkers(wrappedTask, 'restored', true);
       }
     }
 
@@ -116,13 +111,13 @@ TaskManager.prototype = evt.mix({
         this._registry.accountExistsInitTasks(
           accountInfo.id, accountInfo.engine)
         .then((markers) => {
-          this._prioritizeTasksOrMarkers(markers);
+          this.__queueTasksOrMarkers(markers, 'restored', true);
         }));
     });
     this._accountsTOC.on('add', (accountInfo) => {
       this._registry.accountExistsInitTasks(accountInfo.id, accountInfo.engine)
         .then((markers) => {
-          this._prioritizeTasksOrMarkers(markers);
+          this.__queueTasksOrMarkers(markers, 'restored', true);
         });
     });
     this._accountsTOC.on('remove', (accountInfo) => {
@@ -136,6 +131,39 @@ TaskManager.prototype = evt.mix({
       this._maybeDoStuff();
     });
   }),
+
+  /**
+   * Ensure that we have a wake-lock.  Invoke us when something happens that
+   * means the TaskManager has or will soon have work to do and so we need to
+   * stay awake.
+   */
+  _ensureWakeLock: function() {
+    if (!this._activeWakeLock) {
+      this._activeWakeLock = new SmartWakeLock({ locks: ['cpu'] });
+    } else {
+      this._activeWakeLock.renew('TaskManager:ensure');
+    }
+  },
+
+  __renewWakeLock: function() {
+    if (this._activeWakeLock) {
+      this._activeWakeLock.renew('TaskManager:explicit');
+    } else {
+      logic.fail('explicit renew propagated without a wakelock?');
+    }
+  },
+
+  /**
+   * Release the wakelock *because we are sure we have no more work to do right
+   * now*.  We don't do reference counted nesting or anything like that.  We've
+   * got work to do or we don't.
+   */
+  _releaseWakeLock: function() {
+    if (this._activeWakeLock) {
+      this._activeWakeLock.unlock('TaskManager:release');
+      this._activeWakeLock = null;
+    }
+  },
 
   /**
    * Schedule one or more persistent tasks.
@@ -161,9 +189,10 @@ TaskManager.prototype = evt.mix({
    *   towards v3 undo support.  This may be removed.
    */
   scheduleTasks: function(rawTasks, why) {
+    this._ensureWakeLock();
     let wrappedTasks = this.__wrapTasks(rawTasks);
 
-    logic(this, 'scheduling', { why: why, tasks: wrappedTasks });
+    logic(this, 'schedulePersistent', { why: why, tasks: wrappedTasks });
 
     return this._db.addTasks(wrappedTasks).then(() => {
       this.__enqueuePersistedTasksForPlanning(wrappedTasks);
@@ -184,7 +213,7 @@ TaskManager.prototype = evt.mix({
    */
   waitForTasksToBePlanned: function(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         this.once('planned:' + taskId, resolve);
       });
     }));
@@ -200,7 +229,10 @@ TaskManager.prototype = evt.mix({
    * In general you don't want to be calling this.
    */
   scheduleNonPersistentTasks: function(rawTasks, why) {
+    this._ensureWakeLock();
     let wrappedTasks = this.__wrapTasks(rawTasks);
+    logic(this, 'scheduleNonPersistent', { why: why, tasks: wrappedTasks });
+
     wrappedTasks.forEach((wrapped) => {
       wrapped.nonpersistent = true;
     });
@@ -208,92 +240,6 @@ TaskManager.prototype = evt.mix({
     return wrappedTasks.map(x => x.id);
   },
 
-  _computePriorityForTags: function(priorityTags) {
-    let summedPriorityTags = this._summedPriorityTags;
-    let priority = 0;
-    for (let priorityTag of priorityTags) {
-      priority += (summedPriorityTags.get(priorityTag) || 0);
-    }
-    return priority;
-  },
-
-  /**
-   * Updates the priority boost tags associated with the given owningId, like
-   * when the user changes what they're looking at.  Pass null to clear the
-   * existing priority boost tags.
-   *
-   * @param {String} owningId
-   *   A non-colliding identifier amongst the other priority users.  The
-   *   tentative convention is to just use bridge handles or things prefixed
-   *   with them since all priorities flow from explicit user action.
-   * @param {Map} tagsWithValues
-   *   A map whose keys are tag names and values are (positive) priority boosts
-   *   for tasks/markers possessing that tag.  The Map must *not* be mutated
-   *   after it is passed-in.  (We could be defensive about this, but all our
-   *   callers should be in-GELAM so it shouldn't be hard to comply.)
-   */
-  setPriorityBoostTags: function(owningId, tagsWithValues) {
-    // This is a 2-pass implementation:
-    // 1) Accumulate per-task/marker priority deltas stored in a map.
-    // 2) Apply those deltas to the priority heap.
-    // We don't want to update the heap as we go because
-
-    let existingValues = this._priorityTagsByOwner.get(owningId) || new Map();
-    let newValues = tagsWithValues || new Map();
-    let perThingDeltas = new Map();
-
-    let summedPriorityTags = this._summedPriorityTags;
-    let priorityTagToHeapNodes = this._priorityTagToHeapNodes;
-
-    if (tagsWithValues) {
-      this._priorityTagsByOwner.set(owningId, tagsWithValues);
-    } else {
-      this._priorityTagsByOwner.delete(owningId);
-    }
-
-    // -- Phase 1: accumulate deltas (and update sums)
-    let applyDelta = (priorityTag, delta) => {
-      // - update sum
-      let newSum = (summedPriorityTags.get(priorityTag) || 0) + delta;
-      if (newSum) {
-        summedPriorityTags.set(priorityTag, newSum);
-      } else {
-        summedPriorityTags.delete(priorityTag);
-      }
-
-      // - per-taskthing deltas
-      let nodes = priorityTagToHeapNodes.get(priorityTag);
-      if (nodes) {
-        for (let node of nodes) {
-          let aggregateDelta = (perThingDeltas.get(node) || 0) + delta;
-          perThingDeltas.set(node, aggregateDelta);
-        }
-      }
-    };
-
-    // - Iterate over newValues for new/changed values.
-    for (let [priorityTag, newPriority] of newValues.items()) {
-      let oldPriority = existingValues.get(priorityTag) || 0;
-      let priorityDelta = newPriority - oldPriority;
-      applyDelta(priorityTag, priorityDelta);
-    }
-    // - Iterate over existingValues for deletions
-    for (let [priorityTag, oldPriority] of existingValues.items()) {
-      if (newValues.has(priorityTag)) {
-        continue;
-      }
-      applyDelta(priorityTag, -oldPriority);
-    }
-
-    // -- Phase 2: update the priority heap
-    for (let [node, aggregateDelta] of perThingDeltas.values()) {
-      // The heap allows us to reduce keys (Which, because we negate them, means
-      // priority increases) efficiently, but otherwise we need to remove the
-      // thing and re-add it.
-      let newKey = node.key - aggregateDelta; // (the keys are negated!)
-      this._reprioritizeHeapNode(node, newKey);
-    }
-  },
 
   /**
    * Wrap raw tasks and issue them an id, suitable for persisting to the
@@ -314,8 +260,50 @@ TaskManager.prototype = evt.mix({
    * disk.
    */
   __enqueuePersistedTasksForPlanning: function(wrappedTasks) {
+    this._ensureWakeLock();
     this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
     this._maybeDoStuff();
+  },
+
+  /**
+   * Makes us aware of planend tasks or complex task markers.  This happens
+   * as tasks / complex states are restored from the database, or planning
+   * steps complete (via `TaskContext`).
+   *
+   * We call TaskResources and it decides whether to keep it or pass it on to
+   * TaskPriorities.
+   */
+  __queueTasksOrMarkers: function(taskThings, sourceId, noTrigger) {
+    let prioritized = 0;
+    for (let taskThing of taskThings) {
+      logic(this, 'queueing', { taskThing: taskThing, sourceId });
+      if (this._resources.ownOrRelayTaskThing(taskThing)) {
+        prioritized++;
+      }
+    }
+    // If nothing is happening, then we might need/want to call _maybeDoStuff
+    // soon, but not until whatever's calling us has had a chance to finish.
+    // And if something is happening, well, we already know we will call
+    // _maybeDoStuff when that happens.  (Note that we must not call
+    // _maybeDoStuff synchronously because _maybeDoStuff may already be on the
+    // stack, waiting for a promise to be returned to it.)
+    // XXX Audit this more and potentially ensure there's only one of these
+    // nextTick-style hacks.  But right now this should be harmless but
+    // wasteful.
+    if (prioritized && !noTrigger && !this._activePromise) {
+      Promise.resolve().then(() => {
+        this._maybeDoStuff();
+      });
+    }
+  },
+
+  /**
+   * Allows TaskContext to trigger removal of complex task markers when
+   * requested by complex tasks.
+   */
+  __removeTaskOrMarker: function(taskId) {
+    logic(this, 'removing', { taskId });
+    this._resources.removeTaskThing(taskId);
   },
 
   /**
@@ -331,10 +319,11 @@ TaskManager.prototype = evt.mix({
 
     if (this._tasksToPlan.length) {
       this._activePromise = this._planNextTask();
-    } else if (!this._prioritizedTasks.isEmpty()) {
+    } else if (!this._priorities.hasTasksToExecute()) {
       this._activePromise = this._executeNextTask();
     } else {
       logic(this, 'nothingToDo');
+      this._releaseWakeLock();
       // bail, intentionally doing nothing.
       return;
     }
@@ -349,7 +338,7 @@ TaskManager.prototype = evt.mix({
       // TODO: consider whether a while loop would be a better approach over
       // this.  Right now we're effectively being really paranoid to make sure
       // we clear the stack.
-      if (this._tasksToPlan.length || !this._prioritizedTasks.isEmpty()) {
+      if (this._tasksToPlan.length || !this._priorities.hasTasksToExecute()) {
         setTimeout(() => { this._maybeDoStuff(); }, 0);
       }
       return;
@@ -368,8 +357,7 @@ TaskManager.prototype = evt.mix({
   /**
    * Plan the next task.  This task will advance to 'planned' atomically as part
    * of the completion of planning.  In the case of simple tasks, this will
-   * happen via a call to `__prioritizeTask`, but for complex tasks other stuff
-   * may happen.
+   * happen via a call to `__queueTasksOrMarkers` via TaskContext.
    */
   _planNextTask: function() {
     let wrappedTask = this._tasksToPlan.shift();
@@ -388,101 +376,11 @@ TaskManager.prototype = evt.mix({
     return planResult;
   },
 
-  /**
-   * Helper to decide whether to use decreaseKey for a node or remove it and
-   * re-add it.  Centralized because this seems easy to screw up.  All values
-   * are in the key-space, which is just the negated priority.
-   */
-  _reprioritizeHeapNode: function(node, newKey) {
-    let prioritizedTasks = this._prioritizedTasks;
-    if (newKey < node.key) {
-      prioritizedTasks.decreaseKey(node, newKey);
-    } else if (newKey > node.key) {
-      let taskThing = node.value;
-      prioritizedTasks.delete(node);
-      prioritizedTasks.insert(newKey, taskThing);
-    } // we intentionally do nothing for a delta of 0
-  },
-
-  _prioritizeTasksOrMarkers: function(tasksOrThings) {
-    for (let i = 0; i < tasksOrThings.length; i++) {
-      this.__prioritizeTaskOrMarker(tasksOrThings[i]);
-    }
-  },
-
-  /**
-   * Called by `TaskContext` when a task completes being planned.
-   *
-   * @param {WrappedTask|TaskMarker} taskThing
-   */
-  __prioritizeTaskOrMarker: function(taskThing, sourceId, noTrigger) {
-    logic(this, 'prioritizing', { taskOrMarker: taskThing, sourceId });
-
-    // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
-    // the root (they're simple/flat).
-    let isTask = !taskThing.type;
-    let priorityTags = isTask ? taskThing.plannedTask.priorityTags
-                              : taskThing.priorityTags;
-    let relPriority = (isTask ? taskThing.plannedTask.relPriority
-                              : taskThing.relPriority) || 0;
-    let priority = relPriority + this._computePriorityForTags(priorityTags);
-    // it's a minheap, we negate keys
-    let nodeKey = -priority;
-
-    if (!isTask) {
-      // There may already exist a node for this in the map, in which case we
-      // need to
-      let priorityNode = this._markerIdToHeapNode.get(taskThing.id);
-      if (priorityNode) {
-        this._reprioritizeHeapNode(priorityNode, nodeKey);
-      } else {
-        priorityNode =
-          this._prioritizedTasks.insert(nodeKey, taskThing);
-        this._markerIdToHeapNode.set(taskThing.id, priorityNode);
-      }
-    } else {
-      this._prioritizedTasks.insert(nodeKey, taskThing);
-      // (this isn't a marker so we don't put an entry in
-      // _markerIdToHeapNode)
-    }
-
-    // If nothing is happening, then we might need/want to call _maybeDoStuff
-    // soon, but not until whatever's calling us has had a chance to finish.
-    // And if something is happening, well, we already know we will call
-    // _maybeDoStuff when that happens.  (Note that we must not call
-    // _maybeDoStuff synchronously because _maybeDoStuff may already be on the
-    // stack, waiting for a promise to be returned to it.)
-    // XXX Audit this more and potentially ensure there's only one of these
-    // nextTick-style hacks.  But right now this should be harmless but
-    // wasteful.
-    if (!noTrigger && !this._activePromise) {
-      Promise.resolve().then(() => {
-        this._maybeDoStuff();
-      });
-    }
-  },
-
-  /**
-   * Remove the task marker with the given id.
-   */
-  __removeMarker: function(markerId) {
-    let priorityNode = this._markerIdToHeapNode.get(markerId);
-    if (priorityNode) {
-      this._prioritizedTasks.delete(priorityNode);
-      this._markerIdToHeapNode.delete(markerId);
-      logic(this, 'removeMarker', { id: markerId });
-    }
-  },
-
   _executeNextTask: function() {
-    let taskThing = this._prioritizedTasks.extractMinimum().value;
+    let taskThing = this._priorities.popNextAvailableTask();
     let isTask = !taskThing.type;
     logic(this, 'executing:begin', { task: taskThing });
 
-    // If this is a marker, remove it from the heap node or it will leak.
-    if (!isTask) {
-      this._markerIdToHeapNode.delete(taskThing.id);
-    }
     let ctx = new TaskContext(taskThing, this._universe);
     let execResult = this._registry.executeTask(ctx, taskThing);
     if (execResult) {

@@ -164,8 +164,9 @@ function makeMessageInfo(raw) {
  * @prop {DateMS} [refMessageDate=null]
  *   The date of the message, used for random access to the message without
  *   loading the rest of the messages in the conversation.
- * @prop {Object} [sendStatus=null]
- *   v1.x style sendStatus representation.  We want to overhaul/normalize this.
+ * @prop {Object} [sendProblems=null]
+ *   Problems experienced sending the message.  This replaces the v1.x sendInfo
+ *   structure which captured both send state and sending problems.
  */
 function makeDraftInfo(raw) {
   return {
@@ -173,7 +174,7 @@ function makeDraftInfo(raw) {
     mode: raw.mode || null,
     refMessageId: raw.refMessageId || null,
     refMessageDate: raw.refMessageDate || null,
-    sendStatus: raw.sendStatus || null
+    sendProblems: raw.sendProblems || null
   };
 }
 

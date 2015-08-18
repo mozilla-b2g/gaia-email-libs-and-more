@@ -142,6 +142,10 @@ Tasks have the following life-cycle states/transitions:
     are going to need a lot of memory or to do a lot of disk I/O, you do that in
     the execution phase of your task.  And maybe you break your task into
     multiple tasks.
+- Blocked: Planned tasks/markers indicate the resources they require to be able
+  to execute, such as their owning account being online.  They are blocked and
+  not considered for execution until the resources become available.  Tasks may
+  also be blocked awaiting a backoff-based retry.
 - Execution: The task manager eventually decides to execute your task based on
   its priority / resource needs / dependencies / etc.
 
@@ -155,6 +159,60 @@ decides to execute a complex task, it instead hands the complex task a task
 marker.
 
 Task markers have an associated count in order to allow for parallelization.
+
+I recently introduced support for complex tasks being able to asynchronously
+initiate themselves, in case they want to extract state from messages/etc. for
+the outbox, but then I ended up not using it.  I think we should try and avoid
+using this functionality since it seems likely to result in bad complexity, but
+there's nothing fundamentally wrong with it.  So if it seems like the best
+strategy to use, it's available.  Just think about it and factor in the overlay
+implications.
+
+## Blocking: Resources and Timeouts/Backoffs ##
+
+We may not be able to execute tasks at the current time, or we may not want to
+execute them until after some interval of time has passed.
+
+Our core use cases are as follows:
+- Don't try and do online-only things when we're not online.
+- Don't do things when there are known account problems:
+  - User-action required, such as due to a bad password/oauth credentials.
+  - Apparent server outage.
+- Retry an action after a timeout.  (For cases where we otherwise think the
+  network is online and the server should generally be working, but that we
+  might have been facing a transient failure.)
+
+Some enhancements we could use resources for in the future:
+- Defer heavier-weight attachment downloads to wi-fi.
+
+
+### Per-account online resources ###
+
+To simplify the number of resource dependencies each task needs, although we
+have an "online" resource for catch-all purposes, we all have each account
+expose an "online!account!${accountId}" resource that is only exposed when we
+are online and the account is not disabled by a persistent problem like a bad
+password.
+
+### Timeouts ###
+
+Our timeouts are simple setTimeout affairs handled
+
+## Wake-Locks ##
+
+Tasks do not manage wake-locks themselves.  The TaskManager is responsible for
+holding cpu and wifi wake-locks as appropriate.  While there are tasks to
+be planned/executed and forward progress can be made, a cpu wake-lock is held.
+While there are tasks that require network access, a wifi wake-lock is held.
+
+Note that there's a lot of complexity related to cellular data versus wi-fi and
+B2G's wi-fi connection logic that is out of our hands and generally not great.
+Our two main issues are:
+- Accidentally causing a transition from cellular data to wi-fi data by
+  acquiring a wifi wake-lock.
+- Not having any network connection, but being able to get one if we acquire
+  a wifi wake-lock and then wait for a while.  This is something we've avoided
+  doing because it's complexity we really shouldn't have to deal with.
 
 ## Undo Support ##
 
@@ -179,3 +237,8 @@ against a hostile front-end (and indeed we cannot protect against it at this
 time), but it's worth noting since we may desire to expose a somewhat hardened
 API in the future for extensions in order to avoid having internals become de
 facto APIs that are hard to change.
+
+## Errors and Retries ##
+
+All tasks are wrapped into a promise (usually using generators and co.wrap under
+the hood).  If the promise is rejected, we treat it as an error.

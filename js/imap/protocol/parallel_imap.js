@@ -177,6 +177,10 @@ ParallelIMAP.prototype = {
 
   store: inFolderWithConn('store', 4),
 
+  // APPEND does not require being in a folder, it just wants the path, so the
+  // caller does need to manually specify it.
+  upload: simpleWithConn('upload'),
+
   /**
    * This is a temporary non-streaming mechanism that fetches a single body part
    * in a single go.  This is a stop-gap that will be replaced with :mcav's

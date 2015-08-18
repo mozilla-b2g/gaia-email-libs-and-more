@@ -3,7 +3,7 @@ define(function(require) {
 
 let co = require('co');
 let { shallowClone } = require('../../util');
-let { NOW } = require('../../date');
+let { prioritizeNewer } = require('../../date_priority_adjuster');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -42,9 +42,6 @@ let INITIAL_FETCH_PARAMS = [
  * @prop flags
  **/
 
-const MAX_PRIORITY_BOOST = 99999;
-const ONE_HOUR_IN_MSECS = 60 * 60 * 1000;
-
 /**
  * Fetch the envelope for a message so we have enough info to create the message
  * and to also thread the message into a conversation.  We create or update the
@@ -66,19 +63,9 @@ return TaskDefiner.defineSimpleTask([
       plannedTask.priorityTags = [
       ];
 
-      // Prioritize the message based on how new it is.  Newer messages are more
-      // important, donchaknow.  This is a question of quantization/binning and
-      // how much range we have/need/care about.  Since we currently let
-      // relative priorities go from -10k to +10k (exclusive), using hours in
-      // the past provides useful differentiation for ~23 years which is
-      // sufficient for our needs. Note that this relative priority is frozen in
-      // time at the instance of planning
+      // Prioritize the message based on how new it is.
       if (rawTask.dateTS) {
-        plannedTask.relPriority = Math.max(
-          -MAX_PRIORITY_BOOST,
-          MAX_PRIORITY_BOOST -
-            (NOW() - rawTask.dateTS) / ONE_HOUR_IN_MSECS
-        );
+        plannedTask.relPriority = prioritizeNewer(rawTask.dateTS);
       }
 
       yield ctx.finishTask({
