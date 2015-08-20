@@ -16,7 +16,7 @@ const enumerateFolderChanges = require('../smotocol/enum_folder_changes');
 const { convIdFromMessageId, messageIdComponentFromUmid } =
   require('../../id_conversions');
 
-const churnConversation = require('app_logic/conv_churn');
+const churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 const { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } = require('../../syncbase');
 

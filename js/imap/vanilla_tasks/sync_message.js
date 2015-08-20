@@ -14,7 +14,7 @@ let { chewMessageStructure } = require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
-let churnConversation = require('app_logic/conv_churn');
+let churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 /**
  * What to fetch.  Note that we currently re-fetch the flags even though they're

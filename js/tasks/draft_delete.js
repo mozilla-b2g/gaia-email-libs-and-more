@@ -4,11 +4,10 @@ define(function(require) {
 const co = require('co');
 
 const TaskDefiner = require('../task_definer');
-const churnConversation = require('app_logic/conv_churn');
-
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
- * Delete the draft without any type of undo mechanism.
+ * Per-account task to delete the draft without any type of undo mechanism.
  * TODO: Any type of undo mechanism ;)
  *
  * This is quite simple right now.  We just load the conversation, re-chew it,

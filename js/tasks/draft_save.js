@@ -4,11 +4,10 @@ define(function(require) {
 const co = require('co');
 
 const TaskDefiner = require('../task_definer');
-const churnConversation = require('app_logic/conv_churn');
-
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
- * Update the non-attachment parts of an existing draft.
+ * Per-account task to update the non-attachment parts of an existing draft.
  *
  * This is quite simple right now.  We just load the conversation, re-chew it,
  * and save the modified conversation and message.

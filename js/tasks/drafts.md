@@ -82,6 +82,24 @@ new message-id header and a new UID will be allocated.  Happily, the adoption of
   discussed above, pending sends are tracked as complex state rather than simply
   being present in a folder, so this needs to be a single task.
 
+### Global Tasks versus Per-Account Tasks ###
+
+While most of the logic for these tasks exists in the global tasks directory,
+we register them as per-account tasks.  Although it's not critical, we do this
+because the draft objects themselves are stored in account storage, so the
+tasks don't make sense without the account and we want to reap the tasks when
+we reap the account.
+
+Notably this means that draft_create is a global task.  Although it will save
+the task into account-specific storage, the potential for heuristics that figure
+out what account to use and the like means we may not actually know the account
+we'll store the draft into until we actually "plan" the task (which is also its
+terminal stage).
+
+In the future when we allow drafts to change their sending identity which
+can result in a change of storage location, that task will still be per-account
+since the draft we want to move is still bound to an account.
+
 #### draft_upload ####
 
 draft_upload will be a complex task whose state tracks the set of local drafts

@@ -5,8 +5,7 @@ const co = require('co');
 
 const TaskDefiner = require('../../task_definer');
 
-const churnConversation = require('app_logic/conv_churn');
-
+const churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 /**
  * A custom execute() implementation building on top of Vanilla IMAP's sync_body

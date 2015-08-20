@@ -7,7 +7,7 @@ let TaskDefiner = require('../../task_definer');
 
 let imapchew = require('../imapchew');
 
-let churnConversation = require('app_logic/conv_churn');
+let churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 let { SnippetParser } = require('../protocol/snippetparser');
 let { TextParser } = require('../protocol/textparser');

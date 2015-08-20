@@ -23,7 +23,7 @@ return TaskDefiner.defineSimpleTask([
     plan: co.wrap(function*(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
-      // TODO: account online.
+      // TODO: account online resource
       plannedTask.resources = [];
 
       // We don't have any a priori name-able exclusive resources.  Our records
@@ -59,14 +59,6 @@ return TaskDefiner.defineSimpleTask([
       const composedString =
         new FileReaderSync().readAsBinaryString(composedBlob);
 
-      const composedMessage = {
-        messageText: blob,
-        // do not specify date; let the server use its own timestamping
-        // since we want the approximate value of 'now' anyways.
-        // TODO: Actually, now we want
-        flags: ['\\Seen'],
-      };
-
       // TODO: implement heartbeat/renewWakeLock support.  Ideally this happens
       // naturally as part of the fix for the blob deficiency above, but if not,
       // we can do the same monkeypatch/hack that SMTP uses to get this.
@@ -75,17 +67,8 @@ return TaskDefiner.defineSimpleTask([
         composedString,
         { flags: ['\\Seen'] }
       );
+
       yield ctx.finishTask({
-        mutations: {
-          conversations: modifiedConversations,
-          headerIdMaps: headerIdWrites,
-          umidNames: new Map([[req.umid, messageId]])
-        },
-        newData: {
-          conversations: newConversations,
-          messages: [messageInfo],
-          tasks: extraTasks
-        }
       });
     }),
   }

@@ -14,6 +14,12 @@ return [
   require('./vanilla_tasks/sync_body'),
   //require('./vanilla_tasks/merge_conversations'),
 
-  require('./vanilla_tasks/store_flags')
+  require('./vanilla_tasks/store_flags'),
+
+  require('../tasks/draft_save'),
+  require('../tasks/draft_attach'),
+  require('../tasks/draft_detach'),
+  require('../tasks/draft_delete'),
+  require('./vanilla_tasks/outbox_send')
 ];
 });

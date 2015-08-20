@@ -3,6 +3,8 @@ define(function(require) {
 
 const logic = require('logic');
 
+const FibonacciHeap = require('./ext/fibonacci-heap');
+
 /**
  * Helper class for use by TaskManager that is in charge of maintaining the
  * priority queue of tasks that are currently ready for execution.
@@ -56,14 +58,23 @@ function TaskPriorities() {
 }
 TaskPriorities.prototype = {
   /**
-   * Do we have any tasks that are ready to execute?
+   * Do we have any tasks that are ready to execute?  AKA, will
+   * `popNextAvailableTask` return something other than null?
    */
   hasTasksToExecute: function() {
     return this._prioritizedTasks.isEmpty();
   },
 
+  /**
+   * Retrieve a task for execution.  The task will no longer be tracked by
+   * `TaskPriorities` at all; error handling logic at higher levels is
+   * responsible for rescheduling the task if appropriate.
+   */
   popNextAvailableTask: function() {
     let priorityNode = this._prioritizedTasks.extractMinimum();
+    if (!priorityNode) {
+      return null;
+    }
     let taskThing = priorityNode.value;
     this._taskIdToHeapNode.delete(taskThing.id);
     this._cleanupTaskPriorityTracking(taskThing, priorityNode);
@@ -71,6 +82,11 @@ TaskPriorities.prototype = {
     return taskThing;
   },
 
+  /**
+   * Given a set of priority tags, sum them up and return them.  Note that the
+   * caller is responsible for applying any specific relative priority
+   * adjustment itself.
+   */
   _computePriorityForTags: function(priorityTags) {
     let summedPriorityTags = this._summedPriorityTags;
     let priority = 0;
@@ -176,7 +192,9 @@ TaskPriorities.prototype = {
   },
 
   /**
-   * Prioritize the task for execution in our priority-heap.
+   * Prioritize the task for execution in our priority-heap.  Note that this
+   * the `TaskManager` does not call us directly; it calls `TaskResources`
+   * which then calls us.
    *
    * @param {WrappedTask|TaskMarker} taskThing
    */

@@ -10,11 +10,5 @@ return [
 
   // - Drafts
   require('./tasks/draft_create'),
-  require('./tasks/draft_save'),
-  require('./tasks/draft_attach'),
-  require('./tasks/draft_detach'),
-  require('./tasks/draft_discard'),
-  require('./tasks/outbox_send'), // handles "send this" and "oh no, stop!"
-
 ];
 });

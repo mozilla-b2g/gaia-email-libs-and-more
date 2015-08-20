@@ -15,7 +15,10 @@ define(function() {
   var locks = {};
 
   function requestWakeLock(type) {
-    var lock = navigator.requestWakeLock(type);
+    var lock;
+    if (navigator.requestWakeLock) {
+      lock = navigator.requestWakeLock(type);
+    }
     var id = nextId++;
     locks[id] = lock;
     return id;

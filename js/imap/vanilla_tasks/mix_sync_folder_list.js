@@ -54,7 +54,7 @@ return {
   execute: co.wrap(function*(ctx, planned) {
     let account = yield ctx.universe.acquireAccount(ctx, planned.accountId);
 
-    yield* this.syncFolders(account);
+    yield* this.syncFolders(ctx, account);
 
     // XXX migrate ensureEssentialOnlineFolders to be something the actual
     // instance provides and that we convert into a list of create_folder tasks.

@@ -18,10 +18,19 @@ const TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineComplexTask([
   require('../../tasks/mix_outbox_send'),
   {
-    saveSentMessage: function() {
+    saveSentMessage: function({ ctx, account, newTasks, messages,
+                                messageInfo }) {
+      // - Locally forget about the message
+      messages.splice(messages.indexOf(messageInfo), 1);
+
+      // - Issue an append if the server won't have done it for us.
+
       if (!account.sentMessagesAutomaticallyAppearInSentFolder) {
         newTasks.push({
           type: 'append_message',
+          accountId: ctx.accountId,
+          folderId: account.getFirstFolderWithType('sent'),
+          messageInfo
         });
       }
     }

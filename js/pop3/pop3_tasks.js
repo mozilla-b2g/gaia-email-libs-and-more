@@ -12,6 +12,12 @@ return [
   require('./tasks/sync_message'),
   require('./tasks/sync_body'),
 
-  require('./tasks/store_flags')
+  require('./tasks/store_flags'),
+
+  require('../tasks/draft_save'),
+  require('../tasks/draft_attach'),
+  require('../tasks/draft_detach'),
+  require('../tasks/draft_delete'),
+  require('./tasks/outbox_send')
 ];
 });

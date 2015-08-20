@@ -4,12 +4,11 @@ define(function(require) {
 const co = require('co');
 
 const TaskDefiner = require('../task_definer');
-const churnConversation = require('app_logic/conv_churn');
-
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
- * Remove an attachment from a draft.  This is trivial and very similar to
- * saving a draft, so will likely be consolidated.
+ * Per-account task to remove an attachment from a draft.  This is trivial and
+ * very similar to saving a draft, so will likely be consolidated.
  */
 return TaskDefiner.defineSimpleTask([
   {

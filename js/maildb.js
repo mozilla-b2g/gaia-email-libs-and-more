@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 68;
+const CUR_VERSION = 71;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -1032,6 +1032,9 @@ MailDB.prototype = evt.mix({
         convStore.delete(convId);
         this.convCache.delete(convId);
         // - Delete all affiliated messages
+        // TODO: uh, we should explicitly nuke the messages out of the cache
+        // too.  There isn't a huge harm to not doing it, but we should.
+        // (I'm punting because we need to do a cache walk to accomplish this.)
         let messageRange = IDBKeyRange.bound([convId],
                                              [convId, []],
                                              true, true);

@@ -13,6 +13,12 @@ return [
   require('./gmail_tasks/sync_body'),
 
   require('./gmail_tasks/store_flags'),
-  require('./gmail_tasks/store_labels')
+  require('./gmail_tasks/store_labels'),
+
+  require('../tasks/draft_save'),
+  require('../tasks/draft_attach'),
+  require('../tasks/draft_detach'),
+  require('../tasks/draft_delete'),
+  require('./gmail_tasks/outbox_send')
 ];
 });

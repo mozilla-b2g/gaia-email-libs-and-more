@@ -13,7 +13,6 @@ define(
     // lazy-loaded.
     'activesync/codepages/FolderHierarchy',
     './folder',
-    './jobs',
     '../util',
     '../db/folder_info_rep',
     'module',
@@ -28,7 +27,6 @@ define(
     $searchfilter,
     $FolderHierarchy,
     $asfolder,
-    $asjobs,
     $util,
     $folder_info,
     $module,

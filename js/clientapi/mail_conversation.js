@@ -6,6 +6,9 @@ let ContactCache = require('./contact_cache');
 
 let { accountIdFromConvId } = require('../id_conversions');
 
+let decorateConversation = require('app_logic/conv_client_decorator');
+let cleanupConversation = require('app_logic/conv_client_cleanup');
+
 /**
  * @typedef {Object} ConvMsgTidbit
  *
@@ -194,19 +197,8 @@ MailConversation.prototype = evt.mix({
     this.setRead(!this.isRead);
   },
 
-  _forgetPeeps: function() {
-    let tidbitPeeps = this.messageTidbits.map(x => x.author);
-    ContactCache.forgetPeepInstances(this.authors, tidbitPeeps);
-  },
-
   __update: function(wireRep, firstTime) {
     this._wireRep = wireRep;
-
-    // Delta-computing peeps is hard, forget them all then re-resolve them all.
-    // We have a cache.  It's fine.
-    if (!firstTime) {
-      this._forgetPeeps();
-    }
 
     this.height = wireRep.height;
     this.mostRecentMessageDate = new Date(wireRep.date);
@@ -214,16 +206,8 @@ MailConversation.prototype = evt.mix({
     this.messageCount = wireRep.messageCount;
     this.snippetCount = wireRep.snippetCount;
     this.authors = ContactCache.resolvePeeps(wireRep.authors);
-    this.messageTidbits = wireRep.tidbits.map((tidbit) => {
-      return {
-        date: new Date(tidbit.date),
-        isRead: tidbit.isRead,
-        isStarred: tidbit.isStarred,
-        hasAttachments: tidbit.hasAttachments,
-        author: ContactCache.resolvePeep(tidbit.author),
-        snippet: tidbit.snippet
-      };
-    });
+    decorateConversation(this, wireRep, firstTime);
+
     this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
     // Are there any unread messages in this
@@ -234,10 +218,11 @@ MailConversation.prototype = evt.mix({
   },
 
   /**
-   * Clean up all the peeps.
+   * Cleanup.
    */
   release: function() {
-    this._forgetPeeps();
+    ContactCache.forgetPeepInstances(this.authors);
+    cleanupConversation(this);
     if (this._handle) {
       this._api._cleanupContext(this._handle);
       this._handle = null;

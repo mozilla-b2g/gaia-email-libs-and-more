@@ -61,8 +61,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this._conversationTOCs = new Map();
 
   this.taskRegistry = new TaskRegistry(this.db);
-  this.taskResources = new TaskResources();
   this.taskPriorities = new TaskPriorities();
+  this.taskResources = new TaskResources(this.taskPriorities);
   this.taskManager = new TaskManager({
     universe: this,
     db: this.db,

@@ -7,8 +7,6 @@ const logic = require('logic');
 
 const TaskContext = require('./task_context');
 
-const FibonacciHeap = require('./ext/fibonacci-heap');
-
 const { SmartWakeLock } = require('./wakelocks');
 
 /**

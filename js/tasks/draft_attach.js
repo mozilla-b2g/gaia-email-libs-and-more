@@ -6,17 +6,16 @@ const co = require('co');
 const { BLOB_BASE64_BATCH_CONVERT_SIZE } = require('../syncbase');
 
 const TaskDefiner = require('../task_definer');
-const churnConversation = require('app_logic/conv_churn');
-
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 const { makeAttachmentPart } = require('../db/mail_rep');
 const { mimeStyleBase64Encode } = require('safe-base64');
 const asyncFetchBlob = require('../async_blob_fetcher');
 
 /**
- * Incrementally convert an attachment into its base64 encoded attachment form
- * which we save in chunks to IndexedDB to avoid using too much memory now or
- * during the sending process.
+ * Per-account task to incrementally convert an attachment into its base64
+ * encoded attachment form which we save in chunks to IndexedDB to avoid using
+ * too much memory now or during the sending process.
  *
  * - Retrieve the body the draft is persisted to,
  * - Repeat until the attachment is fully attached:

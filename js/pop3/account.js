@@ -4,8 +4,6 @@ define([
   '../composite/incoming',
   './sync',
   '../errorutils',
-  './jobs',
-  '../drafts/draft_rep',
   '../disaster-recovery',
   'module',
   'require',
@@ -16,8 +14,6 @@ function(
   incoming,
   pop3sync,
   errorutils,
-  pop3jobs,
-  draftRep,
   DisasterRecovery,
   module,
   require,
@@ -122,7 +118,7 @@ var properties = {
       return Promise.resolve(this._conn);
     }
     return new Promise((resolve, reject) => {
-      this.withConnection((err, conn, done) => {
+      this.withConnection((err, conn) => {
         if (err) {
           reject(err);
         } else {
@@ -133,7 +129,7 @@ var properties = {
   },
 
   /** @override */
-  __folderDoneWithConnection: function(conn) {
+  __folderDoneWithConnection: function(/*conn*/) {
     // IMAP uses this function to perform folder-specific connection cleanup.
     // We don't need to do anything here.
   },
@@ -208,39 +204,6 @@ var properties = {
 
       DisasterRecovery.associateSocketWithAccount(conn.socket, this);
     }.bind(this));
-  },
-
-  /**
-   * Save an attachment-stripped version of the sent draft to our sent folder.
-   */
-  saveSentMessage: function(composer) {
-    var sentFolder = this.getFirstFolderWithType('sent');
-    if (!sentFolder) {
-      return;
-    }
-
-    var sentStorage = this.getFolderStorageForFolderId(sentFolder.id);
-    var id = sentStorage._issueNewHeaderId();
-    var suid = sentStorage.folderId + '.' + id;
-
-    var sentPieces = draftRep.cloneDraftMessageForSentFolderWithoutAttachments(
-      composer.header, composer.body, { id: id, suid: suid });
-
-    this.universe.saveSentDraft(sentFolder.id,
-                                sentPieces.header, sentPieces.body);
-  },
-
-  /**
-   * Delete the given folder. (This always happens locally.)
-   */
-  deleteFolder: function(folderId, callback) {
-    if (!this._folderInfos.hasOwnProperty(folderId)) {
-      throw new Error("No such folder: " + folderId);
-    }
-    var folderMeta = this._folderInfos[folderId].$meta;
-    logic(self, 'deleteFolder', { path: folderMeta.path });
-    self._forgetFolder(folderId);
-    callback && callback(null, folderMeta);
   },
 
   /**

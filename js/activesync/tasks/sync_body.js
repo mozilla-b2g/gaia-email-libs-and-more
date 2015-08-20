@@ -7,7 +7,7 @@ const TaskDefiner = require('../../task_definer');
 
 const FolderSyncStateHelper = require('../folder_sync_state_helper');
 
-const churnConversation = require('app_logic/conv_churn');
+const churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 const { processMessageContent } = require('../../bodies/mailchew');
 

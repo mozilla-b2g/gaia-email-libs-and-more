@@ -15,13 +15,14 @@ const deriveBlankDraft = require('../drafts/derive_blank_draft');
 const deriveInlineForward = require('../drafts/derive_inline_forward');
 const deriveQuotedReply = require('../drafts/derive_quoted_reply');
 
-let churnConversation = require('app_logic/conv_churn');
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
- * Creates a new message (either a blank one, a reply, or a forward) and saves
- * it to the database.  The MailBridge can then read and send that (largely
- * normal) message rep to the front-end.
+ * Global task to create a new message (either a blank one, a reply, or a
+ * forward) and save it to the database.  The MailBridge can then read and send
+ * that (largely normal) message rep to the front-end.
  *
+ * This is a global task primarily because the backend may eventuall
  */
 return TaskDefiner.defineSimpleTask([
   {

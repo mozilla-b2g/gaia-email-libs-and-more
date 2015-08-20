@@ -7,7 +7,7 @@ let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
   require('../../delta_algebra');
 let { selectMessages } = require('../../message_selector');
 
-let churnConversation = require('app_logic/conv_churn');
+let churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 /**
  * Not-particularly-clever flag-storing complex task.  All requests/local

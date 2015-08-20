@@ -19,7 +19,7 @@ let { valuesOnly, chewMessageStructure, parseImapDateTime } =
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
-let churnConversation = require('app_logic/conv_churn');
+let churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 let SyncStateHelper = require('../gmail/sync_state_helper');
 let GmailLabelMapper = require('../gmail/gmail_label_mapper');

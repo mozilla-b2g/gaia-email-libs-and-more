@@ -12,7 +12,7 @@ let { resolveConversationTaskHelper } =
 
 let { conversationMessageComparator } = require('../../db/comparators');
 
-let churnConversation = require('app_logic/conv_churn');
+let churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 /**
  * Fetch the envelope and snippet for a POP3 message and create and thread the

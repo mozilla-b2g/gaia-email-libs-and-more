@@ -14,8 +14,25 @@ const TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineComplexTask([
   require('../../tasks/mix_outbox_send'),
   {
-    saveSentMessage: function() {
+    /**
+     * We move the message to the sent folder, updating the representation so
+     * that the attachment blobs are stripped and their MIME types updated to
+     * our magic value that MailAttachment knows to say means they cannot be
+     * downloaded.
+     */
+    saveSentMessage: function({ messageInfo, account }) {
+      // Put it in the sent folder.
+      let sentFolder = account.getFirstFolderWithType('sent');
+      messageInfo.folderIds = [sentFolder.id];
 
+      // Mark the message as read.  We are clobbering other flags, but we don't
+      // currently support a way for them to exist.
+      attachment.flags = ['\\Seen'];
+      for (let attachment of messageInfo.attachments) {
+        attachment.type = 'application/x-gelam-no-download';
+        // bye-bye Blob!
+        attachment.file = null;
+      }
     }
   }
 ]);

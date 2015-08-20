@@ -37,7 +37,7 @@ define(function(require) {
     // ugly asynchronous parts and not worry about when things happen
     // under the hood.
     this._readyPromise = Promise.all(opts.locks.map(function(type) {
-      return new Promise(function(resolve, reject) {
+      return new Promise(function(resolve) {
         sendMessage('requestWakeLock', [type], function(lockId) {
           locks[type] = lockId;
           resolve();
@@ -60,7 +60,7 @@ define(function(require) {
      */
     renew: function(/* optional */ reason) {
       // Wait until we've successfully acquired the wakelocks, then...
-      retrn this._readyPromise.then(() => {
+      return this._readyPromise.then(() => {
         // If we've already set a timeout, we'll clear that first.
         // (Otherwise, we're just loading time on for the first time,
         // and don't need to clear or log anything.)
@@ -80,8 +80,6 @@ define(function(require) {
                       'due to a TIMEOUT. Did you remember to unlock? ***');
           this.unlock.bind(this);
         }.bind(this), this.timeoutMs);
-
-        callback && callback();
       });
     },
 
@@ -103,8 +101,8 @@ define(function(require) {
 
         // Wait for all of them to successfully unlock.
         return Promise.all(Object.keys(locks).map((type) => {
-          return new Promise(function(resolve, reject) {
-            sendMessage('unlock', [locks[type]], function(lockId) {
+          return new Promise(function(resolve) {
+            sendMessage('unlock', [locks[type]], function() {
               resolve();
             });
           });
@@ -112,7 +110,6 @@ define(function(require) {
           this._debug('Unlocked', desc + '.',
                       (reason ? 'Reason: ' + reason : ''));
         });
-
       });
     },
 
@@ -131,5 +128,4 @@ define(function(require) {
   return {
     SmartWakeLock: SmartWakeLock
   };
-
 });
