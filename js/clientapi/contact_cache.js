@@ -36,7 +36,7 @@ var ContactCache = {
    * was destroyed.  We could, however, use the live set of peeps as a fallback
    * if we don't have a contact cached.
    */
-  _contactCache: Object.create(null),
+  _contactCache: new Map(),
   /** The number of entries in the cache. */
   _cacheHitEntries: 0,
   /** The number of stored misses in the cache. */
@@ -51,9 +51,9 @@ var ContactCache = {
   MAX_CACHE_EMPTY: 1024,
 
   /** Maps contact id to lists of MailPeep instances. */
-  _livePeepsById: Object.create(null),
+  _livePeepsById: new Map(),
   /** Maps e-mail addresses to lists of MailPeep instances */
-  _livePeepsByEmail: Object.create(null),
+  _livePeepsByEmail: new Map(),
 
   pendingLookupCount: 0,
 
@@ -69,7 +69,7 @@ var ContactCache = {
   },
 
   _resetCache: function() {
-    this._contactCache = Object.create(null);
+    this._contactCache.clear();
     this._cacheHitEntries = 0;
     this._cacheEmptyEntries = 0;
   },
@@ -113,7 +113,7 @@ var ContactCache = {
 
     // The email map includes MailPeeps that are not backed by mozContacts as
     // well as ones that are, so that's the one to use.
-    for (let peeps of this._livePeepsByEmail) {
+    for (let peeps of this._livePeepsByEmail.values()) {
       // It's a list of practically identical instances, we only want one.
       let peep = peeps[0];
       if (peep.name) {
@@ -184,20 +184,18 @@ var ContactCache = {
     // -- Contact removed OR all contacts removed!
     if (event.reason === 'remove') {
       // - all contacts removed! (clear() called)
-      var livePeeps;
       if (!event.contactID) {
-        for (var contactId in livePeepsById) {
-          livePeeps = livePeepsById[contactId];
+        for (let livePeeps of livePeepsById.values()) {
           cleanOutPeeps(livePeeps);
-          this._livePeepsById = Object.create(null);
         }
+        livePeepsById.clear();
       }
       // - just one contact removed
       else {
-        livePeeps = livePeepsById[event.contactID];
+        let livePeeps = livePeepsById.get(event.contactID);
         if (livePeeps) {
           cleanOutPeeps(livePeeps);
-          delete livePeepsById[event.contactID];
+          livePeepsById.delete(event.contactID);
         }
       }
     }
@@ -214,11 +212,11 @@ var ContactCache = {
         if (!req.result.length) {
           return;
         }
-        var contact = req.result[0], livePeeps, iPeep, peep;
+        var contact = req.result[0], iPeep, peep;
 
         // - process update with apparent e-mail address removal
         if (event.reason === 'update') {
-          livePeeps = livePeepsById[contact.id];
+          let livePeeps = livePeepsById.get(contact.id);
           if (livePeeps) {
             var contactEmails = contact.email ?
                   contact.email.map(function(e) { return e.value; }) :
@@ -243,7 +241,7 @@ var ContactCache = {
               }
             }
             if (livePeeps.length === 0) {
-              delete livePeepsById[contact.id];
+              livePeepsById.delete(contact.id);
             }
           }
         }
@@ -253,7 +251,7 @@ var ContactCache = {
         }
         for (var iEmail = 0; iEmail < contact.email.length; iEmail++) {
           var email = contact.email[iEmail].value;
-          livePeeps = livePeepsByEmail[email];
+          let livePeeps = livePeepsByEmail.get(email);
           // nothing to do if there are no peeps that use that email address
           if (!livePeeps) {
             continue;
@@ -265,9 +263,10 @@ var ContactCache = {
             // contact, then associate it.
             if (!peep.contactId) {
               peep.contactId = contact.id;
-              var idLivePeeps = livePeepsById[peep.contactId];
+              var idLivePeeps = livePeepsById.get(peep.contactId);
               if (idLivePeeps === undefined) {
-                idLivePeeps = livePeepsById[peep.contactId] = [];
+                idLivePeeps = [];
+                livePeepsById.set(peep.contactId, idLivePeeps);
               }
               idLivePeeps.push(peep);
             }
@@ -326,7 +325,8 @@ var ContactCache = {
    */
   resolvePeep: function(addressPair) {
     var emailAddress = addressPair.address;
-    var entry = this._contactCache[emailAddress], peep;
+    var entry = this._contactCache.get(emailAddress);
+    var peep;
     var contactsAPI = navigator.mozContacts;
     // known miss; create miss peep
     // no contacts API, always a miss, skip out before extra logic happens
@@ -358,7 +358,7 @@ var ContactCache = {
       // returns (or if a change event happens to come in before our lookup
       // returns.)  Note that we do not do any hit/miss counting right now; we
       // wait for the result to come back.
-      this._contactCache[emailAddress] = null;
+      this._contactCache.set(emailAddress, null);
 
       this.pendingLookupCount++;
 
@@ -389,40 +389,41 @@ var ContactCache = {
           // use.
           var contact = req.result[0];
 
-          ContactCache._contactCache[emailAddress] = contact;
+          ContactCache._contactCache.set(emailAddress, contact);
           if (++ContactCache._cacheHitEntries > ContactCache.MAX_CACHE_HITS) {
             self._resetCache();
           }
 
-          var peepsToFixup = self._livePeepsByEmail[emailAddress];
+          var peepsToFixup = self._livePeepsByEmail.get(emailAddress);
           // there might no longer be any MailPeeps alive to care; leave
           if (!peepsToFixup) {
             return;
           }
           for (let i = 0; i < peepsToFixup.length; i++) {
-            var peep = peepsToFixup[i];
-            if (!peep.contactId) {
-              peep.contactId = contact.id;
-              var livePeeps = self._livePeepsById[peep.contactId];
+            let fixupPeep = peepsToFixup[i];
+            if (!fixupPeep.contactId) {
+              fixupPeep.contactId = contact.id;
+              let livePeeps = self._livePeepsById.get(fixupPeep.contactId);
               if (livePeeps === undefined) {
-                livePeeps = self._livePeepsById[peep.contactId] = [];
+                livePeeps = [];
+                self._livePeepsById.set(fixupPeep.contactId, livePeeps);
               }
-              livePeeps.push(peep);
+              livePeeps.push(fixupPeep);
             }
 
             if (contact.name && contact.name.length) {
-              peep.name = contact.name[0];
+              fixupPeep.name = contact.name[0];
             }
             if (contact.photo && contact.photo.length) {
-              peep._thumbnailBlob = contact.photo[0];
+              fixupPeep._thumbnailBlob = contact.photo[0];
             }
 
             // If no one is waiting for our/any request to complete, generate an
             // onchange notification.
             if (!self.callbacks.length) {
-              if (peep.onchange) {
+              if (fixupPeep.onchange) {
                 try {
-                  peep.onchange(peep);
+                  fixupPeep.onchange(peep);
                 }
                 catch (ex) {
                   reportClientCodeError('peep.onchange error', ex, '\n',
@@ -433,7 +434,7 @@ var ContactCache = {
           }
         }
         else {
-          ContactCache._contactCache[emailAddress] = null;
+          ContactCache._contactCache.set(emailAddress, null);
           if (++ContactCache._cacheEmptyEntries > ContactCache.MAX_CACHE_EMPTY){
             self._resetCache();
           }
@@ -452,16 +453,18 @@ var ContactCache = {
 
     // - track the peep in our lists of live peeps
     var livePeeps;
-    livePeeps = this._livePeepsByEmail[emailAddress];
+    livePeeps = this._livePeepsByEmail.get(emailAddress);
     if (livePeeps === undefined) {
-      livePeeps = this._livePeepsByEmail[emailAddress] = [];
+      livePeeps = [];
+      this._livePeepsByEmail.set(emailAddress, livePeeps);
     }
     livePeeps.push(peep);
 
     if (peep.contactId) {
-      livePeeps = this._livePeepsById[peep.contactId];
+      livePeeps = this._livePeepsById.get(peep.contactId);
       if (livePeeps === undefined) {
-        livePeeps = this._livePeepsById[peep.contactId] = [];
+        livePeeps = [];
+        this._livePeepsById.set(peep.contactId, livePeeps);
       }
       livePeeps.push(peep);
     }
@@ -480,24 +483,24 @@ var ContactCache = {
       for (var iPeep = 0; iPeep < peeps.length; iPeep++) {
         var peep = peeps[iPeep], livePeeps, idx;
         if (peep.contactId) {
-          livePeeps = livePeepsById[peep.contactId];
+          livePeeps = livePeepsById.get(peep.contactId);
           if (livePeeps) {
             idx = livePeeps.indexOf(peep);
             if (idx !== -1) {
               livePeeps.splice(idx, 1);
               if (livePeeps.length === 0) {
-                delete livePeepsById[peep.contactId];
+                livePeepsById.delete(peep.contactId);
               }
             }
           }
         }
-        livePeeps = livePeepsByEmail[peep.address];
+        livePeeps = livePeepsByEmail.get(peep.address);
         if (livePeeps) {
           idx = livePeeps.indexOf(peep);
           if (idx !== -1) {
             livePeeps.splice(idx, 1);
             if (livePeeps.length === 0) {
-              delete livePeepsByEmail[peep.address];
+              livePeepsByEmail.delete(peep.address);
             }
           }
         }
