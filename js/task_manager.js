@@ -235,7 +235,7 @@ TaskManager.prototype = evt.mix({
       wrapped.nonpersistent = true;
     });
     this.__enqueuePersistedTasksForPlanning(wrappedTasks);
-    return wrappedTasks.map(x => x.id);
+    return Promise.resolve(wrappedTasks.map(x => x.id));
   },
 
 

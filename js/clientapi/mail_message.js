@@ -116,14 +116,14 @@ MailMessage.prototype = evt.mix({
     this.tags = filterOutBuiltinFlags(wireRep.flags);
     this.labels = this._api._mapLabels(this.id, wireRep.folderIds);
 
-    // Messages in the outbox will have `sendStatus` populated like so:
+    // Messages in the outbox will have `sendProblems` populated like so:
     // {
-    //   state: 'pending', 'error', 'success', 'sending', or 'syncDone'
     //   err: null,
     //   badAddresses: null,
     //   sendFailures: 2
     // }
-    this.sendStatus = (wireRep.draftInfo && wireRep.draftInfo.sendStatus) || {};
+    this.sendProblems =
+      (wireRep.draftInfo && wireRep.draftInfo.sendProblems) || {};
 
     // Related parts and bodyReps have no state we need to maintain.  Just
     // replace them with the new copies for simplicity.

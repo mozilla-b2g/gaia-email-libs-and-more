@@ -60,14 +60,17 @@ function filterOutIdentity(list, identity) {
  * Given an identity, extract and return { name, address }.
  */
 function addressPairFromIdentity(identity) {
-
+  return {
+    name: identity.name,
+    address: identity.address
+  };
 }
 
 /**
- * Given an identity, extract and return the replyTo
+ * Given an identity, extract and return the replyTo.
  */
 function replyToFromIdentity(identity) {
-
+  return { address: identity.replyTo };
 }
 
 return {
@@ -76,6 +79,7 @@ return {
   cloneRecipients,
   effectiveAuthorGivenReplyTo,
   filterOutIdentity,
-  addressPairFromIdentity
+  addressPairFromIdentity,
+  replyToFromIdentity
 };
 });

@@ -112,19 +112,27 @@ MessageComposition.prototype = evt.mix({
     this.bcc = wireRep.bcc;
     this.attachments = wireRep.attachments;
     // For displaying "Send failed".
-    this.sendStatus = wireRep.draftInfo.sendStatus;
+    this.sendProblems = wireRep.draftInfo.sendProblems;
 
-    this.htmlBlob = wireRep.htmlBlob;
-    return asyncFetchBlob(wireRep.body.textBlob, 'json').then((textRep) => {
-      if (Array.isArray(textRep) &&
-          textRep.length === 2 &&
-          textRep[0] === 0x1) {
-        this.textBody = textRep[1];
-      } else {
-        this.textBody = '';
-      }
-      return this;
-    });
+    // HTML is optional, but if present, should satisfy our guard
+    if (wireRep.bodyReps.length === 2 &&
+        wireRep.bodyReps[1].type === 'html') {
+      this.htmlBlob = wireRep.bodyReps[1].contentBlob;
+    } else {
+      this.htmlBlob = null;
+    }
+
+    return asyncFetchBlob(wireRep.bodyReps[0].contentBlob, 'json')
+      .then((textRep) => {
+        if (Array.isArray(textRep) &&
+            textRep.length === 2 &&
+            textRep[0] === 0x1) {
+          this.textBody = textRep[1];
+        } else {
+          this.textBody = '';
+        }
+        return this;
+      });
   },
 
   /**

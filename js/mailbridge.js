@@ -358,8 +358,6 @@ MailBridge.prototype = {
   },
 
   _cmd_getItemAndTrackUpdates: co.wrap(function*(msg) {
-    let eventId = msg.itemType + '!' + msg.itemId + '!change';
-    let ctx = this.bridgeContext.createNamedContext(msg.handle, eventId);
 
     // XXX implement priority tags support
 
@@ -370,9 +368,20 @@ MailBridge.prototype = {
     // Helper to normalize raw database reps to wire reps.  This matters for
     // things like account info structures.
     let rawToWireRep, eventArgsToRaw;
+    // the normalized id of what we're tracking.  (exists because we pass
+    // the [messageId, date] tuple for 'msg', which maybe we should pass as a
+    // separate arg instead...
+    let normId;
+    // readKey is the key in the results of the read where our result map is.
+    // messages is again special, since the results are keyed by id despite the
+    // requests being keyed by the tuple.  (Otherwise reads all reuse their
+    // request map anyways.)
+    let readKey;
     switch (msg.itemType) {
       case 'conv':
+        normId = msg.itemId;
         requests.conversations = idRequestMap;
+        readKey = 'conversations';
         // no transformation is performed on conversation reps
         rawToWireRep = (x => x);
         // The change idiom is currently somewhat one-off; we may be able to
@@ -380,18 +389,22 @@ MailBridge.prototype = {
         eventArgsToRaw = ((id, convInfo) => { return convInfo; });
         break;
       case 'msg':
+        normId = msg.itemId[0];
         requests.messages = idRequestMap;
+        readKey = 'messages';
         rawToWireRep = (x => x);
         eventArgsToRaw = ((id, messageInfo) => { return messageInfo; });
         break;
       default:
         throw new Error('unsupported item type: ' + msg.itemType);
     }
+    let eventId = msg.itemType + '!' + normId + '!change';
+    let ctx = this.bridgeContext.createNamedContext(msg.handle, eventId);
 
-    yield this.db.read(ctx, requests);
+    let fromDb = yield this.db.read(ctx, requests);
 
     // Normalize to wire rep form
-    let wireRep = rawToWireRep(idRequestMap.get(msg.itemId));
+    let dbWireRep = rawToWireRep(fromDb[readKey].get(normId));
 
     // - Register an event listener that will be removed at context cleanup
     // (We only do this after we have loaded the up-to-date rep.  Note that
@@ -412,7 +425,7 @@ MailBridge.prototype = {
     });
 
     // - Send the wire rep
-    ctx.sendMessage('gotItemNowTrackingUpdates', wireRep);
+    ctx.sendMessage('gotItemNowTrackingUpdates', dbWireRep);
   }),
 
   _cmd_updateTrackedItemPriorityTags: function(msg) {
@@ -515,7 +528,7 @@ MailBridge.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
-  _cmd_beginCompose: function(msg) {
+  _cmd_createDraft: function(msg) {
     this.universe.createDraft({
       draftType: msg.draftType,
       mode: msg.mode,
