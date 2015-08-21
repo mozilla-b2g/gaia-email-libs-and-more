@@ -203,8 +203,8 @@ MessageComposition.prototype = evt.mix({
    *   ]]
    * ]
    */
-  addAttachment: function(attachmentDef, callback) {
-    this.api._composeAttach(this.id, attachmentDef, callback);
+  addAttachment: function(attachmentDef) {
+    this.api._composeAttach(this.id, attachmentDef);
 
     var placeholderAttachment = {
       name: attachmentDef.name,
@@ -214,6 +214,7 @@ MessageComposition.prototype = evt.mix({
       }
     };
     this.attachments.push(placeholderAttachment);
+    this._mutated();
     return placeholderAttachment;
   },
 
@@ -231,6 +232,7 @@ MessageComposition.prototype = evt.mix({
       this.attachments.splice(idx, 1);
       this.api._composeDetach(this._handle, idx, callback);
     }
+    this._mutated();
   },
 
   /**

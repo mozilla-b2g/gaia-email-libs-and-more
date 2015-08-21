@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let { shallowClone } = require('../../util');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -20,17 +21,39 @@ return TaskDefiner.defineSimpleTask([
     name: 'sync_refresh',
     args: ['accountId', 'folderId'],
 
-    exclusiveResources: function(args) {
-      return [
-        `sync:${args.folderId}`
-      ];
-    },
+    /**
+     * In our planning phase we discard nonsensical requests to refresh
+     * local-only folders.
+     */
+    plan: co.wrap(function*(ctx, rawTask) {
+      // Get the folder
+      let foldersTOC =
+        yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+      let folderInfo = foldersTOC.foldersById.get(rawTask.folderId);
 
-    priorityTags: function(args) {
-      return [
-        `view:folder:${args.folderId}`
-      ];
-    },
+      // - Only plan if the folder is real AKA it has a path.
+      // (We could also look at its type.  Or have additional explicit state.
+      // Checking the path is fine and likely future-proof.  The only real new
+      // edge case we would expect is offline folder creation.  But in that
+      // case we still wouldn't want refreshes triggered before we've created
+      // the folder and populated it.)
+      let plannedTask;
+      if (!folderInfo.path) {
+        plannedTask = null;
+      } else {
+        plannedTask = shallowClone(rawTask);
+        plannedTask.exclusiveResources = [
+          `sync:${rawTask.folderId}`
+        ];
+        plannedTask.priorityTags = [
+          `view:folder:${rawTask.folderId}`
+        ];
+      }
+
+      yield ctx.finishTask({
+        taskState: plannedTask
+      });
+    }),
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the folder

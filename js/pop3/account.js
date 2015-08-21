@@ -254,7 +254,7 @@ var properties = {
       if (!this.getFirstFolderWithType(folderType)) {
         this._learnAboutFolder(
           /* name: */ folderType,
-          /* path: */ folderType,
+          /* path: */ null,
           /* parentId: */ null,
           /* type: */ folderType,
           /* delim: */ '',

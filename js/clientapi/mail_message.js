@@ -173,7 +173,13 @@ MailMessage.prototype = evt.mix({
    * we'd trigger a move to an archive folder.
    */
   archiveFromInbox: function() {
-
+    // Filter things down to only inbox folders.  (This lets us avoid an inbox
+    // lookup and a potentially redundant/spurious remove in one swoop.  Not
+    // that the back-end really cares.  It's SMRT.)
+    let curInboxFolders = this.labels.filter(folder => folder.type === 'inbox');
+    if (curInboxFolders.length) {
+      this.modifyLabels(null, curInboxFolders);
+    }
   },
 
   /**

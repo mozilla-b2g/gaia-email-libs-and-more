@@ -692,6 +692,26 @@ MailUniverse.prototype = {
     });
   },
 
+  attachBlobToDraft: function(messageId, attachmentDef) {
+    // non-persistent because this is a local-only op and we don't want the
+    // original stored in our database (at this time)
+    return this.taskManager.scheduleNonPersistentTasks([{
+      type: 'draft_attach',
+      accountId: accountIdFromMessageId(messageId),
+      messageId,
+      attachmentDef
+    }]);
+  },
+
+  detachAttachmentFromDraft: function(messageId, attachmentIndex) {
+    // non-persistent for now because it would be awkward
+    return this.taskManager.scheduleNonPersistentTasks([{
+      type: 'draft_detach',
+      accountId: accountIdFromMessageId(messageId),
+      messageId,
+      attachmentIndex
+    }]);
+  },
 
   /**
    * Update an existing draft.
@@ -898,175 +918,6 @@ MailUniverse.prototype = {
   },
 
   /**
-   * APPEND messages to an IMAP server without locally saving the messages.
-   * This was originally an IMAP testing operation that was co-opted to be
-   * used for saving sent messages in a corner-cutting fashion.  (The right
-   * thing for us to do would be to save the message locally too and deal with
-   * the UID implications.  But that is tricky.)
-   *
-   * See ImapAccount.saveSentMessage for more context.
-   *
-   * POP3's variation on this is saveSentDraft
-   */
-  appendMessages: function(folderId, messages, callback) {
-    var account = this.getAccountForFolderId(folderId);
-    var longtermId = this._queueAccountOp(
-      account,
-      {
-        type: 'append',
-        // Don't persist.  See ImapAccount.saveSentMessage for our rationale.
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: 'done',
-        serverStatus: null,
-        tryCount: 0,
-        humanOp: 'append',
-        messages: messages,
-        folderId: folderId,
-      },
-      callback);
-    return [longtermId];
-  },
-
-  /**
-   * Save a sent POP3 message to the account's "sent" folder.  See
-   * Pop3Account.saveSentMessage for more information.
-   *
-   * IMAP's variation on this is appendMessages.
-   *
-   * @param folderId {FolderID}
-   * @param sentSafeHeader {HeaderInfo}
-   *   The header ready to be added to the sent folder; suid issued and
-   *   everything.
-   * @param sentSafeBody {BodyInfo}
-   *   The body ready to be added to the sent folder; attachment blobs stripped.
-   * @param callback {function(err)}
-   */
-  saveSentDraft: function(folderId, sentSafeHeader, sentSafeBody, callback) {
-    var account = this.getAccountForMessageSuid(sentSafeHeader.suid);
-    var longtermId = this._queueAccountOp(
-      account,
-      {
-        type: 'saveSentDraft',
-        // we can persist this since we have stripped the blobs
-        longtermId: null,
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a',
-        tryCount: 0,
-        humanOp: 'saveSentDraft',
-        folderId: folderId,
-        headerInfo: sentSafeHeader,
-        bodyInfo: sentSafeBody
-      },
-      callback);
-    return [longtermId];
-  },
-
-  /**
-   * Process the given attachment blob in slices into base64-encoded Blobs
-   * that we store in IndexedDB (currently).  This is a local-only operation.
-   *
-   * This function is implemented as a job/operation so it is inherently ordered
-   * relative to other draft-related calls.  But do keep in mind that you need
-   * to make sure to not destroy the underlying storage for the Blob (ex: when
-   * using DeviceStorage) until the callback has fired.
-   */
-  attachBlobToDraft: function(account, existingNamer, attachmentDef, callback) {
-    this._queueAccountOp(
-      account,
-      {
-        type: 'attachBlobToDraft',
-        // We don't persist the operation to disk in order to avoid having the
-        // Blob we are attaching get persisted to IndexedDB.  Better for the
-        // disk I/O to be ours from the base64 encoded writes we do even if
-        // there is a few seconds of data-loss-ish vulnerability.
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a', // local-only currently
-        tryCount: 0,
-        humanOp: 'attachBlobToDraft',
-        existingNamer: existingNamer,
-        attachmentDef: attachmentDef
-      },
-      callback
-    );
-  },
-
-  /**
-   * Remove an attachment from a draft.  This will not interrupt an active
-   * attaching operation or moot a pending one.  This is a local-only operation.
-   */
-  detachAttachmentFromDraft: function(account, existingNamer, attachmentIndex,
-                                      callback) {
-    this._queueAccountOp(
-      account,
-      {
-        type: 'detachAttachmentFromDraft',
-        // This is currently non-persisted for symmetry with attachBlobToDraft
-        // but could be persisted if we wanted.
-        longtermId: 'session',
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a', // local-only currently
-        tryCount: 0,
-        humanOp: 'detachAttachmentFromDraft',
-        existingNamer: existingNamer,
-        attachmentIndex: attachmentIndex
-      },
-      callback
-    );
-  },
-
-
-  /**
-   * Kick off a job to send pending outgoing messages. See the job
-   * documentation regarding "sendOutboxMessages" for more details.
-   *
-   * @param {MailAccount} account
-   * @param {MessageNamer} opts.beforeMessage
-   *   If provided, start with the first message older than this one.
-   *   (This is only used internally within the job itself.)
-   * @param {string} opts.reason
-   *   Optional description, used for debugging.
-   * @param {Boolean} opts.emitNotifications
-   *   True to pass along send status notifications to the model.
-   */
-  sendOutboxMessages: function(account, opts, callback) {
-    opts = opts || {};
-
-    console.log('outbox: sendOutboxMessages(', JSON.stringify(opts), ')');
-
-    // If we are not online, we won't actually kick off a job until we
-    // come back online. Immediately fire a status notification
-    // indicating that we are done attempting to sync for now.
-    if (!this.online) {
-      this.notifyOutboxSyncDone(account);
-      // Fall through; we still want to queue the op.
-    }
-
-    // Do not attempt to check if the outbox is empty here. This op is
-    // queued immediately after the client moves a message to the
-    // outbox. The outbox may be empty here, but it might be filled
-    // when the op runs.
-    this._queueAccountOp(
-      account,
-      {
-        type: 'sendOutboxMessages',
-        longtermId: 'session', // Does not need to be persisted.
-        lifecycle: 'do',
-        localStatus: 'n/a',
-        serverStatus: null,
-        tryCount: 0,
-        beforeMessage: opts.beforeMessage,
-        emitNotifications: opts.emitNotifications,
-        humanOp: 'sendOutboxMessages'
-      },
-      callback);
-  },
-
-  /**
    * Dispatch a notification to the frontend, indicating that we're
    * done trying to send messages from the outbox for now.
    */
@@ -1075,28 +926,6 @@ MailUniverse.prototype = {
       accountId: account.id,
       state: 'syncDone'
     });
-  },
-
-  /**
-   * Enable or disable Outbox syncing temporarily. For instance, you
-   * will want to disable outbox syncing if the user is in "edit mode"
-   * for the list of messages in the outbox folder. This setting does
-   * not persist.
-   */
-  setOutboxSyncEnabled: function(account, enabled, callback) {
-    this._queueAccountOp(
-      account,
-      {
-        type: 'setOutboxSyncEnabled',
-        longtermId: 'session', // Does not need to be persisted.
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: 'n/a', // Local-only.
-        outboxSyncEnabled: enabled,
-        tryCount: 0,
-        humanOp: 'setOutboxSyncEnabled'
-      },
-      callback);
   },
 
   /**
@@ -1125,24 +954,6 @@ MailUniverse.prototype = {
                          containOtherFolders) {
     // XXX implement!
     return;
-    var account = this.getAccountForAccountId(accountId);
-    var longtermId = this._queueAccountOp(
-      account,
-      {
-        type: 'createFolder',
-        longtermId: null,
-        lifecycle: 'do',
-        localStatus: null,
-        serverStatus: null,
-        tryCount: 0,
-        humanOp: 'createFolder',
-        parentFolderId: parentFolderId,
-        folderName: folderName,
-        folderType: folderType,
-        containOtherFolders: containOtherFolders
-      },
-      callback);
-    return [longtermId];
   },
 
   //////////////////////////////////////////////////////////////////////////////

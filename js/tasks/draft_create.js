@@ -82,7 +82,7 @@ return TaskDefiner.defineSimpleTask([
       // - Blank Compose
       if (req.draftType === 'blank') {
         // No need for a body, just generate it up.
-        messageInfo = yield* deriveBlankDraft({
+        messageInfo = deriveBlankDraft({
           identity,
           messageId,
           umid,

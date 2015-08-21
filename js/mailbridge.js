@@ -358,7 +358,6 @@ MailBridge.prototype = {
   },
 
   _cmd_getItemAndTrackUpdates: co.wrap(function*(msg) {
-
     // XXX implement priority tags support
 
     // - Fetch the raw data from disk
@@ -495,17 +494,16 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_sendOutboxMessages: function(msg) {
-    // XXX OLD
-    var account = this.universe.getAccountForAccountId(msg.accountId);
-    this.universe.sendOutboxMessages(account, {
-      reason: 'api request'
-    }, function(err) {
+  _cmd_outboxSetPaused: function(msg) {
+    this.universe.outboxSetPaused(
+      accountId,
+      msg.bePaused
+    ).then(() => {
       this.__sendMessage({
-        type: 'sendOutboxMessages',
+        type: 'promisedResult',
         handle: msg.handle
       });
-    }.bind(this));
+    });
   },
 
   _cmd_setOutboxSyncEnabled: function(msg) {
@@ -546,143 +544,17 @@ MailBridge.prototype = {
   },
 
   _cmd_attachBlobToDraft: function(msg) {
-    // XXX OLD
-    // for ordering consistency reasons with other draft logic, this needs to
-    // require composer as a dependency too.
-    require(['./drafts/composer'], function ($composer) {
-      var draftReq = this._pendingRequests[msg.draftHandle];
-      if (!draftReq)
-        return;
-
-      this.universe.attachBlobToDraft(
-        draftReq.account,
-        draftReq.persistedNamer,
-        msg.attachmentDef,
-        function (err) {
-          this.__sendMessage({
-            type: 'attachedBlobToDraft',
-            // Note! Our use of 'msg' here means that our reference to the Blob
-            // will be kept alive slightly longer than the job keeps it alive,
-            // but just slightly.
-            handle: msg.handle,
-            draftHandle: msg.draftHandle,
-            err: err
-          });
-        }.bind(this));
-    }.bind(this));
+    this.universe.attachBlobToDraft(
+      msg.messageId,
+      msg.attachmentDef
+    );
   },
 
   _cmd_detachAttachmentFromDraft: function(msg) {
-    // XXX OLD
-    // for ordering consistency reasons with other draft logic, this needs to
-    // require composer as a dependency too.
-    require(['./drafts/composer'], function ($composer) {
-    var req = this._pendingRequests[msg.draftHandle];
-    if (!req)
-      return;
-
-    this.universe.detachAttachmentFromDraft(
-      req.account,
-      req.persistedNamer,
-      msg.attachmentIndex,
-      function (err) {
-        this.__sendMessage({
-          type: 'detachedAttachmentFromDraft',
-          handle: msg.handle,
-          draftHandle: msg.draftHandle,
-          err: err
-        });
-      }.bind(this));
-    }.bind(this));
-  },
-
-  _cmd_resumeCompose: function(msg) {
-    // XXX OLD
-    var req = this._pendingRequests[msg.handle] = {
-      type: 'compose',
-      active: 'resume',
-      account: null,
-      persistedNamer: msg.messageNamer,
-      die: false
-    };
-
-    // NB: We are not acquiring the folder mutex here because
-    var account = req.account =
-          this.universe.getAccountForMessageSuid(msg.messageNamer.suid);
-    var folderStorage = this.universe.getFolderStorageForMessageSuid(
-                          msg.messageNamer.suid);
-    var self = this;
-    folderStorage.runMutexed('resumeCompose', function(callWhenDone) {
-      function fail() {
-        self.__sendMessage({
-          type: 'composeBegun',
-          handle: msg.handle,
-          error: 'no-message'
-        });
-        callWhenDone();
-      }
-      folderStorage.getMessage(msg.messageNamer.suid, msg.messageNamer.date,
-                               function(res) {
-        try {
-          if (!res.header || !res.body) {
-            fail();
-            return;
-          }
-          var header = res.header, body = res.body;
-
-          // -- convert from header/body rep to compose rep
-
-          var composeBody = {
-            text: '',
-            html: null,
-          };
-
-          // Body structure should be guaranteed, but add some checks.
-          if (body.bodyReps.length >= 1 &&
-              body.bodyReps[0].type === 'plain' &&
-              body.bodyReps[0].content.length === 2 &&
-              body.bodyReps[0].content[0] === 0x1) {
-            composeBody.text = body.bodyReps[0].content[1];
-          }
-          // HTML is optional, but if present, should satisfy our guard
-          if (body.bodyReps.length == 2 &&
-              body.bodyReps[1].type === 'html') {
-            composeBody.html = body.bodyReps[1].content;
-          }
-
-          var attachments = [];
-          body.attachments.forEach(function(att) {
-            attachments.push({
-              name: att.name,
-              blob: {
-                size: att.sizeEstimate,
-                type: att.type
-              }
-            });
-          });
-
-          req.active = null;
-          self.__sendMessage({
-            type: 'composeBegun',
-            handle: msg.handle,
-            error: null,
-            identity: account.identities[0],
-            subject: header.subject,
-            body: composeBody,
-            to: header.to,
-            cc: header.cc,
-            bcc: header.bcc,
-            referencesStr: body.references,
-            attachments: attachments,
-            sendStatus: header.sendStatus
-          });
-          callWhenDone();
-        }
-        catch (ex) {
-          fail(); // calls callWhenDone
-        }
-      });
-    });
+    this.universe.detachedAttachmentFromDraft(
+      msg.messageId,
+      msg.attachmentIndex
+    );
   },
 
   /**

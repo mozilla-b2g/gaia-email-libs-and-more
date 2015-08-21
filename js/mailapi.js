@@ -1106,22 +1106,11 @@ MailAPI.prototype = evt.mix({
    *   Called after the first message's send attempt finishes.
    */
   sendOutboxMessages: function (account, callback) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'sendOutboxMessages',
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'sendOutboxMessages',
-      accountId: account.id,
-      handle: handle
-    });
-  },
-
-  _recv_sendOutboxMessages: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    delete this._pendingRequests[msg.handle];
-    req.callback && req.callback();
+    // the revised complex task is pretty smart; not sure to what extent we need
+    // this.  we may need to revisit semantics somewhat, since this is mainly
+    // about moving deferred tasks immediately back into the "go" bucket and
+    // maybe re-scheduling drafts we had given up on.
+    // TODO: clera up what to do here.
   },
 
   /**
@@ -1132,24 +1121,15 @@ MailAPI.prototype = evt.mix({
    * does _not_ persist; it's meant to be used only for brief periods
    * of time, not as a "sync schedule" coordinator.
    */
-  setOutboxSyncEnabled: function (account, enabled, callback) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'setOutboxSyncEnabled',
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'setOutboxSyncEnabled',
+  setOutboxSyncEnabled: function (account, enabled) {
+    return this._sendPromisedRequest({
+      type: 'outboxSetPaused',
       accountId: account.id,
-      outboxSyncEnabled: enabled,
-      handle: handle
+      bePaused: !enabled
+    }).then(() => {
+      // we just exist to convert the return value to undefined.
+      return;
     });
-  },
-
-  _recv_setOutboxSyncEnabled: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    delete this._pendingRequests[msg.handle];
-    req.callback && req.callback();
   },
 
   /**
@@ -1225,7 +1205,7 @@ MailAPI.prototype = evt.mix({
    * @param {MailMessage} message
    * @param {MailFolder} folder
    * @param {Object} options
-   * @param {'reply'|'forward'} options.command
+   * @param {'blank'|'reply'|'forward'} options.command
    * @param {'sender'|'all'} options.mode
    *   The reply mode.  This will eventually indicate the forwarding mode too.
    * @param {Boolean} [options.noComposer=false]

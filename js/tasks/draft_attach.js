@@ -85,7 +85,7 @@ return TaskDefiner.defineSimpleTask([
 
         let arraybuffer = yield asyncFetchBlob(slicedBlob, 'arraybuffer');
         let binaryDataU8 = new Uint8Array(arraybuffer);
-        let encodedU8 = base64.mimeStyleBase64Encode(binaryDataU8);
+        let encodedU8 = mimeStyleBase64Encode(binaryDataU8);
         messageInfo.attaching.file.push(new Blob([encodedU8],
                                                  { type: wholeBlob.type }));
         // (in the v1.x job-op we'd do the finalization and transition from
