@@ -14,6 +14,12 @@ const TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineComplexTask([
   require('../../tasks/mix_outbox_send'),
   {
+    shouldIncludeBcc: function(/*account*/) {
+      // Never trust the SMTP server to not screw up since by definition a POP3
+      // server is part of a horrible mail server configuration.
+      return false;
+    },
+
     /**
      * We move the message to the sent folder, updating the representation so
      * that the attachment blobs are stripped and their MIME types updated to

@@ -350,6 +350,7 @@ MailAPI.prototype = evt.mix({
         id: itemId,
         callback: (msg) => {
           if (msg.err || !msg.data) {
+            throw new Error('suspicious suspicion');
             reject(msg.err);
             return;
           }
@@ -391,19 +392,26 @@ MailAPI.prototype = evt.mix({
   },
 
   _recv_update: function(msg) {
-    // TODO: there should also be a _recv_removed handler so that when a thing
-    // becomes mooted/deleted we can provide an event so that the UI can know
-    // to handle it.
     let details = this._trackedItemHandles.get(msg.handle);
     if (details && details.obj) {
       let obj = details.obj;
-      obj.__update(msg.data);
-      // If this is a single object (and not a list view), then bump its serial
-      // and emit a change event.  In the case of list views, the list view is
-      // handling all that.
-      if (obj._handle) {
-        obj.serial++;
-        obj.emit('change', obj);
+
+      let data = msg.data;
+      if (data === null) {
+        // - null means removal
+        // TODO: consider whether our semantics should be self-releasing in this
+        // case.  For now we will leave it up to the caller.
+        obj.emit('remove', obj);
+      } else {
+        // - non-null means it's an update!
+        obj.__update(data);
+        // If this is a single object (and not a list view), then bump its serial
+        // and emit a change event.  In the case of list views, the list view is
+        // handling all that.
+        if (obj._handle) {
+          obj.serial++;
+          obj.emit('change', obj);
+        }
       }
     }
   },

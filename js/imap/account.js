@@ -1,7 +1,6 @@
 define(
   [
     'logic',
-    'slog',
     '../a64',
     '../accountmixins',
     '../allback',
@@ -22,7 +21,6 @@ define(
   ],
   function(
     logic,
-    slog,
     $a64,
     $acctmixins,
     $allback,
@@ -681,11 +679,11 @@ var properties = {
           meta.name = box.name;
           meta.delim = delim;
 
-          slog.log('imap:folder-sync:existing', {
-            type: type,
+          logic(this, 'folder-sync:existing', {
+            type,
             name: box.name,
-            path: path,
-            delim: delim
+            path,
+            delim
           });
 
           // mark it with true to show that we've seen it.
@@ -693,13 +691,13 @@ var properties = {
         }
         // - new to us!
         else {
-          slog.log('imap:folder-sync:add', {
-            type: type,
+          logic(this, 'folder-sync:add', {
+            type,
             name: box.name,
-            path: path,
-            delim: delim
+            path,
+            delim
           });
-          meta = this._learnAboutFolder(box.name, path, parentId, type,
+          meta = this._learnAboutFolder(box.name, path, path, parentId, type,
                                         delim, pathDepth);
         }
 
@@ -723,9 +721,9 @@ var properties = {
       if (folderInfoRep.isTypeLocalOnly(folderPub.type)) {
         continue;
       }
-      slog.log('imap:delete-dead-folder', {
-        type: folderPub.type,
-        id: folderPub.id
+      logic(this, 'delete-dead-folder', {
+        folderType: folderPub.type,
+        folderId: folderPub.id
       });
       // It must have gotten deleted!
       this._forgetFolder(folderPub.id);
@@ -757,7 +755,8 @@ var properties = {
       if (!this.getFirstFolderWithType(folderType)) {
         this._learnAboutFolder(
           /* name: */ folderType,
-          /* path: */ null,
+          /* path: */ folderType,
+          /* serverPath */ null,
           /* parentId: */ null,
           /* type: */ folderType,
           /* delim: */ '',

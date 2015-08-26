@@ -42,7 +42,7 @@
     "no-shadow": 2,
     "no-spaced-func": 2,
     "no-unexpected-multiline": 2,
-    "no-unused-vars": [2, {"vars": "all", "args": "after-used"}],
+    "no-unused-vars": [1, {"vars": "all", "args": "after-used"}],
     "no-use-before-define": [1, "nofunc"],
     "no-useless-call": 2,
     "no-void": 2,

@@ -1,4 +1,4 @@
-define(function(require) {
+define(function() {
 'use strict';
 
 return {
@@ -14,6 +14,11 @@ return {
   },
 
   encodedGmailConvIdFromConvId: function(convId) {
+    let idxFirst = convId.indexOf('.');
+    return convId.substring(idxFirst + 1);
+  },
+
+  convSpecificIdFromConvId: function(convId) {
     let idxFirst = convId.indexOf('.');
     return convId.substring(idxFirst + 1);
   },
@@ -45,7 +50,15 @@ return {
     return messageId.split(/\./g, 2)[1];
   },
 
+  convSpecificIdFromMessageId: function(messageId) {
+    return messageId.split(/\./g, 2)[1];
+  },
+
   encodedGmailMessageIdFromMessageId: function(messageId) {
+    return messageId.split(/\./g, 3)[2];
+  },
+
+  messageSpecificIdFromMessageId: function(messageId) {
     return messageId.split(/\./g, 3)[2];
   },
 

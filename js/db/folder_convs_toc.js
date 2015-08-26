@@ -217,7 +217,6 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       actualOffset += meta.height;
     }
     if (!len) {
-      console.log('generating top key');
       meta = this.getTopOrderingKey();
     }
 
@@ -307,7 +306,6 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
       endBufferedExclusive: endBufferedInclusive + 1,
       heightOffset: this.getHeightOffsetForIndex(beginBufferedInclusive)
     };
-    console.log('findIndices', focusIndex, req, rval);
     return rval;
   },
 

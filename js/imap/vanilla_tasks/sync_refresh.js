@@ -38,7 +38,7 @@ return TaskDefiner.defineSimpleTask([
       // case we still wouldn't want refreshes triggered before we've created
       // the folder and populated it.)
       let plannedTask;
-      if (!folderInfo.path) {
+      if (!folderInfo.serverPath) {
         plannedTask = null;
       } else {
         plannedTask = shallowClone(rawTask);

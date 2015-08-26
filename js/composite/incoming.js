@@ -82,7 +82,8 @@ function CompositeIncomingAccount(
   // name, so we can create it without talking to the server.
   var inboxFolder = this.getFirstFolderWithType('inbox');
   if (!inboxFolder) {
-    this._learnAboutFolder('INBOX', 'INBOX', null, 'inbox', '/', 0, true);
+    this._learnAboutFolder(
+      'INBOX', 'INBOX', 'INBOX', null, 'inbox', '/', 0, true);
   }
 }
 exports.CompositeIncomingAccount = CompositeIncomingAccount;
@@ -107,17 +108,19 @@ CompositeIncomingAccount.prototype = {
    *   adding new call-sites that use this, especially if it's not used for
    *   offline-only folders at account creation/app startup.
    */
-  _learnAboutFolder: function(name, path, parentId, type, delim, depth) {
+  _learnAboutFolder: function(name, path, serverPath, parentId, type, delim,
+                              depth) {
     let folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
     let folderInfo =
       $folder_info.makeFolderMeta({
         id: folderId,
-        name: name,
-        type: type,
-        path: path,
-        parentId: parentId,
-        delim: delim,
-        depth: depth,
+        name,
+        type,
+        path,
+        serverPath,
+        parentId,
+        delim,
+        depth,
         lastSyncedAt: 0
       });
 

@@ -27,6 +27,12 @@ define(function(require) {
  * debugging and testing.
  * This should be considered private/personal data like the folder name.
  *
+ * @property {String} [serverPath=null7
+ *   The current path of the folder on the server, if the folder exists on the
+ *   server.  This will be null if the folder is local-only.  When we eventually
+ *   support folder renames, this may potentially be different from the `path`
+ *   until we replay the move against the server.
+ *
  * @property {number} depth - The depth of the folder in the folder tree.
  * This is useful since the folders are stored as a flattened list, so
  * attempts to display the folder hierarchy would otherwise have to compute
@@ -48,13 +54,14 @@ function makeFolderMeta(raw) {
     name: raw.name || null,
     type: raw.type || null,
     path: raw.path || null,
+    serverPath: raw.serverPath || null,
     parentId: raw.parentId || null,
     depth: raw.depth || 0,
     lastSyncedAt: raw.lastSyncedAt || 0,
     unreadCount: raw.unreadCount || 0,
     syncKey: raw.syncKey || null,
     version: raw.version || null
-  }
+  };
 };
 
 /**

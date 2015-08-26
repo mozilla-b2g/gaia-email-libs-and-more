@@ -4,9 +4,6 @@ define(function(require) {
 let co = require('co');
 let logic = require('logic');
 
-let a64 = require('../a64');
-let compareMsgIds = a64.cmpUI64;
-
 let util = require('../util');
 let bsearchMaybeExists = util.bsearchMaybeExists;
 let bsearchForInsert = util.bsearchForInsert;
@@ -91,25 +88,42 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
    * Handle the addition or removal of a message from the TOC.
    *
    * @param {MessageId} messageId
-   * @param {DateTS} date
+   * @param {DateTS} preDate
+   * @param {DateTS} postDate
+   *   In the case of drafts, messge dates can change.
    * @param {HeaderInfo} headerInfo
    * @param {Boolean} freshlyAdded
    */
-  onTOCChange: function(messageId, date, headerInfo, freshlyAdded) {
+  onTOCChange: function(messageId, preDate, postDate, headerInfo,
+                        freshlyAdded) {
     let metadataOnly = headerInfo && !freshlyAdded;
 
     if (freshlyAdded) {
       // - Added!
-      let newKey = { date: date, id: messageId };
+      let newKey = { date: postDate, id: messageId };
       let newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                       conversationMessageComparator);
       this.idsWithDates.splice(newIndex, 0, newKey);
     } else if (!headerInfo) {
       // - Deleted!
-      let oldKey = { date: date, id: messageId };
+      let oldKey = { date: preDate, id: messageId };
       let oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
                                         conversationMessageComparator);
       this.idsWithDates.splice(oldIndex, 1);
+    } else if (preDate !== postDate) {
+      // - Message date changed (this should only happen for drafts)
+      let oldKey = { date: preDate, id: messageId };
+      let oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
+                                        conversationMessageComparator);
+      this.idsWithDates.splice(oldIndex, 1);
+
+      let newKey = { date: postDate, id: messageId };
+      let newIndex = bsearchForInsert(this.idsWithDates, newKey,
+                                      conversationMessageComparator);
+      this.idsWithDates.splice(newIndex, 0, newKey);
+
+      // We're changing the ordering.
+      metadataOnly = false;
     }
 
     this.emit('change', messageId, metadataOnly);

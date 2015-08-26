@@ -5,7 +5,7 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('logic');
 
-const { convIdFromMessageId, encodedGmailMessageIdFromMessageId } =
+const { convIdFromMessageId, messageSpecificIdFromMessageId } =
   require('./id_conversions');
 
 const {
@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 71;
+const CUR_VERSION = 81;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -617,7 +617,7 @@ MailDB.prototype = evt.mix({
    *   context that cares isn't going to be the one that read it from disk.  So
    *   this would be for debugging, and maybe should just be removed.
    */
-  _considerCachePressure: function(why, ctx) {
+  _considerCachePressure: function(/*why, ctx*/) {
     // XXX memory-backed Blobs are being a real pain.  So let's start
     // aggressively dropping the cache.  But because of how promises work and
     // when we trigger this, we really want to use a setTimeout with a fixed
@@ -821,7 +821,7 @@ MailDB.prototype = evt.mix({
           let key = [
             convIdFromMessageId(messageId),
             date,
-            encodedGmailMessageIdFromMessageId(messageId)
+            messageSpecificIdFromMessageId(messageId)
           ];
           dbReqCount++;
           let req = messageStore.get(key);
@@ -1026,11 +1026,21 @@ MailDB.prototype = evt.mix({
     for (let [convId, convInfo] of convs) {
       let preInfo = preStates.get(convId);
 
+      // We do various folder-spcific things below; to allow for simplficiations
+      // under deletion of the conversation, we have a helper here so that even
+      // if convInfo is null, we can have an empty set for its folderIds that
+      // will not result in a null de-ref.
+      let convFolderIds;
       // -- Deletion
       if (convInfo === null) {
         // - Delete the conversation summary
         convStore.delete(convId);
         this.convCache.delete(convId);
+
+        // - The new folder set is the empty set
+        // This simplifies all the logic below.
+        convFolderIds = new Set();
+
         // - Delete all affiliated messages
         // TODO: uh, we should explicitly nuke the messages out of the cache
         // too.  There isn't a huge harm to not doing it, but we should.
@@ -1041,6 +1051,7 @@ MailDB.prototype = evt.mix({
 
         trans.objectStore(TBL_MESSAGES).delete(messageRange);
       } else { // Modification
+        convFolderIds = convInfo.folderIds;
         convStore.put(convInfo, convId);
         this.convCache.set(convId, convInfo);
       }
@@ -1049,9 +1060,8 @@ MailDB.prototype = evt.mix({
       // value.
       this.emit('conv!' + convId + '!change', convId, convInfo);
 
-
-      let { added, kept, removed } = computeSetDelta(preInfo.folderIds,
-                                                     convInfo.folderIds);
+      let { added, kept, removed } =
+        computeSetDelta(preInfo.folderIds, convFolderIds);
 
       // Notify the TOCs
       for (let folderId of added) {
@@ -1087,15 +1097,16 @@ MailDB.prototype = evt.mix({
                   });
       }
 
-      // If the most recent message date changed or the height changed, we need
-      // to blow away all the existing mappings and all the mappings are new
-      // anyways.
-      if (preInfo.date !== convInfo.date ||
+      // If this is a conversation deletion, the most recent message date
+      // changed or the height changed, we need to blow away all the existing
+      // mappings and all the mappings are new anyways.
+      if (!convInfo ||
+          preInfo.date !== convInfo.date ||
           preInfo.height !== convInfo.height) {
         for (let folderId of preInfo.folderIds) {
           convIdsStore.delete([folderId, preInfo.date, convId]);
         }
-        for (let folderId of convInfo.folderIds) {
+        for (let folderId of convFolderIds) {
           convIdsStore.add(
             [folderId, convInfo.date, convId, convInfo.height], // value
             [folderId, convInfo.date, convId]); // key
@@ -1145,7 +1156,7 @@ MailDB.prototype = evt.mix({
       let key = [
         convId,
         message.date,
-        encodedGmailMessageIdFromMessageId(message.id)
+        messageSpecificIdFromMessageId(message.id)
       ];
       store.add(message, key);
       messageCache.set(message.id, message);
@@ -1163,25 +1174,35 @@ MailDB.prototype = evt.mix({
     let messageCache = this.messageCache;
     for (let [messageId, message] of messages) {
       let convId = convIdFromMessageId(messageId);
-      let date = preStates.get(messageId);
-      let key = [
+      let preDate = preStates.get(messageId);
+      let postDate = message && message.date;
+      let preKey = [
         convId,
-        date,
-        encodedGmailMessageIdFromMessageId(messageId)
+        preDate,
+        messageSpecificIdFromMessageId(messageId)
       ];
 
       if (message === null) {
         // -- Deletion
-        store.delete(key);
+        store.delete(preKey);
         messageCache.delete(messageId);
+      } else if (preDate !== postDate) {
+        // -- Draft update that changes the timestamp
+        store.delete(preKey);
+        let postKey = [
+          convId,
+          postDate,
+          messageSpecificIdFromMessageId(messageId)
+        ];
+        store.put(message, postKey);
       } else {
-        // -- Modification
-        store.put(message, key);
+        // -- Modification without date change
+        store.put(message, preKey);
         messageCache.set(messageId, message);
       }
 
       let convEventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(convEventId, messageId, date, message, false);
+      this.emit(convEventId, messageId, preDate, postDate, message, false);
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
     }

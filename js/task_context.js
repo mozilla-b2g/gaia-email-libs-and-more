@@ -179,8 +179,8 @@ TaskContext.prototype = {
    * we can probably just have the connections tell us when they're trafficking
    * in data.
    */
-  heartbeat: function(why) {
-
+  heartbeat: function(/* why */) {
+    this._taskManager.__renewWakeLock();
   },
 
   read: function(what) {

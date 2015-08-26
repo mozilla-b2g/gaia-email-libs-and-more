@@ -86,7 +86,7 @@ SmtpAccount.prototype = {
         },
 
         // establishConnection monekypatches/wraps the connection so that drain
-        // notfications are converted into these progress notifications. 
+        // notfications are converted into these progress notifications.
         onProgress: function() {
           // Keep the wake lock open as long as it looks like we're
           // still communicating with the server.
@@ -96,28 +96,28 @@ SmtpAccount.prototype = {
          * Send the message body.
          */
         sendMessage: function(conn) {
-          // Then send the actual message if everything was cool
-          slog.log('smtp:building-blob');
-          composer.deriveMessageBlob({ includeBcc: false }).then((blob) => {
-            slog.log('smtp:sending-blob', { size: blob.size });
-            // simplesmtp's SMTPClient does not understand Blobs, so we
-            // issue the write directly. All that it cares about is
-            // knowing whether our data payload included a trailing
-            // \r\n. We had hoped to avoid this silliness in bug 885110,
-            // but SMTPClient still does not support blobs yet, so we
-            // still need this.
-            conn.socket.send(blob);
-            // SMTPClient tracks the last bytes it has written in _lastDataBytes
-            // to this end and writes the \r\n if they aren't the last bytes
-            // written.  Since we know that mailcomposer always ends the buffer
-            // with \r\n we just set that state directly ourselves.
-            conn._lastDataBytes = '\r\n';
+          var blob = composer.superBlob;
 
-            // this does not actually terminate the connection; just tells the
-            // client to flush stuff, etc.
-            conn.end();
-          });
+          // Then send the actual message if everything was cool
+          slog.log('smtp:sending-blob', { size: blob.size });
+          // simplesmtp's SMTPClient does not understand Blobs, so we
+          // issue the write directly. All that it cares about is
+          // knowing whether our data payload included a trailing
+          // \r\n. We had hoped to avoid this silliness in bug 885110,
+          // but SMTPClient still does not support blobs yet, so we
+          // still need this.
+          conn.socket.send(blob);
+          // SMTPClient tracks the last bytes it has written in _lastDataBytes
+          // to this end and writes the \r\n if they aren't the last bytes
+          // written.  Since we know that mailcomposer always ends the buffer
+          // with \r\n we just set that state directly ourselves.
+          conn._lastDataBytes = '\r\n';
+
+          // this does not actually terminate the connection; just tells the
+          // client to flush stuff, etc.
+          conn.end();
         },
+
         /**
          * The send succeeded.
          */

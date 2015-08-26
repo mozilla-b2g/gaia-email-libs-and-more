@@ -7,6 +7,8 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 const { Composer }= require('../drafts/composer');
 
+const { convIdFromMessageId } = require ('../id_conversions');
+
 /**
  * Outbox sending logic.  It's a mix-in because how we handle the sent folder is
  * account specific.  (In v1.x we had a hacky helper method on the accounts that
@@ -114,14 +116,7 @@ return {
    * paused.
    */
   _planSend: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
-    const { messageId, messageDate } = rawTask;
-    // -- Track that we want to send the message
-    let sendInfo = {
-      date: messageDate,
-      order: persistentState.sendOrderingCounter++
-    };
-    persistentState.set(messageId, sendInfo);
-
+    const { messageId } = rawTask;
     // -- Load the conversation, put the message in the outbox, re-churn.
     let convId = convIdFromMessageId(messageId);
     let fromDb = yield ctx.beginMutate({
@@ -145,6 +140,13 @@ return {
 
     let convInfo = churnConversation(convId, oldConvInfo, messages);
 
+    // -- Track that we want to send the message
+    let sendInfo = {
+      date: messageInfo.date,
+      order: persistentState.sendOrderingCounter++
+    };
+    persistentState.messageIdsToSend.set(messageId, sendInfo);
+
     // -- Generate a marker
     let modifyTaskMarkers = new Map();
     // If we're paused, do not issue the marker yet.  The marker will be
@@ -152,7 +154,7 @@ return {
     if (!memoryState.paused) {
       let marker = this._makeMarkerForMessage(
         rawTask.accountId, messageId, sendInfo.order);
-      memoryState.set(marker.id, marker);
+      modifyTaskMarkers.set(marker.id, marker);
     }
 
     yield ctx.finishTask({
@@ -228,6 +230,8 @@ return {
                                     rawTask) {
     // If we're already in the desired state, we can just bail.
     if (rawTask.paused === memoryState.paused) {
+      yield ctx.finishTask({
+      });
       return;
     }
 
@@ -312,11 +316,21 @@ return {
     let messageKey = [messageId, date];
     let messageInfo = (yield ctx.read({
       messages: new Map([[messageKey, null]])
-    })).messages.get(messageKey);
+    })).messages.get(messageId);
 
     // -- Create the composer.
-    const renewWakeLock = ctx.__renewWakeLock.bind(ctx);
+    const renewWakeLock = ctx.heartbeat.bind(ctx);
     const composer = new Composer(messageInfo, account, renewWakeLock);
+
+    // We have the composer create the MIME message structure here for hacky
+    // control flow reasons.  SMTP wants the envelope which needs the MIME
+    // structure built, but when we moved to storing the contents of the
+    // body parts in Blobs, what was previously synchronous became asynchronous.
+    // So we just get this out of the way here.  There is nothing clever about
+    // this and revisiting is absolutely appropriate as needed.
+    yield composer.buildMessage({
+      includeBcc: this.shouldIncludeBcc(account)
+    });
 
     // -- Perform the send.
     let { err: sendErr, badAddresses } = yield account.sendMessage(composer);

@@ -6,6 +6,8 @@ const co = require('co');
 const TaskDefiner = require('../task_definer');
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
+const { convIdFromMessageId } = require('../id_conversions');
+
 /**
  * Per-account task to delete the draft without any type of undo mechanism.
  * TODO: Any type of undo mechanism ;)
@@ -36,12 +38,19 @@ return TaskDefiner.defineSimpleTask([
 
       modifiedMessagesMap.set(messageId, null);
 
-      let oldConvInfo = fromDb.conversations.get(req.convId);
-      let convInfo = churnConversation(convId, oldConvInfo, messages);
+      let modifiedConversations = new Map();
+
+      if (messages.length) {
+        let oldConvInfo = fromDb.conversations.get(req.convId);
+        let convInfo = churnConversation(convId, oldConvInfo, messages);
+        modifiedConversations.set(convId, convInfo);
+      } else {
+        modifiedConversations.set(convId, null);
+      }
 
       yield ctx.finishTask({
         mutations: {
-          conversations: new Map([[convId, convInfo]]),
+          conversations: modifiedConversations,
           messages: modifiedMessagesMap
         }
       });

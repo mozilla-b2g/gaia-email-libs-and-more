@@ -400,12 +400,13 @@ ActiveSyncAccount.prototype = {
     // YYY this code is now in ./protocol/delete_folder.js
   }),
 
-  sendMessage: lazyConnection(1, function asa_sendMessage(composer, callback) {
-    var account = this;
+  /**
+   * Asynchronously send a message with an already fully-initialized composer.
+   */
+  sendMessage: lazyConnection(1, function(composer) {
+    return new Promise((resolve) => {
+      let mimeBlob = composer.superBlob;
 
-    // we want the bcc included because that's how we tell the server the bcc
-    // results.
-    composer.withMessageBlob({ includeBcc: true }, function(mimeBlob) {
       // ActiveSync 14.0 has a completely different API for sending email. Make
       // sure we format things the right way.
       if (this.conn.currentVersion.gte('14.0')) {
@@ -426,18 +427,18 @@ ActiveSyncAccount.prototype = {
           if (aError) {
             account._reportErrorIfNecessary(aError);
             console.error(aError);
-            callback('unknown');
+            resolve('unknown');
             return;
           }
 
           if (aResponse === null) {
             console.log('Sent message successfully!');
-            callback(null);
+            resolve(null);
           }
           else {
             console.error('Error sending message. XML dump follows:\n' +
                           aResponse.dump());
-            callback('unknown');
+            resolve('unknown');
           }
         }, /* aExtraParams = */ null, /* aExtraHeaders = */ null,
           /* aProgressCallback = */ function() {
@@ -447,23 +448,23 @@ ActiveSyncAccount.prototype = {
       }
       else { // ActiveSync 12.x and lower
         this.conn.postData('SendMail', 'message/rfc822', mimeBlob,
-                           function(aError, aResponse) {
+                           (aError/*, aResponse*/) => {
           if (aError) {
             account._reportErrorIfNecessary(aError);
             console.error(aError);
-            callback('unknown');
+            resolve('unknown');
             return;
           }
 
           console.log('Sent message successfully!');
-          callback(null);
+          resolve(null);
         }, { SaveInSent: 'T' }, /* aExtraHeaders = */ null,
           /* aProgressCallback = */ function() {
           // Keep holding the wakelock as we continue sending.
           composer.heartbeat('ActiveSync XHR Progress');
         });
       }
-    }.bind(this));
+    });
   }),
 
   /**

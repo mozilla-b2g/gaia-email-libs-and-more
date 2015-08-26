@@ -23,6 +23,22 @@ MimeNode.prototype.removeHeader = function(key) {
 };
 
 /**
+ * Ensure that all newlines are of the form \r\n.  Our database representation
+ * for composed messages uses just \n at the current time.
+ *
+ * Test coverage is currently provided by end-to-end tests like test_compose
+ * since the SMTP fake server knows to generate a 451 if it sees incorrect
+ * newlines.  (Thanks to qmail!)
+ */
+function normalizeNewlines(body) {
+  // If regexps supported look-behinds we could avoid the wasted identity
+  // transform on \r\n but that's the only way to find an \n not preceded by
+  // an \r.  We don't really need the lone \r but if we're normalizing why
+  // not normalize 100%?
+  return body.replace(/\r?\n|\r/g, '\r\n');
+}
+
+/**
  * Abstraction around the mailbuild helper library and our efforts to avoid
  * filling up the device's memory and crashing when we send large messages.  We
  * produce a Blob that is made up of some combination of strings and Blobs.
@@ -68,6 +84,7 @@ function Composer(messageInfo, account, reportHeartbeat) {
   this.account = account;
   this.sentDate = new Date(messageInfo.date);
   this._heartbeat = reportHeartbeat;
+  this.superBlob = null;
 }
 Composer.prototype = {
 
@@ -89,7 +106,7 @@ Composer.prototype = {
    *   { includeBcc: true } if the BCC header should be included.
    * @return {Promise<Blob>}
    */
-  deriveMessageBlob: co.wrap(function*(opts) {
+  buildMessage: co.wrap(function*(opts) {
     let messageInfo = this.messageInfo;
     let messageNode;
 
@@ -133,7 +150,7 @@ Composer.prototype = {
     // mailchew to generate our forward/reply strings, so this usage here helps
     // that logic get extra test coverage.  But it is dumb and we should ideally
     // unify that code to use the same logic mailbuild uses.
-    root.setHeader('From', formatAddresses([messageInfo.from]));
+    root.setHeader('From', formatAddresses([messageInfo.author]));
     root.setHeader('Subject', messageInfo.subject);
 
     if (messageInfo.replyTo) {
@@ -171,7 +188,7 @@ Composer.prototype = {
     this._blobReplacements = [];
     this._uniqueBlobBoundary = '{{blob!' + Math.random() + Date.now() + '}}';
 
-    messageInfo.attachments.forEach(function(attachment) {
+    messageInfo.attachments.forEach((attachment) => {
       try {
         var attachmentNode = new MimeNode(
           attachment.type,
@@ -191,9 +208,7 @@ Composer.prototype = {
       } catch (ex) {
         console.error('Problem attaching attachment:', ex, '\n', ex.stack);
       }
-    }.bind(this));
-
-
+    });
 
     // Another horrible workaround: Mailbuild _never_ includes the
     // 'Bcc' header in the generated output, and there isn't a simple
@@ -239,7 +254,7 @@ Composer.prototype = {
     });
 
     // Build a super-blob from any subparts.
-    return new Blob(splits, {
+    this.superBlob = new Blob(splits, {
       type: this._rootNode.getHeader('content-type')
     });
   }),

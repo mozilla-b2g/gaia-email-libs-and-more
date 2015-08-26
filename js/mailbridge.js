@@ -410,13 +410,11 @@ MailBridge.prototype = {
     // under the current DB implementation there is a potential short-lived
     // race here that will be addressed to support this idiom correctly.)
     let eventHandler = (arg1, arg2) => {
-      let rawRep = eventArgsToRaw(arg1, arg2);
-      if (rawRep) {
-        let wireRep = rawToWireRep(rawRep);
-        if (wireRep) {
-          ctx.sendMessage('update', wireRep);
-        }
+      let rep = eventArgsToRaw(arg1, arg2);
+      if (rep) {
+        rep = rawToWireRep(rep);
       }
+      ctx.sendMessage('update', rep);
     };
     this.db.on(eventId, eventHandler);
     ctx.runAtCleanup(() => {
@@ -506,18 +504,6 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_setOutboxSyncEnabled: function(msg) {
-    // XXX OLD
-    var account = this.universe.getAccountForAccountId(msg.accountId);
-    this.universe.setOutboxSyncEnabled(
-      account, msg.outboxSyncEnabled, function() {
-        this.__sendMessage({
-          type: 'setOutboxSyncEnabled',
-          handle: msg.handle
-        });
-      }.bind(this));
-  },
-
   _cmd_undo: function mb__cmd_undo(msg) {
     // XXX OLD
     this.universe.undoMutation(msg.longtermIds);
@@ -574,7 +560,7 @@ MailBridge.prototype = {
     this.universe.saveDraft(msg.messageId, msg.draftFields);
     // Actually send if send.
     if (msg.command === 'send') {
-      this.universe.outboxSend(msg.messageId);
+      this.universe.outboxSendDraft(msg.messageId);
     }
   },
 

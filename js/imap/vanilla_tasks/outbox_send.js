@@ -18,6 +18,12 @@ const TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineComplexTask([
   require('../../tasks/mix_outbox_send'),
   {
+    shouldIncludeBcc: function(account) {
+      // If the SMTP send automatically saves the message in the sent folder,
+      // we need to put the BCC's in there while sending.
+      return account.sentMessagesAutomaticallyAppearInSentFolder;
+    },
+
     saveSentMessage: function({ ctx, account, newTasks, messages,
                                 messageInfo }) {
       // - Locally forget about the message

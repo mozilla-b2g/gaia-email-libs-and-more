@@ -8,6 +8,12 @@ const TaskDefiner = require('../../task_definer');
  * message into the sent folder for us automatically.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../tasks/mix_outbox_send')
+  require('../../tasks/mix_outbox_send'),
+  {
+    shouldIncludeBcc: function(/* account */) {
+      // ActiveSync auto-appends.
+      return true;
+    }
+  }
 ]);
 });

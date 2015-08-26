@@ -1,8 +1,10 @@
 define(function(require) {
   'use strict';
 
-  var $router = require('./worker-router');
-  var sendMessage = $router.registerCallbackType('wakelocks');
+  const logic = require('logic');
+
+  const $router = require('./worker-router');
+  const sendMessage = $router.registerCallbackType('wakelocks');
 
   /**
    * SmartWakeLock: A renewable, failsafe Wake Lock manager.
@@ -25,6 +27,7 @@ define(function(require) {
    *   you wish to acquire.
    */
   function SmartWakeLock(opts) {
+    logic.defineScope(this, 'SmartWakeLock', { unique: Date.now() });
     this.timeoutMs = opts.timeout || SmartWakeLock.DEFAULT_TIMEOUT_MS;
     var locks = this.locks = {}; // map of lockType -> wakeLockInstance
 
@@ -36,19 +39,20 @@ define(function(require) {
     // the methods on this class) ensures that folks can ignore the
     // ugly asynchronous parts and not worry about when things happen
     // under the hood.
-    this._readyPromise = Promise.all(opts.locks.map(function(type) {
-      return new Promise(function(resolve) {
-        sendMessage('requestWakeLock', [type], function(lockId) {
+    this._readyPromise = Promise.all(opts.locks.map((type) => {
+      logic(this, 'requestLock', { type, durationMs: this.timeoutMs });
+      return new Promise((resolve) => {
+        sendMessage('requestWakeLock', [type], (lockId) => {
+          logic(this, 'locked', { type });
           locks[type] = lockId;
           resolve();
         });
       });
-    })).then(function() {
-      this._debug('Acquired', this, 'for', this.timeoutMs + 'ms');
+    })).then(() => {
       // For simplicity of implementation, we reuse the `renew` method
       // here to add the initial `opts.timeout` to the unlock clock.
       this.renew(); // Start the initial timeout.
-    }.bind(this));
+    });
   }
 
   SmartWakeLock.DEFAULT_TIMEOUT_MS = 45000;
@@ -66,20 +70,21 @@ define(function(require) {
         // and don't need to clear or log anything.)
         if (this._timeout) {
           clearTimeout(this._timeout);
-          this._debug('Renewing', this, 'for another', this.timeoutMs + 'ms' +
-                      (reason ? ' (reason: ' + reason + ')' : '') + ',',
-                      'would have expired in ' +
-                      (this.timeoutMs - (Date.now() - this._timeLastRenewed)) +
-                      'ms if not renewed.');
+          logic(this, 'renew',
+                {
+                  reason,
+                  renewDurationMs: this.timeoutMs,
+                  durationLeftMs: (this.timeoutMs -
+                               (Date.now() - this._timeLastRenewed))
+                });
         }
 
         this._timeLastRenewed = Date.now(); // Solely for debugging.
 
-        this._timeout = setTimeout(function() {
-          this._debug('*** Unlocking', this,
-                      'due to a TIMEOUT. Did you remember to unlock? ***');
-          this.unlock.bind(this);
-        }.bind(this), this.timeoutMs);
+        this._timeout = setTimeout(() => {
+          logic(this, 'timeoutUnlock');
+          this.unlock('timeout');
+        }, this.timeoutMs);
       });
     },
 
@@ -93,22 +98,20 @@ define(function(require) {
       // return the promise, throughout the chain of calls here, so
       // that listeners can listen for completion if they need to.
       return this._readyPromise.then(() => {
-        var desc = this.toString();
-
         var locks = this.locks;
         this.locks = {}; // Clear the locks.
         clearTimeout(this._timeout);
+        this._timeout = null;
 
         // Wait for all of them to successfully unlock.
         return Promise.all(Object.keys(locks).map((type) => {
-          return new Promise(function(resolve) {
-            sendMessage('unlock', [locks[type]], function() {
-              resolve();
+          return new Promise((resolve) => {
+            sendMessage('unlock', [locks[type]], () => {
+              resolve(type);
             });
           });
-        })).then(() => {
-          this._debug('Unlocked', desc + '.',
-                      (reason ? 'Reason: ' + reason : ''));
+        })).then((type) => {
+          logic(this, 'unlocked', { type, reason });
         });
       });
     },
@@ -116,13 +119,6 @@ define(function(require) {
     toString: function() {
       return Object.keys(this.locks).join('+') || '(no locks)';
     },
-
-    _debug: function() {
-      var args = Array.slice(arguments);
-      // XXX logic.js-ify our callers; the main thing is to make sure the
-      // universe logs us by default since wakelocks are fairly important.
-      console.log.apply(console, ['SmartWakeLock:'].concat(args));
-    }
   };
 
   return {

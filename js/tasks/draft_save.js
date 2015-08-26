@@ -2,9 +2,17 @@ define(function(require) {
 'use strict';
 
 const co = require('co');
+const logic = require('logic');
 
 const TaskDefiner = require('../task_definer');
 const churnConversation = require('../churn_drivers/conv_churn_driver');
+
+const { convIdFromMessageId } = require('../id_conversions');
+
+const { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+
+const { quoteProcessTextBody, generateSnippet } =
+  require('../bodies/quotechew');
 
 /**
  * Per-account task to update the non-attachment parts of an existing draft.
@@ -46,6 +54,20 @@ return TaskDefiner.defineSimpleTask([
       textRep.contentBlob =
         new Blob([JSON.stringify([0x1, draftFields.textBody])],
                                  { type: 'application/json' });
+
+      // - Update the snippet
+      // Even though we currently store the draft body in a single block rather
+      // than a fully quote-chewed representation, for snippet generation
+      // purposes, it makes sense to run a quotechew pass.
+      try {
+        let parsedContent = quoteProcessTextBody(draftFields.textBody);
+        messageInfo.snippet =
+          generateSnippet(parsedContent, DESIRED_SNIPPET_LENGTH);
+      } catch (ex) {
+        // We don't except this to throw, but if it does, that is something we
+        // want to break our unit tests.
+        logic.fail(ex);
+      }
 
       modifiedMessagesMap.set(messageId, messageInfo);
 
