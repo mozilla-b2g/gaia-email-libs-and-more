@@ -1,4 +1,5 @@
 {
+  "extends": "eslint:recommended",
   "env": {
     "amd": true,
     "browser": true,
@@ -26,6 +27,7 @@
     "new-parens": 2,
     "no-catch-shadow": 0,
     "no-cond-assign": [2, "except-parens"],
+    "no-console": 0,
     "no-constant-condition": 2,
     "no-control-regex": 0,
     "no-dupe-args": 2,
@@ -41,6 +43,7 @@
     "no-sequences": 2,
     "no-shadow": 2,
     "no-spaced-func": 2,
+    "no-undef": 2,
     "no-unexpected-multiline": 2,
     "no-unused-vars": [1, {"vars": "all", "args": "after-used"}],
     "no-use-before-define": [1, "nofunc"],

@@ -1,22 +1,27 @@
-define(function(require) {
+define(function() {
 'use strict';
 
+var evt = require('evt');
 
 /**
  * Provides the file name, mime-type, and estimated file size of an attachment.
  * In the future this will also be the means for requesting the download of
  * an attachment or for attachment-forwarding semantics.
  */
-function MailAttachment(_body, wireRep) {
-  this._body = _body;
+function MailAttachment(_message, wireRep) {
+  evt.Emitter.call(this);
+
+  this._message = _message;
+  // Create an absolute
+  this.id = _message.id + '.' + wireRep.relId;
+  this.relId = wireRep.relId;
   this.partId = wireRep.part;
   this.filename = wireRep.name;
   this.mimetype = wireRep.type;
   this.sizeEstimateInBytes = wireRep.sizeEstimate;
   this._file = wireRep.file;
-
 }
-MailAttachment.prototype = {
+MailAttachment.prototype = evt.mix({
   toString: function() {
     return '[MailAttachment: "' + this.filename + '"]';
   },
@@ -65,12 +70,12 @@ MailAttachment.prototype = {
       callWhenDone();
       return;
     }
-    this._body._api._downloadAttachments(
-      this._body, [], [this._body.attachments.indexOf(this)],
+    this._message._api._downloadAttachments(
+      this._message, [], [this._message.attachments.indexOf(this)],
       [registerWithDownloadManager || false],
       callWhenDone, callOnProgress);
   },
-};
+});
 
 return MailAttachment;
 });

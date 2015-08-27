@@ -24,11 +24,23 @@ return function churnConversationDriver(convId, oldConvInfo, messages) {
   let tidbits = [];
   let convHasUnread = false;
   let convHasStarred = false;
+  let convHasDrafts = false;
   let convHasAttachments = false;
   let convFolderIds = new Set();
+  // At least for now, the effective date is the most recent non-draft message.
+  let effectiveDate = 0;
+  let fallbackDate = 0;
   for (let message of messages) {
     let isRead = message.flags.indexOf('\\Seen') !== -1;
     let isStarred = message.flags.indexOf('\\Flagged') !== -1;
+    let isDraft = message.draftInfo !== null;
+
+    fallbackDate = Math.max(fallbackDate, message.date);
+    if (isDraft) {
+      convHasDrafts = true;
+    } else {
+      effectiveDate = Math.max(effectiveDate, message.date);
+    }
 
     if (!isRead) {
       convHasUnread = true;
@@ -54,9 +66,13 @@ return function churnConversationDriver(convId, oldConvInfo, messages) {
     }
   }
 
+  if (!effectiveDate) {
+    effectiveDate = fallbackDate;
+  }
+
   let convInfo = {
     id: convId,
-    date: messages[messages.length - 1].date,
+    date: effectiveDate,
     folderIds: convFolderIds,
     // It's up to the actual churn to clobber the height if it wants.
     height: 1,
@@ -67,8 +83,7 @@ return function churnConversationDriver(convId, oldConvInfo, messages) {
     tidbits: tidbits,
     hasUnread: convHasUnread,
     hasStarred: convHasStarred,
-    // no draft support right now
-    hasDraft: false,
+    hasDrafts: convHasDrafts,
     hasAttachments: convHasAttachments,
     app: {}
   };

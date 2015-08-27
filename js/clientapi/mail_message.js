@@ -5,6 +5,8 @@ var evt = require('evt');
 var ContactCache = require('./contact_cache');
 var MailAttachment = require('./mail_attachment');
 
+var keyedListHelper = require('./keyed_list_helper');
+
 function revokeImageSrc() {
   // see showBlobInImg below for the rationale for useWin.
   var useWin = this.ownerDocument.defaultView || window;
@@ -47,6 +49,40 @@ function filterOutBuiltinFlags(flags) {
  * Events are generated if the metadata of the message changes or if the message
  * is removed.  The `BridgedViewSlice` instance is how the system keeps track
  * of what messages are being displayed/still alive to need updates.
+ *
+ * # Attachments and Events #
+ * The `attachments` property is a list of rich `MailAttachment` instances.  The
+ * instances maintain object identity throughout the life of this object,
+ * although the array containing them will change (currently), so don't directly
+ * retain references to the array.
+ *
+ * In theory, the set of attachments for a message remains constant, but the
+ * following things could happen:
+ * - Drafts.  Drafts have messages added and removed all the time.  For sanity,
+ *   if we own a draft, we have it maintain its identity, so you will see these
+ *   happen.
+ * - Attachment downloading will generate changes in the MailAttachment state,
+ *   including size changes (it's initially just an estimate), plus overlay
+ *   metadata changes as the download in enqueued, progresses, and completes.
+ * - Opaque containers like encrypted messages or MS-TNEF parts may expand into
+ *   additional parts as they are downloaded.
+ * - Attachments may potentially be detached from a message to conserve server
+ *   space, resulting in a change of MIME type.
+ * - Other horrible stuff, AKA, try and architect things so your world doesn't
+ *   end if the attachments change.
+ *
+ * The events that can happen:
+ * - on us (prior to our emitting our own 'update' event):
+ *   - attachment:add
+ *   - attachment:update
+ *   - attachment:remove
+ * - on the MailAttachment instances themselves:
+ *   - update
+ *   - remove
+ *
+ * Note that while these events are occurring, our `attachments` property
+ * continues to have its original value.  If you want to consult that value with
+ * its new state then you should wait for our 'update' event to be emitted.
  */
 function MailMessage(api, wireRep, slice) {
   evt.Emitter.call(this);
@@ -67,19 +103,14 @@ function MailMessage(api, wireRep, slice) {
 
   this.date = new Date(wireRep.date);
 
-  this.attachments = null;
-  if (wireRep.attachments) {
-    this.attachments = [];
-    for (var iAtt = 0; iAtt < wireRep.attachments.length; iAtt++) {
-      this.attachments.push(
-        new MailAttachment(this, wireRep.attachments[iAtt]));
-    }
-  }
+
   this._relatedParts = wireRep.relatedParts;
   this.bodyReps = wireRep.bodyReps;
   // references is included for debug/unit testing purposes, hence is private
   this._references = wireRep.references;
 
+  // actual attachments population occurs in __update
+  this.attachments = [];
   this.__update(wireRep);
   this.hasAttachments = wireRep.hasAttachments;
 
@@ -130,33 +161,17 @@ MailMessage.prototype = evt.mix({
     this._relatedParts = wireRep.relatedParts;
     this.bodyReps = wireRep.bodyReps;
 
-    // detaching an attachment is special since we need to splice the attachment
-    // out.
-    if (detail && detail.changeDetails &&
-        detail.changeDetails.detachedAttachments) {
-      var indices = detail.changeDetails.detachedAttachments;
-      for (var iSplice = 0; iSplice < indices.length; iSplice++) {
-        this.attachments.splice(indices[iSplice], 1);
-      }
-    }
-
     // Attachment instances need to be updated rather than replaced.
-    if (wireRep.attachments) {
-      var i, attachment;
-      for (i = 0; i < this.attachments.length; i++) {
-        attachment = this.attachments[i];
-        attachment.__update(wireRep.attachments[i]);
-      }
-      // If we added new attachments, construct them now.
-      for (i = this.attachments.length; i < wireRep.attachments.length; i++) {
-        this.attachments.push(
-          new MailAttachment(this, wireRep.attachments[i]));
-      }
-      // We don't handle the fictional case where wireRep.attachments
-      // decreases in size, because that doesn't currently happen and
-      // probably won't ever, apart from detachedAttachments above
-      // which are a different thing.
-    }
+    this.attachments = keyedListHelper({
+      wireReps: wireRep.attachments,
+      existingRichReps: this.attachments,
+      constructor: MailAttachment,
+      owner: this,
+      idKey: 'relId',
+      addEvent: 'attachment:add',
+      updateEvent: 'attachment:update',
+      removeEvent: 'attachment:remove'
+    });
   },
 
   /**

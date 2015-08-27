@@ -42,6 +42,19 @@ return function replyAllRecipients(sourceRecipients, sourceAuthor,
     }
   }
 
+  // Special-case a reply-to-self email where the only recipient was the
+  // message's own author.  In that case, we do not want to perform the
+  // filtering below.
+  if (rTo.length === 1 &&
+      (!sourceRecipients.cc || sourceRecipients.cc.length === 0) &&
+      checkIfAddressListContainsAddress(rTo, replyAuthor)) {
+    return {
+      to: rTo,
+      cc: [],
+      bcc: sourceRecipients.bcc
+    };
+  }
+
   return {
     to: filterOutIdentity(rTo, replyAuthor),
     cc: filterOutIdentity(sourceRecipients.cc || [], replyAuthor),

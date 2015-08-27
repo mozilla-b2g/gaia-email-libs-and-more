@@ -6,7 +6,7 @@ let { shallowClone } = require('../../util');
 
 let TaskDefiner = require('../../task_definer');
 
-const { Composer }= require('../drafts/composer');
+const { Composer }= require('../../drafts/composer');
 
 /**
  * Perform an IMAP APPEND of the provided message to a folder on the server.
@@ -50,9 +50,12 @@ return TaskDefiner.defineSimpleTask([
       // -- Create the composer.
       const composer = new Composer(req.messageInfo, account);
 
+      yield composer.buildMessage({
+        includeBcc: true
+      });
+
       // -- Generate the blob
-      const composedBlob =
-        yield composer.deriveMessageBlob({ includeBcc: true });
+      const composedBlob = composer.superBlob;
       // XXX and now, unfortunately, because browserbox does not support Blobs,
       // we need to have the entire message as a string.  This is a problem, of
       // course.
@@ -73,5 +76,4 @@ return TaskDefiner.defineSimpleTask([
     }),
   }
 ]);
-
 });

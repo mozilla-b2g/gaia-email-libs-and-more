@@ -20,6 +20,8 @@ return [
   require('../tasks/draft_attach'),
   require('../tasks/draft_detach'),
   require('../tasks/draft_delete'),
-  require('./vanilla_tasks/outbox_send')
+  require('./vanilla_tasks/outbox_send'),
+
+  require('./vanilla_tasks/append_message'),
 ];
 });

@@ -235,71 +235,73 @@ function makeBodyPart(raw) {
 }
 
 
-/*
- * @typedef[AttachmentInfo @dict[
- *   @key[name String]{
- *     The filename of the attachment, if any.
- *   }
- *   @key[contentId String]{
- *     The content-id of the attachment if this is a related part for inline
- *     display.
- *   }
- *   @key[type String]{
+/**
+ * @typedef {Object} AttachmentInfo
+ * @prop {String} relId
+ *   A unique-inside-this-message identifier for the attachment.  We would use
+ *   an absolute identifier (created by prepending the MessageId), but the
+ *   potential for the MessageId to change and the hassle of making sure to
+ *   update this structure is not justified at this time.  (There is also
+ *   a size win for only storing this relative id, but that's really not the
+ *   concern.)  In some cases this may end up being the same as the "part",
+ *   but the intent is to save us some tears down the road by not conflating the
+ *   two purposes (especially if it would break our simple id parsing logic.)
+ * @prop {String} name
+ *   The filename of the attachment, if any.
+ * @prop {String} contentId
+ *   The content-id of the attachment if this is a related part for inline
+ *   display using the "cid:" protocol.
+ * @prop {String} type
  *     The (full) mime-type of the attachment.
- *   }
- *   @key[part String]{
- *     The IMAP part number for fetching the attachment.
- *   }
- *   @key[encoding String]{
- *     The encoding of the attachment so we know how to decode it.  For
- *     ActiveSync, the server takes care of this for us so there is no encoding
- *     from our perspective.  (Although the attachment may get base64 encoded
- *     for transport in the inline case, but that's a protocol thing and has
- *     nothing to do with the message itself.)
- *   }
- *   @key[sizeEstimate Number]{
- *     Estimated file size in bytes.  Gets updated to be the correct size on
- *     attachment download.
- *   }
- *   @key[file @oneof[
- *     @case[null]{
- *       The attachment has not been downloaded, the file size is an estimate.
- *     }
- *     @case[@list["device storage type" "file path"]{
- *       The DeviceStorage type (ex: pictures) and the path to the file within
- *       device storage.
- *     }
- *     @case[HTMLBlob]{
- *       The Blob that contains the attachment.  It can be thought of as a
- *       handle/name to access the attachment.  IndexedDB in Gecko stores the
- *       blobs as (quota-tracked) files on the file-system rather than inline
- *       with the record, so the attachments don't need to count against our
- *       block size since they are not part of the direct I/O burden for the
- *       block.
- *     }
- *     @case[@listof[HTMLBlob]]{
- *       For draft messages, a list of one or more pre-base64-encoded attachment
- *       pieces that were sliced up in chunks due to Gecko's inability to stream
- *       Blobs to disk off the main thread.
- *     }
- *   ]]
- *   @key[charset @oneof[undefined String]]{
- *     The character set, for example "ISO-8859-1".  If not specified, as is
- *     likely for binary attachments, this should be null.
- *   }
- *   @key[textFormat @oneof[undefined String]]{
- *     The text format, for example, "flowed" for format=flowed.  If not
- *     specified, as is likely for binary attachments, this should be null.
- *   }
- * ]]
+ * @prop {String} [part]
+ *   For IMAP, the IMAP part number for fetching the attachment.  This is also
+ *   used as the basis for the specific part of the AttachmentId for a message
+ *   synchronized from the server.  For ActiveSync, this is the server assigned
+ *   identifier that we use to fetch things.
+ * @prop {String} encoding
+ *   The encoding of the attachment so we know how to decode it.  For
+ *   ActiveSync, the server takes care of this for us so there is no encoding
+ *   from our perspective.  (Although the attachment may get base64 encoded
+ *   for transport in the inline case, but that's a protocol thing and has
+ *   nothing to do with the message itself.)
+ * @prop {Number} sizeEstimate
+ *   Estimated file size in bytes.  Gets updated to be the correct size on
+ *   attachment download.
+ * @prop {null|["device storage type" "file path"]|HTMLBlob|HTMLBlob[]} file
+ *   This is one of the following:
+ *   - null: The attachment has not been downloaded, the file size is an
+ *     estimate.
+ *   - ["device storage type" "file path"]: The DeviceStorage type (ex:
+ *     pictures) and the path to the file within device storage.
+ *   - A Blob/File:
+ *     The Blob that contains the attachment.  It can be thought of as a
+ *     handle/name to access the attachment.  IndexedDB in Gecko stores the
+ *     blobs as (quota-tracked) files on the file-system rather than inline
+ *     with the record, so the attachments don't need to count against our
+ *     block size since they are not part of the direct I/O burden for the
+ *     block.
+ *   - An array of Blobs/Files:
+ *     For draft messages, a list of one or more pre-base64-encoded attachment
+ *     pieces that were sliced up in chunks due to Gecko's inability to stream
+ *     Blobs to disk off the main thread.
+ * @prop {String} [charset]
+ *   The character set, for example "ISO-8859-1".  If not specified, as is
+ *   likely for binary attachments, this should be null.
+ * @prop {String} [textFormat]
+ *   The text format, for example, "flowed" for format=flowed.  If not
+ *   specified, as is likely for binary attachments, this should be null.
  */
 function makeAttachmentPart(raw) {
   // Something is very wrong if there is no size estimate.
   if (raw.sizeEstimate === undefined) {
     throw new Error('Need size estimate!');
   }
+  if (raw.relId === undefined) {
+    throw new Error('attachments need relIds');
+  }
 
   return {
+    relId: raw.relId,
     // XXX ActiveSync may leave this null, although it's conceivable the
     // server might do normalization to save us.  This needs a better treatment.
     // IMAP generates a made-up name for us if there isn't one.
@@ -321,5 +323,4 @@ return {
   makeBodyPart,
   makeAttachmentPart
 };
-
 }); // end define

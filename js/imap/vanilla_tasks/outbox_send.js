@@ -35,7 +35,7 @@ return TaskDefiner.defineComplexTask([
         newTasks.push({
           type: 'append_message',
           accountId: ctx.accountId,
-          folderId: account.getFirstFolderWithType('sent'),
+          folderId: account.getFirstFolderWithType('sent').id,
           messageInfo
         });
       }

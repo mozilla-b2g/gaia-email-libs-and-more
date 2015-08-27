@@ -1267,11 +1267,11 @@ MailAPI.prototype = evt.mix({
     });
   },
 
-  _composeDetach: function(messageId, attachmentIndex) {
+  _composeDetach: function(messageId, attachmentRelId) {
     this.__bridgeSend({
       type: 'detachAttachmentFromDraft',
       messageId,
-      attachmentIndex
+      attachmentRelId
     });
   },
 

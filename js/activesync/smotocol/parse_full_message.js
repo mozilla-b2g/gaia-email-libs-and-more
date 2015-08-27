@@ -4,6 +4,8 @@ define(function(require) {
 const mimetypes = require('mimetypes');
 const parseAddresses = require('addressparser').parse;
 
+const { encodeInt: encodeA64 } = require('../../a64');
+
 const mailRep = require('../../db/mail_rep');
 
 const { Tags: asb, Enums: asbEnum } =
@@ -121,6 +123,7 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
           }
 
           let attachment = {
+            relId: encodeA64(scratchMsg.attachments.length),
             name: null,
             contentId: null,
             type: null,

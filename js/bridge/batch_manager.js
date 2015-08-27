@@ -75,6 +75,7 @@ BatchManager.prototype = {
       this, 'dirtying',
       {
         tocType: proxy.toc.type,
+        ctxName: proxy.ctx.name,
         immediateFlush: immediateFlush,
         alreadyDirty: this._pendingProxies.has(proxy)
       });

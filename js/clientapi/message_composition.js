@@ -5,6 +5,38 @@ const evt = require('evt');
 
 const asyncFetchBlob = require('../async_blob_fetcher');
 
+const { encodeInt: encodeA64 } = require('../a64');
+
+/**
+ * We want to allocate a concise attachment id that does not conflict with any
+ * existing (or speculatively existing) attachments.  This function does this.
+ * Is it maybe a bit overkill?  Yes, absolutely.  But does it get the job done?
+ * Hopefully?  I mean, sure, this is all solid.
+ */
+function bruteForceAttachmentId(existingAttachments) {
+  let existingIds = new Set();
+  for (let att of existingAttachments) {
+    existingIds.add(att.relId);
+  }
+  // So, in the simplest case (no detachments ever), using the current length
+  // will work.  Or if the user detaches the most recenently attached
+  // attachment.  But in Byzantine world, there can be conflicts.  However,
+  // they're bounded by the limited coverage of the existing attachments and
+  // sanity.  So really our only goal here is just to avoid a scenario where
+  // a dumb linear scan is possible.  The below definitely avoids that and
+  // probably most scenarios by a determined QA adversary.
+  let ival = existingAttachments.length;
+  let probeStep = 1;
+  let relId;
+  do {
+    relId = encodeA64(ival);
+    ival += probeStep;
+    probeStep = 1 + Math.floor(Math.random() * existingAttachments.length);
+  } while (existingIds.has(relId));
+
+  return relId;
+}
+
 /**
  * Your scratchpad for storing your in-progress draft state and a place where
  * context-aware helpers live (or will live in the future).
@@ -204,14 +236,20 @@ MessageComposition.prototype = evt.mix({
    * ]
    */
   addAttachment: function(attachmentDef) {
-    this.api._composeAttach(this.id, attachmentDef);
+    let relId = bruteForceAttachmentId(this.attachments);
+    this.api._composeAttach(
+      this.id,
+      {
+        relId,
+        name: attachmentDef.name,
+        blob: attachmentDef.blob
+      });
 
     var placeholderAttachment = {
+      relId,
       name: attachmentDef.name,
-      blob: {
-        size: attachmentDef.blob.size,
-        type: attachmentDef.blob.type
-      }
+      type: attachmentDef.blob.type,
+      sizeEstimate: attachmentDef.blob.size
     };
     this.attachments.push(placeholderAttachment);
     this._mutated();
@@ -226,11 +264,11 @@ MessageComposition.prototype = evt.mix({
    *   This must be one of the instances from our `attachments` list.  A
    *   logically equivalent object is no good.
    */
-  removeAttachment: function(attachmentDef, callback) {
-    var idx = this.attachments.indexOf(attachmentDef);
+  removeAttachment: function(attachmentThing) {
+    var idx = this.attachments.indexOf(attachmentThing);
     if (idx !== -1) {
       this.attachments.splice(idx, 1);
-      this.api._composeDetach(this._handle, idx, callback);
+      this.api._composeDetach(this.id, attachmentThing.relId);
     }
     this._mutated();
   },

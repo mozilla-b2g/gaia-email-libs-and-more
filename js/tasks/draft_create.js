@@ -93,8 +93,8 @@ return TaskDefiner.defineSimpleTask([
 
         allMessages = [messageInfo];
       }
-      // - Reply and forward
-      else {
+      // - Reply
+      else if (req.draftType === 'reply') {
         // Load the conversation and its messages, acquiring a lock.
         let fromDb = yield ctx.beginMutate({
           conversations: new Map([[convId, null]]),
@@ -107,30 +107,40 @@ return TaskDefiner.defineSimpleTask([
         let sourceMessage =
           loadedMessages.find(msg => msg.id === req.refMessageId);
 
-        if (req.draftType === 'reply') {
-          messageInfo = yield* deriveQuotedReply({
-            sourceMessage,
-            replyMode: req.mode,
-            identity,
-            messageId,
-            umid,
-            guid,
-            date,
-            folderIds
-          });
-        } else { // forward
-          messageInfo = yield* deriveInlineForward({
-            sourceMessage,
-            identity,
-            messageId,
-            umid,
-            guid,
-            date,
-            folderIds
-          });
-        }
+        messageInfo = yield* deriveQuotedReply({
+          sourceMessage,
+          replyMode: req.mode,
+          identity,
+          messageId,
+          umid,
+          guid,
+          date,
+          folderIds
+        });
 
         allMessages = loadedMessages.concat([messageInfo]);
+      }
+      // - Forward
+      else {
+        // Load the source message (which does *not* form part of our new
+        // conversation.)
+        let sourceMessageKey = [req.refMessageId, req.refMessageDate];
+        let fromDb = yield ctx.beginMutate({
+          messages: new Map([[sourceMessageKey, null]])
+        });
+        let sourceMessage = fromDb.messages.get(req.refMessageId);
+
+        messageInfo = yield* deriveInlineForward({
+          sourceMessage,
+          identity,
+          messageId,
+          umid,
+          guid,
+          date,
+          folderIds
+        });
+
+        allMessages = [messageInfo];
       }
 
       let convInfo = churnConversation(convId, oldConvInfo, allMessages);

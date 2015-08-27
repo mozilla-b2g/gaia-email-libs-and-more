@@ -7,7 +7,7 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 const { Composer }= require('../drafts/composer');
 
-const { convIdFromMessageId } = require ('../id_conversions');
+const { convIdFromMessageId } = require('../id_conversions');
 
 /**
  * Outbox sending logic.  It's a mix-in because how we handle the sent folder is
@@ -342,6 +342,7 @@ return {
       messagesByConversation: new Map([[convId, null]])
     });
     let messages = fromDb.messagesByConversation.get(convId);
+    let oldConvInfo = fromDb.conversations.get(convId);
     // Update our messageInfo reference in case there was a racing write.
     // NB: Obviously, any changes since when we acquired it could potentially
     // be bad news.  We choose to err on the side of not losing information.
@@ -384,7 +385,7 @@ return {
       };
     } else {
       // -- Success, decide how we're putting something in sent.
-      yield* this.saveSentMessage(
+      this.saveSentMessage(
         { ctx, newTasks, messages, messageInfo, account });
 
       // -- Re-churn or delete the conversation as appropriate.
@@ -404,7 +405,7 @@ return {
           modifyMessages.set(messageId, null);
         }
         // Re-churn the conversation no matter what
-        convInfo = churnConversation(convId, oldConvInfo, messages);
+        let convInfo = churnConversation(convId, oldConvInfo, messages);
         modifyConversations.set(convId, convInfo);
       } else {
         // - Delete the conversation

@@ -190,7 +190,7 @@ MailBridge.prototype = {
             data: info
           });
       }.bind(this),
-      function errback(err) {
+      function errback(/*err*/) {
         this.__sendMessage({
             type: 'learnAboutAccountResults',
             handle: msg.handle,
@@ -537,9 +537,9 @@ MailBridge.prototype = {
   },
 
   _cmd_detachAttachmentFromDraft: function(msg) {
-    this.universe.detachedAttachmentFromDraft(
+    this.universe.detachAttachmentFromDraft(
       msg.messageId,
-      msg.attachmentIndex
+      msg.attachmentRelId
     );
   },
 

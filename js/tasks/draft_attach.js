@@ -12,6 +12,8 @@ const { makeAttachmentPart } = require('../db/mail_rep');
 const { mimeStyleBase64Encode } = require('safe-base64');
 const asyncFetchBlob = require('../async_blob_fetcher');
 
+const { convIdFromMessageId } = require('../id_conversions');
+
 /**
  * Per-account task to incrementally convert an attachment into its base64
  * encoded attachment form which we save in chunks to IndexedDB to avoid using
@@ -42,7 +44,7 @@ const asyncFetchBlob = require('../async_blob_fetcher');
  */
 return TaskDefiner.defineSimpleTask([
   {
-    name: 'attach',
+    name: 'draft_attach',
 
     plan: co.wrap(function*(ctx, req) {
       let { messageId } = req;
@@ -65,6 +67,7 @@ return TaskDefiner.defineSimpleTask([
       const attachmentDef = req.attachmentDef;
       const wholeBlob = attachmentDef.blob;
       messageInfo.attaching = makeAttachmentPart({
+        relId: attachmentDef.relId,
         name: attachmentDef.name,
         type: wholeBlob.type,
         sizeEstimate: wholeBlob.size,
@@ -98,17 +101,17 @@ return TaskDefiner.defineSimpleTask([
         });
 
         // - Read back the Blob for memory usage reasons.
-        let flushedReads = yield ctx.continueMutate({
+        let flushedReads = yield ctx.mutateMore({
           flushedMessageReads: true,
           messages: new Map([[messageKey, null]])
         });
 
-        messageInfo = flushedReads.messages.get(messageKey);
+        messageInfo = flushedReads.messages.get(messageId);
       }
 
       // -- Finalize the attachment
       messageInfo.hasAttachments = true;
-      messageInfo.attachments.push(body.attaching);
+      messageInfo.attachments.push(messageInfo.attaching);
       delete messageInfo.attaching; // bad news for shapes, but drafts are rare.
 
       modifiedMessagesMap.set(messageId, messageInfo);

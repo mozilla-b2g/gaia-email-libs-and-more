@@ -20,7 +20,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 81;
+const CUR_VERSION = 86;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -1162,7 +1162,7 @@ MailDB.prototype = evt.mix({
       messageCache.set(message.id, message);
 
       let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, message.id, message.date, message, true);
+      this.emit(eventId, message.id, null, message.date, message, true);
     }
   },
 

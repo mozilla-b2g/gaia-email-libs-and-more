@@ -280,7 +280,7 @@ FolderSyncStateHelper.prototype = {
 
   _ensureConvTask: function(convId) {
     if (this._tasksByConvId.has(convId)) {
-      return this._tasksByConvId(convId);
+      return this._tasksByConvId.get(convId);
     }
 
     let task = {

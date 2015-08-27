@@ -85,13 +85,20 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   /**
-   * Handle the addition or removal of a message from the TOC.
+   * Handle the addition or removal of a message from the TOC.  Note that while
+   * we originally tried to stick with the invariant that message dates were
+   * immutable, we decided to allow them to change in the case of drafts to
+   * allow for simpler conceptual handling.
    *
    * @param {MessageId} messageId
-   * @param {DateTS} preDate
-   * @param {DateTS} postDate
-   *   In the case of drafts, messge dates can change.
-   * @param {HeaderInfo} headerInfo
+   * @param {DateTS} [preDate]
+   *   If the message already existed, its date before the change.  If the
+   *   message did not previously exist, this is null.
+   * @param {DateTS} [postDate]
+   *   If the message has not been deleted, its date after the change.  (Which
+   *   should be the same as the date before the change unless the message is a
+   *   modified draft.)  If the message has been deleted, this is null.
+   * @param {MessageInfo} headerInfo
    * @param {Boolean} freshlyAdded
    */
   onTOCChange: function(messageId, preDate, postDate, headerInfo,

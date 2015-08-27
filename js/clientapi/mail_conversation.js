@@ -213,7 +213,7 @@ MailConversation.prototype = evt.mix({
     // Are there any unread messages in this
     this.hasUnread = wireRep.hasUnread;
     this.hasStarred = wireRep.hasStarred;
-    this.hasDraft = wireRep.hasDraft;
+    this.hasDrafts = wireRep.hasDrafts;
     this.hasAttachments = wireRep.hasAttachments;
   },
 

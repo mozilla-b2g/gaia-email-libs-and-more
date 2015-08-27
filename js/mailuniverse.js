@@ -703,13 +703,13 @@ MailUniverse.prototype = {
     }]);
   },
 
-  detachAttachmentFromDraft: function(messageId, attachmentIndex) {
+  detachAttachmentFromDraft: function(messageId, attachmentRelId) {
     // non-persistent for now because it would be awkward
     return this.taskManager.scheduleNonPersistentTasks([{
       type: 'draft_detach',
       accountId: accountIdFromMessageId(messageId),
       messageId,
-      attachmentIndex
+      attachmentRelId
     }]);
   },
 

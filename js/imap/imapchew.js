@@ -1,13 +1,12 @@
 define(function(require, exports, module) {
 'use strict';
 
-let a64 = require('../a64');
+const { parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
+
 let mimefuncs = require('mimefuncs');
 let mailRep = require('../db/mail_rep');
 let $mailchew = require('../bodies/mailchew');
 let MimeParser = require('mimeparser');
-
-let parseGmailMsgId = a64.parseUI64;
 
 function parseRfc2231CharsetEncoding(s) {
   // charset'lang'url-encoded-ish
@@ -239,6 +238,7 @@ function chewStructure(msg) {
 
      var makePart = function(partInfo, filename) {
         return mailRep.makeAttachmentPart({
+          relId: encodeA64(attachments.length),
           name: filename || 'unnamed-' + (++unnamedPartCounter),
           contentId: partInfo.id ? stripArrows(partInfo.id) : null,
           type: partInfo.type.toLowerCase(),

@@ -6,6 +6,8 @@ const co = require('co');
 const TaskDefiner = require('../task_definer');
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
+const { convIdFromMessageId } = require('../id_conversions');
+
 /**
  * Per-account task to remove an attachment from a draft.  This is trivial and
  * very similar to saving a draft, so will likely be consolidated.
@@ -31,7 +33,13 @@ return TaskDefiner.defineSimpleTask([
       }
 
       // -- Update the message.
-      messageInfo.attachments.splice(req.attachmentIndex, 1);
+      let attachmentIndex =
+        messageInfo.attachments.findIndex(
+          att => att.relId === req.attachmentRelId);
+      if (attachmentIndex === -1) {
+        throw new Error('moot');
+      }
+      messageInfo.attachments.splice(attachmentIndex, 1);
       messageInfo.hasAttachments = messageInfo.attachments.length > 0;
       modifiedMessagesMap.set(messageId, messageInfo);
 
