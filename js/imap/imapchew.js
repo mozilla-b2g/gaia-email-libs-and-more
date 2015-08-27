@@ -1,7 +1,7 @@
 define(function(require, exports, module) {
 'use strict';
 
-const { parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
+const { parseUI64: parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
 
 let mimefuncs = require('mimefuncs');
 let mailRep = require('../db/mail_rep');

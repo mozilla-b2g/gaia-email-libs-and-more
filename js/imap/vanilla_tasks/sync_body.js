@@ -17,7 +17,7 @@ return TaskDefiner.defineComplexTask([
         umidLocations
       });
 
-      return umidLocations;
+      return Promise.resolve(umidLocations);
     },
 
     getFolderAndUidForMesssage: function(umidLocations, account, message) {
@@ -29,5 +29,4 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-
 });

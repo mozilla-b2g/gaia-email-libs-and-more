@@ -76,7 +76,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   // TODO: as noted above, these should really be doing lazy requires and
   // registration as accounts demand to be loaded.  (Note: not particularly
   // hard, but during current dev phase, we want to fail early, not lazily.)
-  this.taskRegistry.registerPerAccountTypeTasks('gmail', gmailTasks);
+  this.taskRegistry.registerPerAccountTypeTasks(
+    'gmailImap', gmailTasks);
   this.taskRegistry.registerPerAccountTypeTasks(
     'vanillaImap', vanillaImapTasks);
   this.taskRegistry.registerPerAccountTypeTasks(

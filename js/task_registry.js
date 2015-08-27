@@ -77,9 +77,12 @@ TaskRegistry.prototype = {
    * this method is async.
    */
   accountExistsInitTasks: function(accountId, accountType) {
-    logic(this, 'accountExistsInitTasks', { accountId });
+    logic(this, 'accountExistsInitTasks', { accountId, accountType });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
+    if (!taskImpls) {
+      logic(this, 'noPerAccountTypeTasks', { accountId, accountType });
+    }
 
     let accountMarkers = [];
     let pendingPromises = [];
@@ -154,6 +157,10 @@ TaskRegistry.prototype = {
         return null;
       }
       taskMeta = perAccountTasks.get(taskType);
+      if (!taskMeta) {
+        logic(this, 'noSuchTaskProvider', { taskType, accountId });
+        return null;
+      }
     }
 
     if (taskMeta.impl.isComplex) {

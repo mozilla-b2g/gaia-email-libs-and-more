@@ -8,10 +8,10 @@ let TaskDefiner = require('../../task_definer');
 return TaskDefiner.defineComplexTask([
   require('../vanilla_tasks/mix_sync_body'),
   {
-    prepForMessages: function(ctx, account, messages) {
+    prepForMessages: function(ctx, account/*, messages*/) {
       // For the gmail case we don't have any meaningful prep to do.
       let allMailFolderInfo = account.getFirstFolderWithType('all');
-      return allMailFolderInfo;
+      return Promise.resolve(allMailFolderInfo);
     },
 
     getFolderAndUidForMesssage: function(prepped, account, message) {
@@ -22,5 +22,4 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-
 });
