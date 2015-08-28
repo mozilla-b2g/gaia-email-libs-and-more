@@ -54,6 +54,13 @@ return TaskDefiner.defineSimpleTask([
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
+      // - sync_folder_list dependency-failsafe
+      if (foldersTOC.items.length <= 3) {
+        // Sync won't work right if we have no folders.  This should ideally be
+        // handled by priorities and other bootstrap logic, but for now, just
+        // make sure we avoid going into this sync in a broken way.
+        throw new Error('moot');
+      }
 
       // NB: Gmail auto-expunges by default, but it can be turned off.  Which is
       // an annoying possibility.

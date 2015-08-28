@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 let co = require('co');
+let logic = require('logic');
 
 let TaskDefiner = require('../../task_definer');
 
@@ -80,9 +81,18 @@ return TaskDefiner.defineSimpleTask([
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(foldersTOC);
 
+      // - sync_folder_list dependency-failsafe
+      if (foldersTOC.items.length <= 3) {
+        // Sync won't work right if we have no folders.  This should ideally be
+        // handled by priorities and other bootstrap logic, but for now, just
+        // make sure we avoid going into this sync in a broken way.
+        throw new Error('moot');
+      }
+
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
+      logic(ctx, 'syncStart', { modseq: syncState.modseq });
       let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
         allMailFolderInfo,
         '1:*',
@@ -106,7 +116,13 @@ return TaskDefiner.defineSimpleTask([
         }
       );
 
-
+      // To avoid getting redundant information in the future, we need to know
+      // the effective modseq of this fetch request.  Because we don't
+      // necessarily re-enter the folder above and there's nothing saying that
+      // the apparent MODSEQ can only change on entry, we must consider the
+      // MODSEQs of the results we are provided.
+      let highestModseq = a64.maxDecimal64Strings(
+        mailboxInfo.highestModseq, syncState.modseq);
       for (let msg of messages) {
         let uid = msg.uid; // already parsed into a number by browserbox
         let dateTS = parseImapDateTime(msg.internaldate);
@@ -116,6 +132,8 @@ return TaskDefiner.defineSimpleTask([
         // unwrapped.)
         let rawLabels = msg['x-gm-labels'].map(x => x.value);
         let flags = msg.flags;
+
+        highestModseq = a64.maxDecimal64Strings(highestModseq, msg.modseq);
 
         // Have store_labels apply any (offline) requests that have not yet been
         // replayed to the server.
@@ -182,14 +200,14 @@ return TaskDefiner.defineSimpleTask([
               uid, rawConvId, dateTS, newState);
           } else {
             syncState.existingMootMessage(uid);
-
           }
         }
       }
 
       syncState.lastHighUid = mailboxInfo.uidNext - 1;
-      syncState.modseq = mailboxInfo.highestModseq;
+      syncState.modseq = highestModseq;
       syncState.finalizePendingRemovals();
+      logic(ctx, 'syncEnd', { modseq: syncState.modseq });
 
       yield ctx.finishTask({
         mutations: {

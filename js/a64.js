@@ -15,6 +15,7 @@ define(
   function(
     exports
   ) {
+'use strict';
 
 /**
  * A lexicographically ordered base64 encoding.  Our two extra characters are {
@@ -38,7 +39,9 @@ var ORDERED_ARBITRARY_BASE64_CHARS = [
 var ZERO_PADDING = '0000000000000000';
 
 /**
- * Encode a JS int in our base64 encoding.
+ * Encode a JS int in our base64 encoding.  This differs from parseUI64 by
+ * taking a JS Number (which is only valid up to 2^53), whereas parseUI64 takes
+ * a String that is a decimal-encoded 64-bit integer.
  */
 function encodeInt(v, padTo) {
   var sbits = [];
@@ -51,8 +54,9 @@ function encodeInt(v, padTo) {
   } while (v > 0);
   sbits.reverse();
   var estr = sbits.join('');
-  if (padTo && estr.length < padTo)
+  if (padTo && estr.length < padTo) {
     return ZERO_PADDING.substring(0, padTo - estr.length) + estr;
+  }
   return estr;
 }
 exports.encodeInt = encodeInt;
@@ -113,23 +117,59 @@ exports.parseUI64 = function p(s, padTo) {
                  Math.floor(lowParse / P2_36) + overflow;
 
   var outStr = encodeInt(highBits) + encodeInt(lowBits, 6);
-  if (padTo && outStr.length < padTo)
+  if (padTo && outStr.length < padTo) {
     return ZERO_PADDING.substring(0, padTo - outStr.length) + outStr;
+  }
   return outStr;
 };
 
+/**
+ * Compare a64-encoded values.
+ */
 exports.cmpUI64 = function(a, b) {
   // longer equals bigger!
   var c = a.length - b.length;
-  if (c !== 0)
+  if (c !== 0) {
     return c;
+  }
 
-  if (a < b)
+  if (a < b) {
     return -1;
-  else if (a > b)
+  }
+  else if (a > b) {
     return 1;
+  }
   return 0;
 };
+
+/**
+ * Return the max of the two provided a64-encoded values.
+ */
+exports.maxUI64 = function(a, b) {
+  if (exports.cmpUI64(a, b) === 1) {
+    return a;
+  } else {
+    return b;
+  }
+};
+
+/**
+ * Return a cmp-style (-1, 0, 1) return value indicating the comparison of the
+ * two provided decimal-string-encoded 64-bit numbers.  We assume and require
+ * that the numbers have not been zero-padded.
+ *
+ * Note that this is actually just the method cmpUI64 since the logic is the
+ * same.  Our a64-encoding is simply more compact.  We expose different names
+ * for clarity for readers as things relate to types.  (Note that we may need
+ * to actually duplicate the code if we get into static analyzers.)
+ */
+exports.cmpDecimal64Strings = exports.cmpUI64;
+
+/**
+ * Given two decimal-string-encoded 64-bit numbers, return the larger of the
+ * two.  Builds on cmpDecimal64Strings.
+ */
+exports.maxDecimal64Strings = exports.maxUI64;
 
 /**
  * Convert the output of `parseUI64` back into a decimal string.
@@ -137,9 +177,11 @@ exports.cmpUI64 = function(a, b) {
 exports.decodeUI64 = function d(es) {
   var iNonZero = 0;
   for (;es.charCodeAt(iNonZero) === 48; iNonZero++) {
+    // intentionally clever/footgunny loop
   }
-  if (iNonZero)
+  if (iNonZero) {
     es = es.substring(iNonZero);
+  }
 
   var v, i;
   // 8 characters is 48 bits, JS can do that internally.
@@ -176,13 +218,13 @@ exports.decodeUI64 = function d(es) {
       lowBitsRemoved = rsh14Leftover * P2_14 + lv % P2_14;
 
   var lds = lowBitsRemoved.toString();
-  if (lds.length < 14)
+  if (lds.length < 14) {
     lds = ZERO_PADDING.substring(0, 14 - lds.length) + lds;
+  }
 
   return uds + lds;
 };
 //d(p('10000000000000000'));
 //d(p('18014398509481984'));
 //d(p('1171221845949812801'));
-
 }); // end define

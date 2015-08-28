@@ -85,7 +85,8 @@ GmailLabelMapper.prototype = {
     for (let gmailLabel of gmailLabels) {
       let folderId = this._labelToFolderId.get(gmailLabel);
       if (!folderId) {
-        logic(this, 'missingLabelMapping', { label: gmailLabel });
+        logic(this, 'missingLabelMapping',
+              { label: gmailLabel, allLabels: gmailLabels });
       } else {
         folderIds.push(folderId);
       }

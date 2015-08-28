@@ -176,7 +176,7 @@ return TaskDefiner.defineComplexTask([
 
       let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
 
-      let prepared = yield* this.prepForMessages(ctx, account, loadedMessages);
+      let prepared = yield this.prepForMessages(ctx, account, loadedMessages);
 
       // Determine our byte budget for each message.  A zero budget means that
       // for fullBodyMessageIds-listed messages we will download them in their
