@@ -680,13 +680,20 @@ exports.generateReplyText = function generateReplyText(rep) {
   for (var i = 0; i < rep.length; i += 2) {
     var etype = rep[i]&0xf, block = rep[i + 1];
     switch (etype) {
+      default:
       case CT_AUTHORED_CONTENT:
       case CT_SIGNATURE:
       case CT_LEADIN_TO_QUOTE:
+        if (i) {
+          strBits.push(NEWLINE);
+        }
         strBits.push(expandQuotedPrefix(block, 0));
         strBits.push(expandQuoted(block, 0));
         break;
       case CT_QUOTED_TYPE:
+        if (i) {
+          strBits.push(NEWLINE);
+        }
         var depth = ((rep[i] >> 8)&0xff) + 1;
         if (depth < MAX_QUOTE_REPEAT_DEPTH) {
           strBits.push(expandQuotedPrefix(block, depth));
@@ -720,25 +727,30 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
   var strBits = [], nl;
 
   for (var i = 0; i < rep.length; i += 2) {
-    if (i)
+    if (i) {
       strBits.push(NEWLINE);
+    }
 
     var etype = rep[i]&0xf, block = rep[i + 1];
     switch (etype) {
       // - injected with restored whitespace
+      default:
       case CT_AUTHORED_CONTENT:
         // pre-newlines
-        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--) {
           strBits.push(NEWLINE);
+        }
         strBits.push(block);
         // post new-lines
-        for (nl = (rep[i] >> 16)&0xff; nl; nl--)
+        for (nl = (rep[i] >> 16)&0xff; nl; nl--) {
           strBits.push(NEWLINE);
+        }
         break;
       case CT_LEADIN_TO_QUOTE:
         strBits.push(block);
-        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--) {
           strBits.push(NEWLINE);
+        }
         break;
       // - injected verbatim,
       case CT_SIGNATURE:
@@ -746,11 +758,13 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
       case CT_BOILERPLATE_LIST_INFO:
       case CT_BOILERPLATE_PRODUCT:
       case CT_BOILERPLATE_ADS:
-        for (nl = (rep[i] >> 8)&0xff; nl; nl--)
+        for (nl = (rep[i] >> 8)&0xff; nl; nl--) {
           strBits.push(NEWLINE);
+        }
         strBits.push(block);
-        for (nl = (rep[i] >> 16)&0xff; nl; nl--)
+        for (nl = (rep[i] >> 16)&0xff; nl; nl--) {
           strBits.push(NEWLINE);
+        }
         break;
       // - quote character reconstruction
       // this is not guaranteed to round-trip since we assume the non-whitespace
@@ -773,5 +787,4 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
 
   return strBits.join('');
 };
-
 }); // end define
