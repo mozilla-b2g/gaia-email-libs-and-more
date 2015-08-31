@@ -30,6 +30,24 @@ const { convIdFromMessageId } = require('../id_conversions');
  *   the draftInfo because if there's something structurally wrong with a
  *   message and we're not going to retry, that message is no longer tracked by
  *   us.
+ *
+ * Users of this mix-in MUST provide implementations for:
+ * - shouldIncludeBcc: This tells us whether the composer should include the bcc
+ *   headers in the built-body we will pass to sendMessage.  This only matters
+ *   because at one point in time there were SMTP servers that would pass the
+ *   bcc header through intact.  For safety/paranoia, one would want this to be
+ *   false unless the sending server is also responsible for saving the message
+ *   into a server-side sent folder.
+ *
+ * Users of this mix-in may opt to provide implementations for:
+ * - sendMessage: The actual sending step, which should return a promise.  By
+ *   default, the traditional account.sendMessage(composer) is invoked.  This
+ *   exists as a migration path so that we don't have to hang the method off the
+ *   account and can instead move things into their own distinct files' as we've
+ *   done for ActiveSync and its "smotocol" subdirectory.
+ * - saveSentMessage: Do whatever's required with the MessageInfo and/or list
+ *   and follow-on processing tasks required.  See the call-site for more
+ *   information.
  */
 return {
   name: 'outbox_send',
@@ -333,7 +351,8 @@ return {
     });
 
     // -- Perform the send.
-    let { err: sendErr, badAddresses } = yield account.sendMessage(composer);
+    let { err: sendErr, badAddresses } =
+      yield this.sendMessage(ctx, account, composer);
 
     // -- Acquire the message and conversation for exclusive mutation.
     let convId = convIdFromMessageId(messageId);
@@ -428,6 +447,15 @@ return {
       complexTaskState: persistentState
     });
   }),
+
+  /**
+   * By default, use the sendMessage method on the account.  While I wouldn't
+   * call this legacy, ActiveSync's new smotocol approach favors not involving
+   * the account, so we let tasks do what they want.
+   */
+  sendMessage: function(ctx, account, composer) {
+    return account.sendMessage(composer);
+  },
 
   /**
    * Our default behaviour is to delete the message from the conversation,

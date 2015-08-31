@@ -844,11 +844,14 @@ MailDB.prototype = evt.mix({
       }
 
       if (!dbReqCount) {
-        // XXX ugh, just issue a useless read since IndexedDB currently can
-        // hang on workers if given an empty transaction.  we don't have to wait
-        // for it, though.
-        trans.objectStore(TBL_CONFIG).get('doesnotexist');
-        console.warn('creating useless read to avoid hanging IndexedDB');
+        // NB: We used to have to issue a wasted read here to avoid hanging the
+        // transactions due to an IndexedDB bug, tracked as
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=1161690.  It apparently
+        // got fixed by something (not the Promises fix, though), so I'm
+        // commenting the logic out.  We should remove this comment and the
+        // commented-out code here if nothing recurs by mid-September 2015.
+        //trans.objectStore(TBL_CONFIG).get('doesnotexist');
+        //console.warn('creating useless read to avoid hanging IndexedDB');
         resolve(requests);
         // it would be nice if we could have avoided creating the transaction...
       } else {

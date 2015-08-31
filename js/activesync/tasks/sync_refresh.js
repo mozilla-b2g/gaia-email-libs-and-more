@@ -7,6 +7,8 @@ const logic = require('logic');
 
 const TaskDefiner = require('../../task_definer');
 
+const { shallowClone } = require('../../util');
+
 const FolderSyncStateHelper = require('../folder_sync_state_helper');
 
 const getFolderSyncKey = require('../smotocol/get_folder_sync_key');
@@ -22,24 +24,52 @@ const { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } = require('../../syncbase');
 
 
 /**
- * This is the steady-state sync task that drives all of our gmail sync.
+ * Sync a folder for the first time and steady-state.  (Compare with our IMAP
+ * implementations that have special "sync_grow" tasks.)
  */
 return TaskDefiner.defineSimpleTask([
   {
     name: 'sync_refresh',
     args: ['accountId', 'folderId'],
 
-    exclusiveResources: function(args) {
-      return [
-        `sync:${args.folderId}`
-      ];
-    },
+    /**
+     * In our planning phase we discard nonsensical requests to refresh
+     * local-only folders.
+     *
+     * note: This is almost verbatim from the vanilla sync_refresh
+     * implementation right now, except for s/serverPath/serverId.  We're on the
+     * line right now between whether reuse would be better; keep it in mind as
+     * things change.
+     */
+    plan: co.wrap(function*(ctx, rawTask) {
+      // Get the folder
+      let foldersTOC =
+        yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+      let folderInfo = foldersTOC.foldersById.get(rawTask.folderId);
 
-    priorityTags: function(args) {
-      return [
-        `view:folder:${args.folderId}`
-      ];
-    },
+      // - Only plan if the folder is real AKA it has a serverId.
+      // (We could also look at its type.  Or have additional explicit state.
+      // Checking the path is fine and likely future-proof.  The only real new
+      // edge case we would expect is offline folder creation.  But in that
+      // case we still wouldn't want refreshes triggered before we've created
+      // the folder and populated it.)
+      let plannedTask;
+      if (!folderInfo.serverId) {
+        plannedTask = null;
+      } else {
+        plannedTask = shallowClone(rawTask);
+        plannedTask.exclusiveResources = [
+          `sync:${rawTask.folderId}`
+        ];
+        plannedTask.priorityTags = [
+          `view:folder:${rawTask.folderId}`
+        ];
+      }
+
+      yield ctx.finishTask({
+        taskState: plannedTask
+      });
+    }),
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the folder

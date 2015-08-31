@@ -149,7 +149,7 @@ FoldersTOC.prototype = evt.mix({
    * TODO: Actually have our logic not be the same as getFirstFolderWithType.
    */
   getCanonicalFolderByType: function(type) {
-    return this.items.find(folder => folder.type === type);
+    return this.items.find(folder => folder.type === type) || null;
   },
 
   generatePersistenceInfo: function() {

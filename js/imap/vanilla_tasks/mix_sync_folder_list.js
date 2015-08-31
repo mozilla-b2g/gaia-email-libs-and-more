@@ -14,10 +14,15 @@ const { shallowClone } = require('../../util');
  * planned changes, so it seems better to avoid duplicated code even if clarity
  * takes a hit for now.
  *
- * Consumers should provide:
- * - syncFolders(ctx, account)
+ * Consumers must provide:
+ * - this.syncFolders(ctx, account)
+ * - one of the following to handle offline folders:
+ *   - this.ensureEssentialOfflineFolders(ctx, account) [preferred]
+ *   - account.ensureEssentialOfflineFolders() [lazy legacy]
  *
- * In the case of POP3 where the server has no concept of folders,
+ * In the case of POP3 where the server has no concept of folders, all folders
+ * are offline folders and the planning stage is smart enough to realize it
+ * should conclude the task after planning.
  */
 return {
   name: 'sync_folder_list',
@@ -38,14 +43,24 @@ return {
     ];
 
     let account = yield ctx.universe.acquireAccount(ctx, rawTask.accountId);
-    account.ensureEssentialOfflineFolders();
+    let mutations = {}, didMutateFolders;
+    if (this.ensureEssentialOfflineFolders) {
+      didMutateFolders =
+        yield this.ensureEssentialOfflineFolders(ctx, account, mutations);
+    } else {
+      // TODO: normalize these to happen in-task too, ideally with reused logic.
+      account.ensureEssentialOfflineFolders();
+      didMutateFolders = true;
+    }
+
+    if (didMutateFolders) {
+      mutations.folders = new Map([
+        [account.id, account.foldersTOC.generatePersistenceInfo()]
+      ]);
+    }
 
     yield ctx.finishTask({
-      mutations: {
-        folders: new Map([
-          [account.id, account.foldersTOC.generatePersistenceInfo()]
-        ]),
-      },
+      mutations,
       // If we don't have an execute method, we're all done already. (POP3)
       taskState: this.execute ? decoratedTask : null
     });

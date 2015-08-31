@@ -38,7 +38,6 @@ define(
 // Lazy loaded vars.
 var $wbxml, $asproto, ASCP;
 
-var $FolderTypes = $FolderHierarchy.Enums.Type;
 var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 /**
@@ -55,23 +54,6 @@ var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
 exports.makeUniqueDeviceId = function() {
   return Math.random().toString(36).substr(2);
 };
-
-/**
- * Prototype-helper to wrap a method in a call to withConnection.  This exists
- * largely for historical reasons.  All actual lazy-loading happens within
- * withConnection.
- */
-function lazyConnection(cbIndex, fn, failString) {
-  return function lazyRun() {
-    var args = Array.slice(arguments),
-        errback = args[cbIndex],
-        self = this;
-
-    this.withConnection(errback, function () {
-      fn.apply(self, args);
-    }, failString);
-  };
-}
 
 function ActiveSyncAccount(universe, accountDef, foldersTOC, dbConn,
                            receiveProtoConn) {
@@ -202,7 +184,7 @@ ActiveSyncAccount.prototype = {
    * info.  (And being bounced the right endpoint for future requests.)
    */
   ensureConnection: function() {
-    if (this.conn) {
+    if (this.conn && this.conn.connected) {
       return Promise.resolve(this.conn);
     }
     return new Promise((resolve, reject) => {
@@ -342,173 +324,6 @@ ActiveSyncAccount.prototype = {
   },
 
   /**
-   * Create a folder that is the child/descendant of the given parent folder.
-   * If no parent folder id is provided, we attempt to create a root folder.
-   *
-   * NOTE: This function is currently unused.  It might have been used for
-   * testing at some point.  It will be used again someday but should not be
-   * assumed to actually work when that day comes.
-   *
-   * @args[
-   *   @param[parentFolderId String]
-   *   @param[folderName]
-   *   @param[containOnlyOtherFolders Boolean]{
-   *     Should this folder only contain other folders (and no messages)?
-   *     On some servers/backends, mail-bearing folders may not be able to
-   *     create sub-folders, in which case one would have to pass this.
-   *   }
-   *   @param[callback @func[
-   *     @args[
-   *       @param[error @oneof[
-   *         @case[null]{
-   *           No error, the folder got created and everything is awesome.
-   *         }
-   *         @case['offline']{
-   *           We are offline and can't create the folder.
-   *         }
-   *         @case['already-exists']{
-   *           The folder appears to already exist.
-   *         }
-   *         @case['unknown']{
-   *           It didn't work and we don't have a better reason.
-   *         }
-   *       ]]
-   *       @param[folderMeta ImapFolderMeta]{
-   *         The meta-information for the folder.
-   *       }
-   *     ]
-   *   ]]{
-   *   }
-   * ]
-   */
-  createFolder: lazyConnection(3, function asa_createFolder(parentFolderId,
-                                                      folderName,
-                                                      containOnlyOtherFolders,
-                                                      callback) {
-    // YYY this code is now in ./protocol/create_folder.js
-  }),
-
-  /**
-   * Delete an existing folder WITHOUT ANY ABILITY TO UNDO IT.  Current UX
-   * does not desire this, but the unit tests do.
-   *
-   * Callback is like the createFolder one, why not.
-   */
-  deleteFolder: lazyConnection(1, function asa_deleteFolder(folderId,
-                                                            callback) {
-
-    // YYY this code is now in ./protocol/delete_folder.js
-  }),
-
-  /**
-   * Asynchronously send a message with an already fully-initialized composer.
-   */
-  sendMessage: lazyConnection(1, function(composer) {
-    return new Promise((resolve) => {
-      let mimeBlob = composer.superBlob;
-
-      // ActiveSync 14.0 has a completely different API for sending email. Make
-      // sure we format things the right way.
-      if (this.conn.currentVersion.gte('14.0')) {
-        var cm = ASCP.ComposeMail.Tags;
-        var w = new $wbxml.Writer('1.3', 1, 'UTF-8', null, 'blob');
-        w.stag(cm.SendMail)
-           // The ClientId is defined to be for duplicate messages suppression
-           // and does not need to have any uniqueness constraints apart from
-           // not being similar to (recently sent) messages by this client.
-           .tag(cm.ClientId, Date.now().toString()+'@mozgaia')
-           .tag(cm.SaveInSentItems)
-           .stag(cm.Mime)
-             .opaque(mimeBlob)
-           .etag()
-         .etag();
-
-        this.conn.postCommand(w, function(aError, aResponse) {
-          if (aError) {
-            account._reportErrorIfNecessary(aError);
-            console.error(aError);
-            resolve('unknown');
-            return;
-          }
-
-          if (aResponse === null) {
-            console.log('Sent message successfully!');
-            resolve(null);
-          }
-          else {
-            console.error('Error sending message. XML dump follows:\n' +
-                          aResponse.dump());
-            resolve('unknown');
-          }
-        }, /* aExtraParams = */ null, /* aExtraHeaders = */ null,
-          /* aProgressCallback = */ function() {
-          // Keep holding the wakelock as we continue sending.
-          composer.heartbeat('ActiveSync XHR Progress');
-        });
-      }
-      else { // ActiveSync 12.x and lower
-        this.conn.postData('SendMail', 'message/rfc822', mimeBlob,
-                           (aError/*, aResponse*/) => {
-          if (aError) {
-            account._reportErrorIfNecessary(aError);
-            console.error(aError);
-            resolve('unknown');
-            return;
-          }
-
-          console.log('Sent message successfully!');
-          resolve(null);
-        }, { SaveInSent: 'T' }, /* aExtraHeaders = */ null,
-          /* aProgressCallback = */ function() {
-          // Keep holding the wakelock as we continue sending.
-          composer.heartbeat('ActiveSync XHR Progress');
-        });
-      }
-    });
-  }),
-
-  /**
-   * Ensure that local-only folders exist. This runs synchronously
-   * before we sync the folder list with the server. Ideally, these
-   * folders should reside in a proper place in the folder hierarchy,
-   * which may differ between servers depending on whether the
-   * account's other folders live underneath the inbox or as
-   * top-level-folders. But since moving folders is easy and doesn't
-   * really affect the backend, we'll just ensure they exist here, and
-   * fix up their hierarchical location when syncing the folder list.
-   *
-   * XXX just like in the IMAP case, we're not currently doing this.
-   */
-  ensureEssentialOfflineFolders: function() {
-    // On folder type numbers: While there are enum values for outbox
-    // and drafts, they represent server-side default folders, not the
-    // local folders we create for ourselves, so they must be created
-    // with an unknown typeNum.
-    [{
-      type: 'inbox',
-      displayName: 'Inbox', // Intentionally title-case.
-      typeNum: $FolderTypes.DefaultInbox,
-    }, {
-      type: 'outbox',
-      displayName: 'outbox',
-      typeNum: $FolderTypes.Unknown, // There is no "local outbox" typeNum.
-    }, {
-      type: 'localdrafts',
-      displayName: 'localdrafts',
-      typeNum: $FolderTypes.Unknown, // There is no "localdrafts" typeNum.
-    }].forEach(function(data) {
-      if (!this.getFirstFolderWithType(data.type)) {
-        this._addedFolder(
-          /* serverId: */ null,
-          /* parentServerId: */ '0',
-          /* displayName: */ data.displayName,
-          /* typeNum: */ data.typeNum,
-          /* forceType: */ data.type);
-      }
-    }, this);
-  },
-
-  /**
    * Kick off jobs to create essential folders (sent, trash) if
    * necessary. These folders should be created on both the client and
    * the server; contrast with `ensureEssentialOfflineFolders`.
@@ -539,8 +354,6 @@ ActiveSyncAccount.prototype = {
    */
   normalizeFolderHierarchy: $acctmixins.normalizeFolderHierarchy,
 
-  upgradeFolderStoragesIfNeeded: $acctmixins.upgradeFolderStoragesIfNeeded,
-  runOp: $acctmixins.runOp,
   getFirstFolderWithType: $acctmixins.getFirstFolderWithType,
   getFolderByPath: $acctmixins.getFolderByPath,
   getFolderById: $acctmixins.getFolderById,
@@ -559,5 +372,4 @@ ActiveSyncAccount.prototype = {
   allOperationsCompleted: function() {
   }
 };
-
 }); // end define

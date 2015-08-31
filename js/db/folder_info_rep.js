@@ -68,6 +68,10 @@ function makeFolderMeta(raw) {
  * Return true if the given folder type is local-only (i.e. we will
  * not try to sync this folder with the server).
  *
+ * NOTE: The introduction of the "serverPath" property to the FolderMeta may
+ * largely obviate the need for this.  (Specifically, it's null if there's no
+ * corresponding online folder.)
+ *
  * @param {String} type
  *   The type of the folderStorage, e.g. 'inbox' or 'localdrafts'.
  */
