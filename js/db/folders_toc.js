@@ -116,7 +116,7 @@ FoldersTOC.prototype = evt.mix({
            folderInfo.name.toLocaleLowerCase();
   },
 
-  addFolder: function(folderInfo) {
+  _addFolder: function(folderInfo) {
     let sortString = this._makeFolderSortString(folderInfo);
     let idx = bsearchForInsert(this.folderSortStrings, sortString, strcmp);
     this.items.splice(idx, 0, folderInfo);
@@ -128,7 +128,7 @@ FoldersTOC.prototype = evt.mix({
     this.emit('add', folderInfo, idx);
   },
 
-  removeFolderById: function(id) {
+  _removeFolderById: function(id) {
     let folderInfo = this.foldersById.get(id);
     let idx = this.items.indexOf(folderInfo);
     logic(this, 'removeFolderById', { id: id, index: idx });

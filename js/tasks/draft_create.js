@@ -22,7 +22,10 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
  * forward) and save it to the database.  The MailBridge can then read and send
  * that (largely normal) message rep to the front-end.
  *
- * This is a global task primarily because the backend may eventuall
+ * This is a global task because the decision of what account the draft should
+ * be associated with is made during the process of constructing the draft.
+ * (And we really don't want the front-end trying to figure the right answer out
+ * on its own.)
  */
 return TaskDefiner.defineSimpleTask([
   {

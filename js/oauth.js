@@ -1,4 +1,5 @@
 define(function(require, exports) {
+  'use strict';
 
   var errorutils = require('./errorutils');
   var syncbase = require('./syncbase');
@@ -140,6 +141,7 @@ define(function(require, exports) {
             var errResp = JSON.parse(xhr.responseText);
           }
           catch (ex) {
+            // ignore the error.
           }
           slog.error('oauth:xhr-fail',
                      { tokenEndpoint: oauthInfo.tokenEndpoint,
@@ -188,5 +190,4 @@ define(function(require, exports) {
       };
     });
   }
-
 });

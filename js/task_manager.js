@@ -203,16 +203,25 @@ TaskManager.prototype = evt.mix({
    * have been planned.  The resolved value is a list of the declared results
    * of each task having been planned.  Tasks may optionally return a result;
    * if they return no result, `undefined` will be returned.
-   *
-   * Note that there is no corresponding method for the execute stage because
-   * timely execution of `execute` tasks is no guaranteed and so it's deemed
-   * a foot-gun.  The results of task execution should be propagated through
-   * manipulations to database records or via the overlay mechanism.
    */
   waitForTasksToBePlanned: function(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
       return new Promise((resolve) => {
         this.once('planned:' + taskId, resolve);
+      });
+    }));
+  },
+
+  /**
+   * Return a promise that will be resolved when the tasks with the given id's
+   * have been executed.  The resolved value is a list of the declared results
+   * of each task having been executed.  Tasks may optionally return a result;
+   * if they return no result, `undefined` will be returned.
+   */
+  waitForTasksToBeExecuted: function(taskIds) {
+    return Promise.all(taskIds.map((taskId) => {
+      return new Promise((resolve) => {
+        this.once('executed:' + taskId, resolve);
       });
     }));
   },
@@ -236,6 +245,48 @@ TaskManager.prototype = evt.mix({
     });
     this.__enqueuePersistedTasksForPlanning(wrappedTasks);
     return Promise.resolve(wrappedTasks.map(x => x.id));
+  },
+
+  /**
+   * Schedules a non-persistent task, returning a promise that will be resolved
+   * with the return value of the task's planning stage.  Used for things like
+   * creating a draft where a new name for something is created.  If you're
+   * manipulating something that already has a name and for which you could
+   * receive the events on that thing or its parent, then you ideally shouldn't
+   * be using this.  (AKA start feeling guilty now.)
+   *
+   * Note that there is currently only a non-persistent version of this helper
+   * because the expected idiom is that all actions are fundamentally
+   * interactive.
+   */
+  scheduleNonPersistentTaskAndWaitForPlannedResult: function(rawTask, why) {
+    return this.taskManager.scheduleNonPersistentTasks([rawTask], why)
+    .then((taskIds) => {
+      return this.taskManager.waitForTasksToBePlanned(taskIds);
+    }).then((results) => {
+      return results[0];
+    });
+  },
+
+  /**
+   * Schedules a non-persistent task, returning a promise that will be resolved
+   * with the return value of the task's execution stage.  Used for things like
+   * creating a new account where a new name for something is created.  If
+   * you're manipulating something that already has a name and for which you
+   * could receive the events on that thing or its parent, then you ideally
+   * shouldn't be using this.  (AKA start feeling guilty now.)
+   *
+   * Note that there is currently only a non-persistent version of this helper
+   * because the expected idiom is that all actions are fundamentally
+   * interactive.
+   */
+  scheduleNonPersistentTaskAndWaitForExecutedResult: function(rawTask, why) {
+    return this.taskManager.scheduleNonPersistentTasks([rawTask], why)
+    .then((taskIds) => {
+      return this.taskManager.waitForTasksToBeExecuted(taskIds);
+    }).then((results) => {
+      return results[0];
+    });
   },
 
 
@@ -376,19 +427,18 @@ TaskManager.prototype = evt.mix({
 
   _executeNextTask: function() {
     let taskThing = this._priorities.popNextAvailableTask();
-    let isTask = !taskThing.type;
     logic(this, 'executing:begin', { task: taskThing });
 
     let ctx = new TaskContext(taskThing, this._universe);
     let execResult = this._registry.executeTask(ctx, taskThing);
     if (execResult) {
-      execResult.then(() => {
+      execResult.then((returnedResult) => {
         logic(this, 'executing:end', { task: taskThing });
-        this.emit('executed:' + taskThing.id);
+        this.emit('executed:' + taskThing.id, returnedResult);
       });
     } else {
       logic(this, 'executing:end', { moot: true, task: taskThing });
-      this.emit('executed:' + taskThing.id);
+      this.emit('executed:' + taskThing.id, undefined);
     }
     return execResult;
   }

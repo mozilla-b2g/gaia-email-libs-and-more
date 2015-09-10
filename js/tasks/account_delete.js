@@ -1,8 +1,8 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let TaskDefiner = require('../task_definer');
+const co = require('co');
+const TaskDefiner = require('../task_definer');
 
 /**
  * Delete an account.
@@ -42,7 +42,7 @@ let TaskDefiner = require('../task_definer');
  */
 return TaskDefiner.defineSimpleTask([
   {
-    name: 'delete_account',
+    name: 'account_delete',
     args: ['accountId'],
 
     exclusiveResources: function(args) {
@@ -57,21 +57,15 @@ return TaskDefiner.defineSimpleTask([
     },
 
     execute: co.wrap(function*(ctx, planned) {
-      // Currently this doesn't issue and reads and because of
-      // https://bugzilla.mozilla.org/show_bug.cgi?id=1161690
-      // this will breakIndexedDB, so let's not do that.
-      /*
+      // Acquire a write-lock on the account so we can delete it.
       yield ctx.beginMutate({
         accounts: new Map([[planned.accountId, null]])
       });
-      */
 
       yield ctx.finishTask({
         mutations: {
           accounts: new Map([[planned.accountId, null]])
-        },
-        // all done!
-        taskState: null
+        }
       });
     })
   }

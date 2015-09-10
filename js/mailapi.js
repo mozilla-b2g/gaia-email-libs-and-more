@@ -495,9 +495,8 @@ MailAPI.prototype = evt.mix({
    * @param {Object} details
    * @param {String} details.emailAddress
    *   The user's email address.
-   * @param {Function} callback
-   *   Invoked once we have an answer.  The object will look something like
-   *   one of the following results:
+   * @return {Promise<Object>}
+   *   A promise that will be resolved with an object like so:
    *
    *   No autoconfig information is available and the user has to do manual
    *   setup:
@@ -539,31 +538,12 @@ MailAPI.prototype = evt.mix({
    *   'autoconfig-subdomain', 'autoconfig-wellknown', 'mx local', 'mx ispdb',
    *   'autodiscover'.
    */
-  learnAboutAccount: function(details, callback) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
+  learnAboutAccount: function(details) {
+    return this._sendPromisedRequest({
       type: 'learnAboutAccount',
-      details: details,
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'learnAboutAccount',
-      handle: handle,
-      details: details
+      details
     });
   },
-
-  _recv_learnAboutAccountResults: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle:', msg.handle);
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    req.callback.call(null, msg.data);
-  },
-
 
   /**
    * Try to create an account.  There is currently no way to abort the process
@@ -709,13 +689,34 @@ MailAPI.prototype = evt.mix({
    *   ]
    * ]
    */
-  tryToCreateAccount: function ma_tryToCreateAccount(details, domainInfo,
-                                                     callback) {
+  tryToCreateAccount: function(userDetails, domainInfo) {
+    return this._sendPromisedRequest({
+      type: 'tryToCreateAccount',
+      userDetails,
+      domainInfo
+    }).then((result) => {
+      if (result.accountId) {
+        return this.accounts.eventuallyGetAccountById(result.accountId).then(
+          (account) => {
+            return {
+              err: null,
+              errDetails: null,
+              account
+            };
+          }
+        );
+      } else {
+        return {
+          err: result.err,
+          errDetails: result.errDetails
+        };
+      }
+    });
+
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'tryToCreateAccount',
-      details: details,
-      domainInfo: domainInfo,
+      u
       callback: callback
     };
     this.__bridgeSend({

@@ -26,12 +26,7 @@ We want:
 When you ask us for data, you are asking either for read-only purposes or you
 are asking because you want to mutate the data.  If you are asking for mutation
 purposes, you must be a task and you inherently acquire a mutation lock against
-that data attributed to your task.  You ask for all mutation requests at the
-same time in your task, thereby ensuring a consistent locking discipline.  (If
-any request is against something with an already-held mutation lock, you wait
-for that task to complete and a serious warning is generated since this
-likely constitutes a bug that needs to be addressed with additional task
-constraints or more significant implementation change.)
+that data attributed to your task.
 
 When data is retrieved for mutation purposes, if we maintain any index-like
 tables for the record, we will snapshot them so that we can do any delta
@@ -39,6 +34,80 @@ inference when you complete the write process.
 
 If the task is aborted, all resources associated with the task are released
 without changes.
+
+## Memory Ownership of Data ##
+
+We have two data management strategies:
+* Memory-resident.
+* Loaded-on-demand.
+
+### Memory Resident ###
+
+This is data that has a relatively low cost, is frequently used, and that
+potentially becomes a logistical nightmare for tasks to have to potentially wait
+for database reads to occur.
+
+These are:
+* Account Definitions.  (Note that this doesn't mean the Account is instantiated
+  at all times.  It is not.)
+* FolderInfo: The per-folder metadata that describes the folder.  This does not
+  include its synchronization state which can be very large and expensive.
+* Task State.  Especially since we dynamically reprioritize tasks as situations
+  change, we have to know all the things we need to do.  This is also important
+  for our overlay mechanism where we want to be able to synchronously consult
+  pending tasks.  Note that tasks are expected to use loaded-on-demand storage
+  where appropriate, whether it be via platform Blob support or separate
+  database storage.
+
+All manipulations are still atomic in nature.  Everything occurs as part of a
+task, and all writes are issued as part of a transaction.
+
+#### Atomic Manipulations of Memory-Resident Data ####
+
+Our rules for loaded-on-demand data allow for write-locks to be held through
+multiple turns of the event loop while waiting on disk I/O.  In the face of
+task parallelism, this can result in lock contention.
+
+For our memory-resident data, we could use the same locking discipline, but we
+don't really need to.  There are effectively three ways to ensure data
+consistency for our purposes:
+
+1. Unbounded duration write-locks.  Only one piece of code has the write-lock at
+   a time, and it holds the lock until it releases it.
+2. Bounded duration write-locks.  The idiom where the caller provides a function
+   to invoke and manipulation is only allowed until the callee returns (and
+   nested event loops are forbidden).
+3. The desired manipulations are described and a helper mechanism is responsible
+   for applying them to the data in an atomic fashion.
+
+Unbounded duration write-locks are what we use for our loaded-on-demand data.
+Bounded duration write-locks are only viable in an atomic transaction model if
+they are only applied immediately prior to issuing (and completing) the write
+transaction.  This is tractable as long as there are no data inter-dependencies,
+but the code can look weird, there's a potential to screw it up with buggy code,
+and it's arguably harder to unit test than describing the manipulations.
+
+The third option, describing the manipulations, is effectively isomorphic to
+bounded duration write-locks if the manipulations are all simple.  Additionally,
+it allows for distributed map-reduce style processing on multiple threads or
+otherwise persisting the manipulation as a "to-do".  This allows a task to
+atomically complete even while a longer-lived orthogonal task with an unbounded
+duration write-lock on the same object still is active.  (Orthogonal is really
+key here.  Currently our IndexedDB usage would not actually allow this to occur,
+but it's something to aspire to.)
+
+And so... for our manipulations of our memory-resident data, we use/support
+the "desired manipulation" mechanism, with our descriptions covering
+"clobbering" (assignment that doesn't care what was there before), and "deltas"
+(increment/decrement).
+
+### Loaded-on-demand ###
+
+Everything else is expected to be read from the database as-needed, with write
+locks being obtained for data only after any dependent network traffic has
+occurred in order to avoid stalling task planning on a network-using `execute`
+stage.  In other words, we want write-locks to only be held during a time
+period when the task has become (disk) I/O bound.
 
 ## Caching ##
 
@@ -65,11 +134,12 @@ into a single string address space.  (Note that we do have a generational GC
 in Gecko now, so we aren't expecting the temporary strings to be the end of the
 world.)
 
-We generate two types of events for two types of consumers:
+We generate three types of events for two types of consumers:
 1. TOCs: These cover add, changes, and removal.  They are scoped to the list
    views we have.
 2. Item-listeners: Changes to and removal of specific items.  Fully qualified
    identifiers are used.
+3. Triggers: Unscoped events generated for every change.
 
 You may wonder about things that logically follow as the consequence of
 something else.  For example, when we create a new account we want to
@@ -81,10 +151,10 @@ task manager to do that for you.
 
 ### TOC events ###
 
-- `accounts!tocChange`
-- `acct!AccountId!folders!tocChange`
-- `fldr!FolderId!convs!tocChange`
-- `conv!ConvSuid!messages!tocChange`
+- `accounts!tocChange`: accounts add/change/remove
+- `acct!AccountId!folders!tocChange`: folders add/change/remove on an account
+- `fldr!FolderId!convs!tocChange`: conversations add/change/remove in a folder
+- `conv!ConvSuid!messages!tocChange`: messages add/change/remove in a conv
 
 Note that there are potentially other TOC implementations out there, but since
 their representations aren't directly mapped to the database, we aren't involved
@@ -98,6 +168,14 @@ tasks, so that's what the TOC implementation would hang off of.
 - `conv!ConversationId!change`
 - `msg!MessageId!change`
 - `tach!MessageId!AttId!change`
+
+### Trigger events ###
+These events provide the maximum amount of information possible to the listener.
+They also include the
+
+- `conv!*!add`: The conversation came into existence.  Arguments: [convInfo]
+- `conv!*!modify`: The conversation was modified.  Arguments: [convId, preInfo,
+  convInfo, added, kept, removed].
 
 ### Cache events ###
 

@@ -4,9 +4,7 @@ define(function(require) {
 let evt = require('evt');
 let logic = require('logic');
 
-let util = require('../util');
-let bsearchMaybeExists = util.bsearchMaybeExists;
-let bsearchForInsert = util.bsearchForInsert;
+const { bsearchForInsert } = require('../util');
 
 /**
  * Ordering accounts by their name, why not.  (It used to just be creation / id
@@ -24,6 +22,14 @@ function accountDefComparator(a, b) {
  * The data-representation provided to the front-end is a specialized wire-rep
  * that censors some data (passwords!), and XXX in the future will include some
  * overlay gunk.
+ *
+ * The `AccountManager` creates us and is responsible for telling us about
+ * accounts being added and removed.  It is the one who listens to MailDB
+ * events, not us!  This sets us apart from other TOC's that do their own
+ * listening.  We do this because there is lazy-loading involved and it's
+ * simpler to reason about if we don't announce the account until everything is
+ * good to go.  (This also allows us to potentially introduce some additional
+ * pre-reqs in the future.)
  */
 function AccountsTOC() {
   evt.Emitter.call(this);

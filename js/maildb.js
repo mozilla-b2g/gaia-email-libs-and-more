@@ -5,7 +5,8 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('logic');
 
-const { convIdFromMessageId, messageSpecificIdFromMessageId } =
+const { accountIdFromFolderId, convIdFromMessageId,
+        messageSpecificIdFromMessageId } =
   require('./id_conversions');
 
 const {
@@ -425,6 +426,11 @@ function MailDB(testOptions) {
   if (testOptions && testOptions.dbVersion) {
     dbVersion = testOptions.dbVersion;
   }
+  /**
+   * A promise that is resolved once the database has been
+   * created/upgraded/opened.  If there is any _lazyConfigCarryover, it will
+   * have been set by the time the promise is resolved.
+   */
   this._dbPromise = new Promise((resolve, reject) => {
     let openRequest = indexedDB.open('b2g-email', dbVersion);
     openRequest.onsuccess = () => {
@@ -444,28 +450,30 @@ function MailDB(testOptions) {
         this._nukeDB(db);
       }
       // - friendly, lazy upgrade
+      // Load the current config, save it off so getConfig can use it, then
+      // nuke like usual.  This is obviously a potentially data-lossy approach
+      // to things; but this is a 'lazy' / best-effort approach to make us
+      // more willing to bump revs during development, not the holy grail.
       else {
         var trans = openRequest.transaction;
-        // Load the current config, save it off so getConfig can use it, then
-        // nuke like usual.  This is obviously a potentially data-lossy approach
-        // to things; but this is a 'lazy' / best-effort approach to make us
-        // more willing to bump revs during development, not the holy grail.
         let objectStores = Array.from(db.objectStoreNames);
-        if (objectStores.indexOf(TBL_CONFIG) !== -1 &&
-            objectStores.indexOf(TBL_FOLDER_INFO) !== -1) {
-          this._getConfig((configObj, accountInfos) => {
-            if (configObj) {
-              this._lazyConfigCarryover = {
-                oldVersion: event.oldVersion,
-                config: configObj,
-                accountInfos: accountInfos
-              };
+        // If there is no configuration table, there is nothing to migrate...
+        if (objectStores.indexOf(TBL_CONFIG) !== -1) {
+          // Note that there is no data-dependency between the read and the
+          // nuking.  The nice thing about this is that it allows us to have
+          // _getConfig be a promise-wrapped implementation.
+          this._getConfig(trans).then((carryover) => {
+            if (carryover) {
+              carryover.oldVersion = event.oldVersion;
+              this._lazyConfigCarryover = carryover;
             }
-            this._nukeDB(db);
-          }, trans);
+          });
+          this._nukeDB(db);
         }
-        // in the catastrophic event we were missing our config object store,
-        // just go direct to the nuking.
+        // ...so just get nuking.  We call this a failsafe not because we're
+        // expecting IndexedDB betrayal, but instead that when I was between
+        // linters I made a lot of dumb typo bugs and it's a hassle to manually
+        // delete the databases from the profile.
         else {
           logic(this, 'failsafeNuke', { objectStores: objectStores });
           this._nukeDB(db);
@@ -507,71 +515,64 @@ MailDB.prototype = evt.mix({
     }
   },
 
-  getConfig: function(callback, trans) {
-    if (trans) {
-      throw new Error('use _getConfig if you have a transaction');
-    }
-    this._dbPromise.then(() => {
-      this._getConfig(callback, trans);
+  getConfig: function() {
+    return this._dbPromise.then(() => {
+      // At this point, if there is any carryover, it's in this property here.
+      if (this._lazyConfigCarryover) {
+        let carryover = this._lazyConfigCarryover;
+        this._lazyConfigCarryover = null;
+        return { config: null, accountDefs: null, carryover };
+      }
+      return this._getConfig();
     });
   },
 
-  _getConfig: function(callback, trans) {
+  /**
+   * Retrieve the configuration from the database.  This does not use promises
+   * and is otherwise somewhat convoluted because we have two different callers:
+   * 1) Standard: The MailUniverse wants a Promise resolved with our state.
+   * 2) Upgrade: We call ourselves inside onupgradeneeded.  Because the
+   *    IndexedDB transaction model is not (currently) compatible with promises
+   *    as specified and implemented, we need to generate callbacks so that we
+   *
+   * Additionally, in the first/standard case, in the event we did perform an
+   * upgrade, this is the point at which we pass the saved-off
+   */
+  _getConfig: function(trans) {
     logic(this, '_getConfig', { trans: !!trans });
-    var transaction = trans ||
-                      this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
-                                           'readonly');
-    var configStore = transaction.objectStore(TBL_CONFIG),
-        folderInfoStore = transaction.objectStore(TBL_FOLDER_INFO);
+    let transaction = trans ||
+                      this._db.transaction([TBL_CONFIG], 'readonly');
+    let configStore = transaction.objectStore(TBL_CONFIG);
 
-    // these will fire sequentially
-    var configReq = configStore.mozGetAll(),
-        folderInfoReq = folderInfoStore.mozGetAll();
-
-    configReq.onerror = analyzeAndLogErrorEvent;
-    // no need to track success, we can read it off folderInfoReq
-    folderInfoReq.onerror = analyzeAndLogErrorEvent;
-    folderInfoReq.onsuccess = () => {
-      var configObj = null, accounts = [], i, obj;
-
-      // - Check for lazy carryover.
-      // IndexedDB provides us with a strong ordering guarantee that this is
-      // happening after any upgrade check.  Doing it outside this closure would
-      // be race-prone/reliably fail.
-      if (this._lazyConfigCarryover) {
-        var lazyCarryover = this._lazyConfigCarryover;
-        this._lazyConfigCarryover = null;
-        callback(configObj, accounts, lazyCarryover);
-        return;
-      }
+    return wrapReq(configStore.mozGetAll()).then((configRows) => {
+      let config = null;
+      let accountDefs = [];
 
       // - Process the results
-      for (i = 0; i < configReq.result.length; i++) {
-        obj = configReq.result[i];
+      for (let i = 0; i < configRows.length; i++) {
+        let obj = configRows[i];
         if (obj.id === 'config') {
-          configObj = obj;
+          config = obj;
         } else {
-          accounts.push({def: obj, folderInfo: null});
+          accountDefs.push(obj);
         }
       }
-      for (i = 0; i < folderInfoReq.result.length; i++) {
-        accounts[i].folderInfo = folderInfoReq.result[i];
-      }
 
-      try {
-        callback(configObj, accounts);
-      }
-      catch(ex) {
-        console.error('Problem in configCallback', ex, '\n', ex.stack);
-      }
-    };
+      return { config, accountDefs };
+    });
   },
 
+  /**
+   * Save our global configuration.  This is the *only* write that happens
+   * outside of the task transaction model using `finishMutate` and friends.
+   * Note, however, that various reads (including the accountDefs) happen
+   * outside of that.
+   */
   saveConfig: function(config) {
-    var req = this._db.transaction(TBL_CONFIG, 'readwrite')
-                        .objectStore(TBL_CONFIG)
-                        .put(config, 'config');
-    req.onerror = analyzeAndLogErrorEvent;
+    return wrapTrans(
+      this._db.transaction(TBL_CONFIG, 'readwrite')
+              .objectStore(TBL_CONFIG)
+              .put(config, 'config'));
   },
 
   /**
@@ -909,6 +910,7 @@ MailDB.prototype = evt.mix({
             {
               date: conv.date,
               folderIds: conv.folderIds,
+              hasUnread: conv.hasUnread,
               height: conv.height
             });
         }
@@ -1004,6 +1006,7 @@ MailDB.prototype = evt.mix({
       this.convCache.set(convInfo.id, convInfo);
 
       for (let folderId of convInfo.folderIds) {
+        this.emit('conv!*!add', convInfo);
         this.emit(eventForFolderId(folderId),
                   {
                     id: convInfo.id,
@@ -1306,6 +1309,22 @@ MailDB.prototype = evt.mix({
     // -- New / Added data
     let newData = data.newData;
     if (newData) {
+      if (newData.accounts) {
+        for (let accountDef of newData.accounts) {
+          trans.objectStore(TBL_CONFIG)
+            .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
+          this.emit('accounts!tocChange', accountDef.id, accountDef);
+        }
+      }
+      if (newData.folders) {
+        let store = trans.objectStore(TBL_FOLDER_INFO);
+        for (let folderInfo of newData.folders) {
+          let accountId = accountIdFromFolderId(folderInfo.id);
+          store.put(folderInfo, folderInfo.id);
+          this.emit(`acct!${accountId}!folders!tocChange`,
+                    folderInfo.id, folderInfo);
+        }
+      }
       if (newData.conversations) {
         this._processConvAdditions(trans, newData.conversations);
       }
@@ -1320,7 +1339,6 @@ MailDB.prototype = evt.mix({
     let mutations = data.mutations;
     if (mutations) {
       genericUncachedWrites(trans, TBL_SYNC_STATES, mutations.syncStates);
-      genericUncachedWrites(trans, TBL_FOLDER_INFO, mutations.folders);
       genericUncachedWrites(trans, TBL_HEADER_ID_MAP, mutations.headerIdMaps);
       genericUncachedWrites(trans, TBL_UMID_NAME, mutations.umidNames);
       genericUncachedWrites(trans, TBL_UMID_LOCATION, mutations.umidLocations);
@@ -1357,10 +1375,30 @@ MailDB.prototype = evt.mix({
             this._processAccountDeletion(trans, accountId);
           }
 
-          this.emit('accounts!tocChange', accountId, null);
+          this.emit('accounts!tocChange', accountId, accountDef);
+        }
+      }
+
+      if (mutations.folders) {
+        let store = trans.objectStore(TBL_FOLDER_INFO);
+        for (let [folderId, folderInfo] of mutations.folders) {
+          let accountId = accountIdFromFolderId(folderId);
+          if (folderInfo !== null) {
+            store.put(folderInfo, folderId);
+          } else {
+            store.delete(folderId);
+          }
+          this.emit(`acct!${accountId}!folders!tocChange`,
+                    folderId, folderInfo);
         }
       }
     }
+
+    // -- Clobbers
+
+    // -- Trigger processing
+    // It's possible triggers fired.
+
 
     // -- Tasks
     // Update the task's state in the database.

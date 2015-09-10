@@ -4,6 +4,8 @@ define(function(require) {
 let co = require('co');
 let { shallowClone } = require('../../util');
 
+let { NOW } = require('../../date');
+
 let TaskDefiner = require('../../task_definer');
 
 let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
@@ -89,6 +91,8 @@ return TaskDefiner.defineSimpleTask([
       // -- Parallel 1/2: Issue find new messages
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
+
+      let syncDate = NOW();
 
       // XXX fastpath out if UIDNEXT says there's nothing new.
       // For Yahoo at least, if there are no new messages, so we're asking
@@ -208,6 +212,17 @@ return TaskDefiner.defineSimpleTask([
         },
         newData: {
           tasks: syncState.tasksToSchedule
+        },
+        atomicClobbers: {
+          folders: new Map([
+            [
+              req.folderId,
+              {
+                lastSuccessfulSyncAt: syncDate,
+                lastAttemptedSyncAt: syncDate,
+                failedSyncsSinceLastSuccessfulSync: 0
+              }
+            ]])
         }
       });
     })

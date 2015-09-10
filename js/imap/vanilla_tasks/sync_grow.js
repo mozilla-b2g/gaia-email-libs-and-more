@@ -6,7 +6,7 @@ let logic = require('logic');
 
 let TaskDefiner = require('../../task_definer');
 
-let { makeDaysAgo, makeDaysBefore, quantizeDate } = require('../../date');
+let { makeDaysAgo, makeDaysBefore, quantizeDate, NOW } = require('../../date');
 
 let imapchew = require('../imapchew');
 let parseImapDateTime = imapchew.parseImapDateTime;
@@ -70,6 +70,8 @@ return TaskDefiner.defineSimpleTask([
 
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
 
+      let syncDate = NOW();
+
       logic(ctx, 'searching', { searchSpec: searchSpec });
       let folderInfo = account.getFolderById(req.folderId);
       // Find out new UIDs covering the range in question.
@@ -130,6 +132,17 @@ return TaskDefiner.defineSimpleTask([
         },
         newData: {
           tasks: syncState.tasksToSchedule
+        },
+        atomicClobbers: {
+          folders: new Map([
+            [
+              req.folderId,
+              {
+                lastSuccessfulSyncAt: syncDate,
+                lastAttemptedSyncAt: syncDate,
+                failedSyncsSinceLastSuccessfulSync: 0
+              }
+            ]])
         }
       });
     })

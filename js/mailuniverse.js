@@ -3,14 +3,12 @@ define(function(require) {
 
 let logic = require('logic');
 let slog = require('./slog');
-let $syncbase = require('./syncbase');
 let MailDB = require('./maildb');
-let $acctcommon = require('./accountcommon');
 let $allback = require('./allback');
 
-let AccountsTOC = require('./db/accounts_toc');
+const AccountManager = require('./universe/account_manager');
+
 let FolderConversationsTOC = require('./db/folder_convs_toc');
-let FoldersTOC = require('./db/folders_toc');
 let ConversationTOC = require('./db/conv_toc');
 
 let TaskManager = require('./task_manager');
@@ -19,40 +17,25 @@ let TaskPriorities = require('./task_priorities');
 let TaskResources = require('./task_resources');
 
 let globalTasks = require('./global_tasks');
-// TODO: lazy-load these by mapping engine names to modules to dynamically
-// require.
-let gmailTasks = require('./imap/gmail_tasks');
-let vanillaImapTasks = require('./imap/vanilla_tasks');
-let activesyncTasks = require('./activesync/activesync_tasks');
-let pop3Tasks = require('./pop3/pop3_tasks');
 
 let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
   require('./id_conversions');
 
 /**
- * The MailUniverse is the keeper of the database, the root logging instance,
- * and the mail accounts.  It loads the accounts from the database on startup
- * asynchronously, so whoever creates it needs to pass a callback for it to
- * invoke on successful startup.
+ * The root of the backend, coordinating/holding everything together.  It is the
+ * API exposed to the `MailBridge`.  It also exposes resource-management related
+ * APIs to tasks, although we might move most of that into `TaskContext`
+ * especially as we push more of our implementation into helpers that live in
+ * the `universe` subdirectory.
  */
 function MailUniverse(callAfterBigBang, online, testOptions) {
   logic.defineScope(this, 'Universe');
-  dump('=====================\n');
-  // XXX proper logging configuration again once things start working
-  // XXX XXX XXX XXX XXX XXX XXX
-  logic.realtimeLogEverything = true;
-  slog.setSensitiveDataLoggingEnabled(true);
+  this._initialized = false;
 
   this.db = new MailDB(testOptions);
 
-  this.accountsTOC = new AccountsTOC();
-  this._residentAccountsById = new Map();
-  this._loadingAccountsById = new Map();
-
-  /** @type{Map<AccountId, FoldersTOC>} */
-  this.accountFoldersTOCs = new Map();
-
   this._bridges = [];
+
 
   /** @type{Map<FolderId, FolderConversationsTOC>} */
   this._folderConvsTOCs = new Map();
@@ -63,27 +46,22 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
   this.taskRegistry = new TaskRegistry(this.db);
   this.taskPriorities = new TaskPriorities();
   this.taskResources = new TaskResources(this.taskPriorities);
+
+  this.accountManager = new AccountManager({
+    db: this.db,
+    taskTregistry: this.taskRegistry
+  });
   this.taskManager = new TaskManager({
     universe: this,
     db: this.db,
     registry: this.taskRegistry,
     resources: this.taskResources,
     priorities: this.taskPriorities,
-    accountsTOC: this.accountsTOC
+    accountsTOC: this.accountManager.accountsTOC
   });
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
-  // TODO: as noted above, these should really be doing lazy requires and
-  // registration as accounts demand to be loaded.  (Note: not particularly
-  // hard, but during current dev phase, we want to fail early, not lazily.)
-  this.taskRegistry.registerPerAccountTypeTasks(
-    'gmailImap', gmailTasks);
-  this.taskRegistry.registerPerAccountTypeTasks(
-    'vanillaImap', vanillaImapTasks);
-  this.taskRegistry.registerPerAccountTypeTasks(
-    'activesync', activesyncTasks);
-  this.taskRegistry.registerPerAccountTypeTasks(
-    'pop3', pop3Tasks);
+
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -110,113 +88,122 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this._LOG = null;
   //this._cronSync = null;
-  this.db.getConfig((configObj, accountInfos, lazyCarryover) => {
-    let setupLogging = (config) => {
-      if (!config) {
-        return;
-      }
-      if (config.debugLogging) {
-        if (config.debugLogging === 'realtime-dangerous' ||
-            config.debugLogging === 'dangerous') {
-          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
-          console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
-          console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
-          console.warn('This means contents of e-mails and passwords if you');
-          console.warn('set up a new account.  (The IMAP protocol sanitizes');
-          console.warn('passwords, but the bridge logger may not.)');
-          console.warn('');
-          console.warn('If you forget how to turn us off, see:');
-          console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
-          console.warn('...................................................');
-          logic.realtimeLogEverything();
-          slog.setSensitiveDataLoggingEnabled(true);
-        }
-      }
-    };
-
-    let accountCount = accountInfos.length;
-    if (configObj) {
-      this.config = configObj;
-      setupLogging(this.config);
-
-      logic(this, 'configLoaded', { config: configObj });
-
-      if (accountCount) {
-        for (let i = 0; i < accountCount; i++) {
-          let accountInfo = accountInfos[i];
-          this._accountExists(accountInfo.def, accountInfo.folderInfo);
-        }
-
-        this._initFromConfig();
-        callAfterBigBang(this);
-        return;
-      }
-    }
-    else {
-      this.config = {
-        // We need to put the id in here because our startup query can't
-        // efficiently get both the key name and the value, just the values.
-        id: 'config',
-        nextAccountNum: 0,
-        nextIdentityNum: 0,
-        debugLogging: lazyCarryover ? lazyCarryover.config.debugLogging : false
-      };
-      setupLogging(this.config);
-      this.db.saveConfig(this.config);
-
-      // - Try to re-create any accounts using old account infos.
-      if (lazyCarryover) {
-        logic(this, 'migratingConfig:begin', { _lazyCarryOver: lazyCarryover });
-        var waitingCount = lazyCarryover.accountInfos.length;
-        var oldVersion = lazyCarryover.oldVersion;
-
-        var accountRecreated = function(accountInfo, err) {
-          logic(this, 'recreateAccount:end',
-                { type: accountInfo.type,
-                  id: accountInfo.id,
-                  error: err });
-          // We don't care how they turn out, just that they get a chance
-          // to run to completion before we call our bootstrap complete.
-          if (--waitingCount === 0) {
-            logic(this, 'migratingConfig:end', {});
-            this._initFromConfig();
-            callAfterBigBang();
-          }
-        };
-
-        for (let i = 0; i < lazyCarryover.accountInfos.length; i++) {
-          let accountInfo = lazyCarryover.accountInfos[i];
-          logic(this, 'recreateAccount:begin',
-                { type: accountInfo.type,
-                  id: accountInfo.id,
-                  error: null });
-          $acctcommon.recreateAccount(
-            this, oldVersion, accountInfo,
-            accountRecreated.bind(this, accountInfo));
-        }
-        // Do not let callAfterBigBang get called.
-        return;
-      }
-      else {
-        logic(this, 'configCreated', { config: this.config });
-      }
-    }
-    this._initFromConfig();
-    callAfterBigBang(this);
-    return;
-  });
-
-  this.db.on('accounts!tocChange', this._onAccountRemoved.bind(this));
 }
 MailUniverse.prototype = {
+  /**
+   * Initialize and configure logging.
+   */
+  _initLogging: function(config) {
+    // Delimit different runs of the universe from each other in the cheapest
+    // way possible.
+    console.log('======================');
+    // XXX proper logging configuration again once things start working
+    // XXX XXX XXX XXX XXX XXX XXX
+    logic.realtimeLogEverything = true;
+    slog.setSensitiveDataLoggingEnabled(true);
+
+    // XXX hack to skip the next logic without the linter.
+    config = null;
+
+    if (!config) {
+      return;
+    }
+    if (config.debugLogging) {
+      if (config.debugLogging === 'realtime-dangerous' ||
+          config.debugLogging === 'dangerous') {
+        console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+        console.warn('DANGEROUS USER-DATA ENTRAINING LOGGING ENABLED !!!');
+        console.warn('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
+        console.warn('This means contents of e-mails and passwords if you');
+        console.warn('set up a new account.  (The IMAP protocol sanitizes');
+        console.warn('passwords, but the bridge logger may not.)');
+        console.warn('');
+        console.warn('If you forget how to turn us off, see:');
+        console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
+        console.warn('...................................................');
+        logic.realtimeLogEverything();
+        slog.setSensitiveDataLoggingEnabled(true);
+      }
+    }
+  },
+
+  /**
+   * As part of initialization where we are doing a "lazy config carryover"
+   * wherein we blew away the database because it was out-of-date enough for
+   * us, create a "migration" task that will cause the account to be re-created.
+   *
+   * Note that this is currently a cop-out potentially data-lossy migration
+   * mechanism.  See disclaimers elsewhere, but ideally this gets fancier in
+   * the future.  Or we grow a separate more sophisticated mechanism.
+   */
+  _generateMigrationTasks: function({ accountDefs }) {
+    return accountDefs.map((accountDef) => {
+      return {
+        type: 'account_migrate',
+        accountDef
+      };
+    });
+  },
+
+  init: function() {
+    if (this._initialized !== false) {
+      throw new Error('misuse');
+    }
+    this._initialized = 'initializing';
+    return this.db.getConfig(({ config, accountDefs, carryover }) => {
+      if (config) {
+        return this._initFromConfig({ config, accountDefs });
+      }
+      else {
+        let freshConfig = {
+          // (We store accounts and the config in the same table and we only
+          // fetch values, not keys, so the config has to self-identify even if
+          // it seems silly.)
+          id: 'config',
+          nextAccountNum: 0,
+          nextIdentityNum: 0,
+          debugLogging: carryover ? carryover.config.debugLogging : false
+        };
+        let migrationTasks;
+        if (carryover) {
+          migrationTasks = this._generateMigrationTasks(carryover);
+        }
+        // (it returns a Promise for consistency, but we don't care.)
+        this.db.saveConfig(freshConfig);
+
+        return this._initFromConfig({
+          config,
+          accountDefs: [],
+          tasksToPlan: migrationTasks
+        });
+      }
+    });
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // Config / Settings
 
   /**
    * Perform initial initialization based on our configuration.
    */
-  _initFromConfig: function() {
-    this.taskManager.__restoreFromDB();
+  _initFromConfig: function({ config, accountDefs, tasksToPlan }) {
+    this._initialized = true;
+    this.config = config;
+    this._initLogging(config);
+    logic(this, 'configLoaded', { config });
+
+    // For reasons of sanity, we bring up the account manager (which is
+    // responsible for registering tasks with the task registry as needed) in
+    // its entirety before we initialize the TaskManager so it can assume all
+    // task-type definitions are already loaded.
+    return this.accountManager.initFromDB(accountDefs)
+      .then(() => {
+        return this.taskManager.__restoreFromDB();
+      })
+      .then(() => {
+        this.taskManager.scheduleTasks(tasksToPlan, 'initFromConfig');
+        return this;
+      });
 
     // XXX disabled cronsync because of massive rearchitecture
     //this._cronSync = new $cronsync.CronSync(this, this._LOG);
@@ -233,6 +220,7 @@ MailUniverse.prototype = {
   },
 
   modifyConfig: function(changes) {
+    // XXX OLD: this wants to be a task using atomicClobber functionality.
     for (var key in changes) {
       var val = changes[key];
       switch (key) {
@@ -318,29 +306,7 @@ MailUniverse.prototype = {
    * Acquire an account.
    */
   acquireAccount: function(ctx, accountId) {
-    if (this._residentAccountsById.has(accountId)) {
-      // If the account is already loaded, acquire it immediately.
-      let account = this._residentAccountsById.get(accountId);
-      return ctx.acquire(account);
-    } else if (this._loadingAccountsById.has(accountId)) {
-      // It's loading; wait on the promise and acquire it when the promise is
-      // resolved.
-      return this._loadingAccountsById.get(accountId).then((account) => {
-        return ctx.acquire(account);
-      });
-    } else {
-      // We need to trigger loading it ourselves and then help
-      let accountDef = this.accountsTOC.accountDefsById.get(accountId);
-      if (!accountDef) {
-        throw new Error('No accountDef with id: ' + accountId);
-      }
-      let foldersTOC = this.accountFoldersTOCs.get(accountId);
-      return this._loadAccount(accountDef, foldersTOC, null).then((account) => {
-        return ctx.acquire(account);
-      });
-      // (_loadAccount puts the promise in _loadingAccountsByID and clears it
-      // when it finishes)
-    }
+    return this._accountManager.acquireAccount(ctx, accountId);
   },
 
   /**
@@ -351,11 +317,7 @@ MailUniverse.prototype = {
    * counting, etc.  However, we conform to the idiom.
    */
   acquireAccountFoldersTOC: function(ctx, accountId) {
-    let foldersTOC = this.accountFoldersTOCs.get(accountId);
-    if (!foldersTOC) {
-      throw new Error('Account ' + accountId + ' lacks a foldersTOC!');
-    }
-    return Promise.resolve(foldersTOC);
+    return this._accountManager.acquireAccountFoldersTOC(ctx, accountId);
   },
 
   acquireFolderConversationsTOC: function(ctx, folderId) {
@@ -386,37 +348,61 @@ MailUniverse.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
 
-  learnAboutAccount: function(details) {
-    var configurator = new $acctcommon.Autoconfigurator();
-    return configurator.learnAboutAccount(details);
+  learnAboutAccount: function(userDetails, why) {
+    return this.taskManager.scheduleNonPersistentTaskAndWaitForExecutedResult(
+      {
+        type: 'account_autoconfig',
+        userDetails
+      },
+      why);
   },
 
   /**
-   * Return a Promise that gets resolved with { error, errorDetails, accountId,
-   * account}. "error" will be null if there's no problem and everything else
+   * Return a Promise that gets resolved with { error, errorDetails,
+   * accountId }. "error" will be null if there's no problem and everything else
    * may potentially be undefined.
-   *
-   * TODO: Currently on success this bottoms out in a call to saveAccountDef
-   * and we return the value it formulates.  While the promise-ification of
-   * accountcommon and the configurators has cleaned things up slightly, it's
-   * still pretty convoluted overall.  Probably good to task-ify the
-   * configurator logic.
    */
-  tryToCreateAccount: function(userDetails, domainInfo, callback) {
+  tryToCreateAccount: function(userDetails, domainInfo, why) {
     if (!this.online) {
       return Promise.resolve({ error: 'offline' });
     }
     // TODO: put back in detecting and refusing to create duplicate accounts.
 
     if (domainInfo) {
-      return $acctcommon.tryToManuallyCreateAccount(
-        this, userDetails, domainInfo);
-    }
-    else {
-      // XXX: store configurator on this object so we can abort the connections
-      // if necessary.
-      var configurator = new $acctcommon.Autoconfigurator();
-      return configurator.tryToCreateAccount(this, userDetails, callback);
+      // -- Explicit creation
+      return this.taskManager.scheduleNonPersistentTaskAndWaitForExecutedResult(
+        {
+          type: 'account_create',
+          userDetails,
+          domainInfo
+        },
+        why);
+    } else {
+      // -- Attempt autoconfig then chain into creation
+      return this.taskManager.scheduleNonPersistentTaskAndWaitForExecutedResult(
+        {
+          type: 'account_autoconfig',
+          userDetails
+        },
+        why)
+      .then((result) => {
+        // - If we got anything other than a need-password result, we failed.
+        // Convert the "result" to an error.
+        if (result.result !== 'need-password') {
+          return {
+            error: result.result,
+            errorDetails: null
+          };
+        }
+        // - Okay, try the account creation then.
+        return this.taskManager.scheduleNonPersistentTaskAndWaitForExecutedResult(
+          {
+            type: 'account_create',
+            userDetails,
+            domainInfo: result.configInfo
+          },
+          why);
+      });
     }
   },
 
@@ -426,8 +412,8 @@ MailUniverse.prototype = {
   deleteAccount: function(accountId, why) {
     this.taskManager.scheduleTasks([
       {
-        type: 'delete_account',
-        accountId: accountId
+        type: 'account_delete',
+        accountId
       }
     ], why);
   },
@@ -436,8 +422,8 @@ MailUniverse.prototype = {
    * TODO: This and tryToCreateAccount should be refactored to properly be
    * tasks.
    */
-  saveAccountDef: function(accountDef, folderDbState, protoConn, callback) {
-    this.db.saveAccountDef(this.config, accountDef, folderDbState, callback);
+  saveAccountDef: function(accountDef, protoConn) {
+    this.db.saveAccountDef(this.config, accountDef);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
       // TODO: actually this should exclusively go through the database emitter
@@ -445,7 +431,7 @@ MailUniverse.prototype = {
       this.accountsTOC.accountModified(accountDef);
     } else {
       // (this happens during intial account (re-)creation)
-      let accountWireRep = this._accountExists(accountDef, folderDbState);
+      let accountWireRep = this._accountExists(accountDef);
       // If we were given a connection, instantiate the account so it can use
       // it.  Note that there's no potential for races at this point since no
       // one knows about this account until we return.
@@ -464,80 +450,6 @@ MailUniverse.prototype = {
         });
       }
     }
-  },
-
-  /**
-   * Call this to tell the AccountsTOC about the existence of an account and
-   * create/remember the corresponding FoldersTOC.  This does not load the
-   * account.
-   *
-   * Returns the wireRep for the added account for the horrible benefit of
-   * saveAccountDef and the legacy MailAPI tryTocreateAccount signature.
-   */
-  _accountExists: function(accountDef, folderInfo) {
-    logic(this, 'accountExists', { accountId: accountDef.id });
-    let foldersTOC = new FoldersTOC(folderInfo);
-    this.accountFoldersTOCs.set(accountDef.id, foldersTOC);
-    return this.accountsTOC.addAccount(accountDef);
-  },
-
-  /**
-   * Translate a notification from MailDB that an account has been removed to
-   * a call to the AccountsTOC to notify it and clean-up the associated
-   * FoldersTOC instance.
-   */
-  _onAccountRemoved: function(accountId, accountDef) {
-    // We're actually subscribed to a TOC change; bail if the account isn't
-    // actually being removed.
-    if (accountDef) {
-      return;
-    }
-
-    let cleanupLiveAccount = (account) => {
-      this._residentAccountsById.delete(accountId);
-      account.shutdown();
-    };
-
-    if (this._residentAccountsById.has(accountId)) {
-      let account = this._residentAccountsById.get(accountId);
-      cleanupLiveAccount(account);
-    } else if (this._loadingAccountsById.has(accountId)) {
-      this._loadAccountsById.get(accountId).then(cleanupLiveAccount);
-    }
-
-    this.accountsTOC.removeAccountById(accountId);
-    this.accountFoldersTOCs.delete(accountId);
-  },
-
-  /**
-   * Instantiate an account from the persisted representation.
-   * Asynchronous. Calls callback with the account object.
-   */
-  _loadAccount: function (accountDef, foldersTOC, receiveProtoConn) {
-    let promise = new Promise((resolve) => {
-      $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
-        if (!constructor) {
-          logic(this, 'badAccountType', { type: accountDef.type });
-          return;
-        }
-        let account = new constructor(this, accountDef, foldersTOC, this.db,
-                                      receiveProtoConn);
-
-        this._loadingAccountsById.delete(accountDef.id);
-        this._residentAccountsById.set(accountDef.id, account);
-
-        // - issue a (non-persisted) syncFolderList if needed
-        let timeSinceLastFolderSync =
-          Date.now() - account.meta.lastFolderSyncAt;
-        if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
-          this.syncFolderList(accountDef.id, 'loadAccount');
-        }
-
-        resolve(account);
-      });
-    });
-    this._loadingAccountsById.set(accountDef.id, promise);
-    return promise;
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -675,8 +587,8 @@ MailUniverse.prototype = {
    * it's best to avoid creating the draft on app restart.  For now at least.
    */
   createDraft: function({ draftType, mode, refMessageId, refMessageDate,
-                          folderId }) {
-    return this.taskManager.scheduleNonPersistentTasks([
+                          folderId }, why) {
+    return this.taskManager.scheduleNonPersistentTaskAndWaitForPlannedResult(
       {
         type: 'draft_create',
         draftType,
@@ -684,16 +596,11 @@ MailUniverse.prototype = {
         refMessageId,
         refMessageDate,
         folderId
-      }
-    ]).then((taskIds) => {
-      return this.taskManager.waitForTasksToBePlanned(taskIds);
-    }).then((results) => {
-      // (Although the signatures support multiple tasks, we only issued one.)
-      return results[0];
-    });
+      },
+      why);
   },
 
-  attachBlobToDraft: function(messageId, attachmentDef) {
+  attachBlobToDraft: function(messageId, attachmentDef, why) {
     // non-persistent because this is a local-only op and we don't want the
     // original stored in our database (at this time)
     return this.taskManager.scheduleNonPersistentTasks([{
@@ -701,17 +608,17 @@ MailUniverse.prototype = {
       accountId: accountIdFromMessageId(messageId),
       messageId,
       attachmentDef
-    }]);
+    }], why);
   },
 
-  detachAttachmentFromDraft: function(messageId, attachmentRelId) {
+  detachAttachmentFromDraft: function(messageId, attachmentRelId, why) {
     // non-persistent for now because it would be awkward
     return this.taskManager.scheduleNonPersistentTasks([{
       type: 'draft_detach',
       accountId: accountIdFromMessageId(messageId),
       messageId,
       attachmentRelId
-    }]);
+    }], why);
   },
 
   /**
@@ -726,25 +633,25 @@ MailUniverse.prototype = {
    *   writing the same Blob will still be stored using the same underlying
    *   reference-counted backing Blob.  So there's no harm.
    */
-  saveDraft: function(messageId, draftFields) {
+  saveDraft: function(messageId, draftFields, why) {
     return this.taskManager.scheduleTasks([{
       type: 'draft_save',
       accountId: accountIdFromMessageId(messageId),
       messageId,
       draftFields
-    }]);
+    }], why);
   },
 
   /**
    * Delete an existing (local) draft.  This may end up just using the normal
    * message deletion logic under the hood, but right now
    */
-  deleteDraft: function(messageId) {
+  deleteDraft: function(messageId, why) {
     return this.taskManager.scheduleTasks([{
       type: 'draft_delete',
       accountId: accountIdFromMessageId(messageId),
       messageId
-    }]);
+    }], why);
   },
 
 

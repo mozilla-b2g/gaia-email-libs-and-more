@@ -6,7 +6,10 @@ define(function(require) {
  */
 return [
   // - Account management
-  require('./tasks/delete_account'),
+  require('./tasks/account_create_autoconfig'),
+  require('./tasks/account_create_manual'),
+  require('./tasks/account_migrate'),
+  require('./tasks/account_delete'),
 
   // - Drafts
   require('./tasks/draft_create'),

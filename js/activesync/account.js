@@ -7,7 +7,6 @@ define(
     'logic',
     '../a64',
     '../accountmixins',
-    '../mailslice',
     '../searchfilter',
     // We potentially create the synthetic inbox while offline, so this can't be
     // lazy-loaded.
@@ -23,7 +22,6 @@ define(
     logic,
     $a64,
     $acctmixins,
-    $mailslice,
     $searchfilter,
     $FolderHierarchy,
     $asfolder,

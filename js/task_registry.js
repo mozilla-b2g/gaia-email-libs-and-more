@@ -41,6 +41,14 @@ TaskRegistry.prototype = {
     }
   },
 
+  /**
+   * Indicates whether tasks have been registered for the given account type
+   * yet.
+   */
+  isAccountTypeKnown: function(accountType) {
+    return this._perAccountTypeTasks.has(accountType);
+  },
+
   registerPerAccountTypeTasks: function(accountType, taskImpls) {
     let perTypeTasks = this._perAccountTypeTasks.get(accountType);
     if (!perTypeTasks) {

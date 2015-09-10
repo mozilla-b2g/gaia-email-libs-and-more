@@ -36,6 +36,7 @@
     "no-empty": 2,
     "no-empty-character-class": 2,
     "no-fallthrough": 2,
+    "no-invalid-this": 0,
     "no-nested-ternary": 2,
     "no-octal": 2,
     "no-redeclare": 2,

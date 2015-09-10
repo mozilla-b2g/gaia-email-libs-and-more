@@ -48,6 +48,7 @@ function checkServerCertificate(url, callback) {
         wasSock.close();
       }
       catch (ex) {
+        // nothing to do
       }
       callback(err);
     }
@@ -69,7 +70,7 @@ function checkServerCertificate(url, callback) {
     }
     reportAndClose(reportErr);
   };
-  sock.ondata = function(data) {
+  sock.ondata = function(/*data*/) {
     reportAndClose(null);
   };
 }
@@ -80,7 +81,7 @@ exports.account = $asacct;
 exports.configurator = {
   timeout: 30 * 1000,
   _getFullDetailsFromAutodiscover: function(userDetails, url) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       logic(scope, 'autodiscover:begin', { url: url });
       $asproto.raw_autodiscover(
         url, userDetails.emailAddress, userDetails.password, self.timeout,
@@ -141,7 +142,7 @@ exports.configurator = {
    *   conceivable that in the future the manual config mode could use this
    *   path.
    */
-  tryToCreateAccount: function(universe, userDetails, domainInfo, callback) {
+  tryToCreateAccount: function(universe, userDetails, domainInfo) {
     if (domainInfo.incoming.autodiscoverEndpoint) {
       return this._getFullDetailsFromAutodiscover(
         userDetails, domainInfo.incoming.autodiscoverEndpoint)
@@ -161,7 +162,7 @@ exports.configurator = {
   },
 
   _createAccountUsingFullInfo: function(universe, userDetails, domainInfo) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       logic(scope, 'create:begin', { server: domainInfo.incoming.server });
       var credentials = {
         username: domainInfo.incoming.username,
@@ -175,7 +176,7 @@ exports.configurator = {
                 credentials.password);
       conn.timeout = $asacct.DEFAULT_TIMEOUT_MS;
 
-      conn.connect((error, options) => {
+      conn.connect((error/*, options*/) => {
         if (error) {
           // This error is basically an indication of whether we were able to
           // call getOptions or not.  If the XHR request completed, we get an
@@ -205,14 +206,8 @@ exports.configurator = {
             checkServerCertificate(
               domainInfo.incoming.server,
               function(securityError) {
-                var failureType;
-                if (securityError) {
-                  failureType = 'bad-security';
-                } else {
-                  failureType = 'unresponsive-server';
-                }
                 resolve({
-                  error: failureType,
+                  error: securityError ? 'bad-security' : 'unresponsive-server',
                   errorDetails: failureDetails
                 });
               });
@@ -238,6 +233,7 @@ exports.configurator = {
 
           type: 'activesync',
           engine: 'activesync',
+          engineData: {},
           syncRange: 'auto',
 
           syncInterval: userDetails.syncInterval || 0,
@@ -287,6 +283,7 @@ exports.configurator = {
 
       type: 'activesync',
       engine: 'activesync',
+      engineData: oldAccountInfo.engineData,
       syncRange: oldAccountDef.syncRange,
       syncInterval: oldAccountDef.syncInterval || 0,
       notifyOnNew: oldAccountDef.hasOwnProperty('notifyOnNew') ?
@@ -313,16 +310,7 @@ exports.configurator = {
    * then load it.
    */
   _saveAccount: function cfg_as__saveAccount(universe, accountDef, protoConn) {
-    var folderInfo = {
-      meta: {
-        nextFolderNum: 0,
-        nextMutationNum: 0,
-        lastFolderSyncAt: 0
-      },
-      folders: new Map()
-    };
-    return universe.saveAccountDef(accountDef, folderInfo, protoConn);
+    return universe.saveAccountDef(accountDef, protoConn);
   },
 };
-
 }); // end define

@@ -43,12 +43,14 @@ var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
-      universe = new MailUniverse(onUniverse, args[0]);
+      universe = new MailUniverse(args[0]);
+      universe.init().then(onUniverse);
       break;
-
     case 'online':
     case 'offline':
       universe._onConnectionChange(args[0]);
+      break;
+    default:
       break;
   }
 });

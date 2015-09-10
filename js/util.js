@@ -81,42 +81,6 @@ exports.bsearchMaybeExists = function bsearchMaybeExists(list, seekVal, cmpfunc,
   return null;
 };
 
-/**
- * Partition a list of messages (identified by message namers, aka the suid and
- * date of the message) by the folder they belong to.
- *
- * @args[
- *   @param[messageNamers @listof[MessageNamer]]
- * ]
- * @return[@listof[@dict[
- *   @key[folderId FolderID]
- *   @key[messages @listof[MessageNamer]]
- * ]
- */
-exports.partitionMessagesByFolderId =
-    function partitionMessagesByFolderId(messageNamers) {
-  var results = [], foldersToMsgs = {};
-  for (var i = 0; i < messageNamers.length; i++) {
-    var messageNamer = messageNamers[i],
-        messageSuid = messageNamer.suid,
-        idxLastSlash = messageSuid.lastIndexOf('.'),
-        folderId = messageSuid.substring(0, idxLastSlash);
-
-    if (!foldersToMsgs.hasOwnProperty(folderId)) {
-      var messages = [messageNamer];
-      results.push({
-        folderId: folderId,
-        messages: messages,
-      });
-      foldersToMsgs[folderId] = messages;
-    }
-    else {
-      foldersToMsgs[folderId].push(messageNamer);
-    }
-  }
-  return results;
-};
-
 exports.formatAddresses = function(nameAddrPairs) {
   var addrstrings = [];
   for (var i = 0; i < nameAddrPairs.length; i++) {

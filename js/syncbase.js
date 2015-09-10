@@ -10,6 +10,24 @@ define(
 'use strict';
 
 ////////////////////////////////////////////////////////////////////////////////
+// Autoconfig stuff
+
+/**
+ * The number of milliseconds to wait for various (non-ActiveSync) XHRs to
+ * complete during the autoconfiguration process. This value is intentionally
+ * fairly large so that we don't abort an XHR just because the network is
+ * spotty.
+ */
+exports.AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
+
+/**
+ * The root of the ISPDB.  This must be HTTPS.  Okay to clobber for automated
+ * tests, but should generally never be changed.
+ */
+exports.ISPDB_AUTOCONFIG_ROOT =
+  'https://live.mozillamessaging.com/autoconfig/v1.1/';
+
+////////////////////////////////////////////////////////////////////////////////
 // IMAP time constants
 
 /**
@@ -29,83 +47,6 @@ exports.OPEN_REFRESH_THRESH_MS = 10 * 60 * 1000;
 exports.GROW_REFRESH_THRESH_MS = 60 * 60 * 1000;
 
 ////////////////////////////////////////////////////////////////////////////////
-// Database Block constants
-//
-// Used to live in mailslice.js, but they got out of sync with the below which
-// caused problems.
-
-exports.EXPECTED_BLOCK_SIZE = 8;
-
-/**
- * What is the maximum number of bytes a block should store before we split
- * it?
- */
-exports.MAX_BLOCK_SIZE = exports.EXPECTED_BLOCK_SIZE * 1024,
-/**
- * How many bytes should we target for the small part when splitting 1:2?
- */
-exports.BLOCK_SPLIT_SMALL_PART = (exports.EXPECTED_BLOCK_SIZE / 3) * 1024,
-/**
- * How many bytes should we target for equal parts when splitting 1:1?
- */
-exports.BLOCK_SPLIT_EQUAL_PART = (exports.EXPECTED_BLOCK_SIZE / 2) * 1024,
-/**
- * How many bytes should we target for the large part when splitting 1:2?
- */
-exports.BLOCK_SPLIT_LARGE_PART = (exports.EXPECTED_BLOCK_SIZE / 1.5) * 1024;
-
-
-////////////////////////////////////////////////////////////////////////////////
-// Block Purging Constants (IMAP only)
-//
-// These values are all intended for resource-constrained mobile devices.  A
-// more powerful tablet-class or desktop-class app would probably want to crank
-// the values way up.
-
-/**
- * Every time we create this many new body blocks, queue a purge job for the
- * folder.
- *
- * Body sizes are most variable and should usually take up more space than their
- * owning header blocks, so it makes sense for this to be the proxy we use for
- * disk space usage/growth.
- *
- * This used to be 4 when EXPECTED_BLOCK_SIZE was 96, it's now 8.  A naive
- * scaling would be by 12 to 48, but that doesn't handle that blocks can be
- * over the limit, so we want to aim a little lower, so 32.
- */
-exports.BLOCK_PURGE_EVERY_N_NEW_BODY_BLOCKS = 32;
-
-/**
- * How much time must have elapsed since the given messages were last
- * synchronized before purging?  Our accuracy ranges are updated whenever we are
- * online and we attempt to display messages.  So before we purge messages, we
- * make sure that the accuracy range covering the messages was updated at least
- * this long ago before deciding to purge.
- */
-exports.BLOCK_PURGE_ONLY_AFTER_UNSYNCED_MS = 14 * $date.DAY_MILLIS;
-
-/**
- * What is the absolute maximum number of blocks we will store per folder for
- * each block type?  If we have more blocks than this, we will discard them
- * regardless of any time considerations.
- *
- * The hypothetical upper bound for disk uage per folder is:
- * X 'number of blocks' * 2 'types of blocks' * 8k 'maximum block size'.  In
- * reality, blocks can be larger than their target if they have very large
- * bodies.
- *
- * This was 128 when our target size was 96k for a total of 24 megabytes.  Now
- * that our target size is 8k we're only scaling up by 8 instead of 12 because
- * of the potential for a large number of overage blocks.  This takes us to a
- * max of 1024 blocks.
- *
- * This is intended to protect people who have ridiculously high message
- * densities from time-based heuristics not discarding things fast enough.
- */
-exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT = 1024;
-
-////////////////////////////////////////////////////////////////////////////////
 // POP3 Sync Constants
 
 /**
@@ -113,7 +54,6 @@ exports.BLOCK_PURGE_HARD_MAX_BLOCK_LIMIT = 1024;
  * This value was chosen somewhat arbitrarily.
  */
 exports.POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
-
 
 /**
  * The maximum number of messages to retrieve during a single POP3
@@ -130,13 +70,11 @@ exports.POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
  */
 exports.POP3_MAX_MESSAGES_PER_SYNC = 100;
 
-
 /**
  * If a message is larger than INFER_ATTACHMENTS_SIZE bytes, guess
  * that it has an attachment.
  */
 exports.POP3_INFER_ATTACHMENTS_SIZE = 512 * 1024;
-
 
 /**
  * Attempt to fetch this many bytes of messages during snippet fetching.
@@ -150,6 +88,9 @@ exports.POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
  * How frequently do we want to automatically synchronize our folder list?
  * Currently, we think that once a day is sufficient.  This is a lower bound,
  * we may sync less frequently than this.
+ *
+ * TODO: This is dead, but we are probably a bit too overzealous with folder
+ * list syncing now.
  */
 exports.SYNC_FOLDER_LIST_EVERY_MS = $date.DAY_MILLIS;
 
@@ -214,44 +155,6 @@ exports.OLDEST_SYNC_DATE = Date.UTC(1990, 0, 1);
  * IMAP only.
  */
 exports.SYNC_WHOLE_FOLDER_AT_N_MESSAGES = 40;
-
-/**
- * If we issued a search for a date range and we are getting told about more
- * than the following number of messages, we will try and reduce the date
- * range proportionately (assuming a linear distribution) so that we sync
- * a smaller number of messages.  This will result in some wasted traffic
- * but better a small wasted amount (for UIDs) than a larger wasted amount
- * (to get the dates for all the messages.)
- *
- * IMAP only.
- */
-exports.BISECT_DATE_AT_N_MESSAGES = 60;
-
-/**
- * What's the maximum number of messages we should ever handle in a go and
- * where we should start failing by pretending like we haven't heard of the
- * excess messages?  This is a question of message time-density and not a
- * limitation on the number of messages in a folder.
- *
- * This could be eliminated by adjusting time ranges when we know the
- * density is high (from our block indices) or by re-issuing search results
- * when the server is telling us more than we can handle.
- *
- * IMAP only.
- */
-exports.TOO_MANY_MESSAGES = 2000;
-
-/**
- * How fuzzy should we consider the results from an IMAP server's
- * SEARCH? Our database lookup during IMAP sync is extended on both
- * sides by this amount. (IMAP servers do not consistently return
- * SEARCH results, primarily due to timezone and implementation
- * inconsistencies; see bug 886534.)
- *
- * IMAP only, fortunately.
- */
-exports.IMAP_SEARCH_AMBIGUITY_MS = $date.DAY_MILLIS;
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Error / Retry Constants

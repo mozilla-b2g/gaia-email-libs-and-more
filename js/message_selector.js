@@ -10,6 +10,9 @@ define(function(require) {
  *   for operations like starring/flagging a message when the state of the
  *   conversation is a union over all the messages and so only one message needs
  *   to be modified and it might be a bit crazy to modify all of the messages.
+ *
+ * TODO: put this into a subdirectory with some commonality that results in a
+ * more useful name than "utils"/etc.
  */
 function selectMessages(messages, onlyMessages, selector) {
   let filtered = messages;

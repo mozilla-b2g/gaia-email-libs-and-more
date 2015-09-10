@@ -34,7 +34,7 @@ function MailBridge(universe, db, name) {
   this._lastUndoableOpPair = null;
 }
 MailBridge.prototype = {
-  __sendMessage: function(msg) {
+  __sendMessage: function() {
     throw new Error('This is supposed to get hidden by an instance var.');
   },
 
@@ -168,46 +168,53 @@ MailBridge.prototype = {
           case 'storage':
             this.universe.dumpLogToDeviceStorage();
             break;
+          default:
+            break;
         }
+        break;
+
+      default:
         break;
     }
   },
 
-  _cmd_setInteractive: function mb__cmd_setInteractive(msg) {
+  _cmd_setInteractive: function(/*msg*/) {
     this.universe.setInteractive();
   },
 
-  _cmd_localizedStrings: function mb__cmd_localizedStrings(msg) {
+  _cmd_localizedStrings: function(msg) {
     $mailchewStrings.set(msg.strings);
   },
 
   _cmd_learnAboutAccount: function(msg) {
     this.universe.learnAboutAccount(msg.details).then(
-      function success(info) {
+      (info) => {
         this.__sendMessage({
-            type: 'learnAboutAccountResults',
+            type: 'promisedResult',
             handle: msg.handle,
             data: info
           });
-      }.bind(this),
-      function errback(/*err*/) {
+      },
+      (/*err*/) => {
         this.__sendMessage({
-            type: 'learnAboutAccountResults',
+            type: 'promisedResult',
             handle: msg.handle,
             data: { result: 'no-config-info', configInfo: null }
           });
-      }.bind(this));
+      });
   },
 
-  _cmd_tryToCreateAccount: function mb__cmd_tryToCreateAccount(msg) {
-    this.universe.tryToCreateAccount(msg.details, msg.domainInfo)
+  _cmd_tryToCreateAccount: function(msg) {
+    this.universe.tryToCreateAccount(msg.userDetails, msg.domainInfo)
       .then((result) => {
         this.__sendMessage({
-          type: 'tryToCreateAccountResults',
+          type: 'promisedResult',
           handle: msg.handle,
-          account: result.accountWireRep || null,
-          error: result.error,
-          errorDetails: result.errorDetails,
+          data: {
+            accountId: result.accountId || null,
+            error: result.error,
+            errorDetails: result.errorDetails
+          }
         });
       });
   },
@@ -216,7 +223,7 @@ MailBridge.prototype = {
     this.universe.syncFolderList(msg.accountId, 'bridge');
   },
 
-  _cmd_clearAccountProblems: function mb__cmd_clearAccountProblems(msg) {
+  _cmd_clearAccountProblems: function(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;
     account.checkAccount(function(incomingErr, outgoingErr) {
@@ -243,15 +250,15 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_modifyAccount: function mb__cmd_modifyAccount(msg) {
+  _cmd_modifyAccount: function(msg) {
     // TODO: implement; existing logic has been moved to tasks/modify_account.js
   },
 
-  _cmd_deleteAccount: function mb__cmd_deleteAccount(msg) {
+  _cmd_deleteAccount: function(msg) {
     this.universe.deleteAccount(msg.accountId, 'bridge');
   },
 
-  _cmd_modifyIdentity: function mb__cmd_modifyIdentity(msg) {
+  _cmd_modifyIdentity: function(msg) {
     // TODO: implement; existing logic moved to tasks/modify_identity.js
   },
 
@@ -262,7 +269,7 @@ MailBridge.prototype = {
    * @param {string} problem
    * @param {'incoming'|'outgoing'} whichSide
    */
-  notifyBadLogin: function mb_notifyBadLogin(account, problem, whichSide) {
+  notifyBadLogin: function(account, problem, whichSide) {
     this.__sendMessage({
       type: 'badLogin',
       account: account.toBridgeWire(),
@@ -494,7 +501,7 @@ MailBridge.prototype = {
 
   _cmd_outboxSetPaused: function(msg) {
     this.universe.outboxSetPaused(
-      accountId,
+      msg.accountId,
       msg.bePaused
     ).then(() => {
       this.__sendMessage({

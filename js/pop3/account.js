@@ -160,7 +160,7 @@ var properties = {
         port: this._connInfo.port,
         crypto: this._connInfo.crypto,
 
-        preferredAuthMethod: this._connInfo.preferredAuthMethod,
+        preferredAuthMethod: this._engineDetails.preferredAuthMethod,
 
         username: this._credentials.username,
         password: this._credentials.password,

@@ -1,10 +1,9 @@
-define(function(require, exports, module) {
+define(function(require, exports) {
 'use strict';
 
 let log = require('rdcommon/log');
 let $a64 = require('../a64');
 let $acctmixins = require('../accountmixins');
-let $mailslice = require('../mailslice');
 let $folder_info = require('../db/folder_info_rep');
 
 
@@ -24,7 +23,7 @@ let $folder_info = require('../db/folder_info_rep');
  */
 function CompositeIncomingAccount(
       universe, compositeAccount, accountId, credentials,
-      connInfo, foldersTOC, dbConn, existingProtoConn) {
+      connInfo, foldersTOC, dbConn/*, existingProtoConn */) {
   // our logic scope is defined by our subclass
 
   this.universe = universe;
@@ -35,6 +34,7 @@ function CompositeIncomingAccount(
   this._alive = true;
   this._credentials = credentials;
   this._connInfo = connInfo;
+  this._engineDetails = this.accountDef.engineDetails;
   this._db = dbConn;
 
   this.foldersTOC = foldersTOC;
@@ -147,6 +147,8 @@ CompositeIncomingAccount.prototype = {
         this.universe.__reportAccountProblem(this.compositeAccount,
                                              'connection', 'incoming');
         break;
+      default:
+        break;
     }
   },
 };
@@ -201,5 +203,4 @@ exports.LOGFAB_DEFINITION = {
     },
   },
 };
-
 }); // end define

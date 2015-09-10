@@ -235,6 +235,8 @@ TaskContext.prototype = {
    * @param {Array<RawTask>} finishData.newData.tasks
    *   The new tasks that should be atomically, persistently tracked as a
    *   deterministic result of this task.
+   * @param {Object} [finishData.atomicClobbers]
+   * @param {Object} [finishData.atomicDeltas]
    * @param {Object} [finishData.taskState]
    *   The new state for the task.  Until complex tasks are implemented, this
    *   should always be a real object.  But omit/just pass null if you want
@@ -276,6 +278,14 @@ TaskContext.prototype = {
           id: this.id,
           value: null
         };
+      }
+      // If this task is nonpersistent, then clobber revisedTaskInfo to be
+      // null so that we don't try to delete any task record (it never got
+      // written to the database!) and so that we don't create a new one.
+      // (We do this here after the above because we do want the  first case to
+      // apply, so stealing control flow to avoid both cases is not desirable.)
+      if (this._taskThing.nonpersistent) {
+        revisedTaskInfo = null;
       }
     }
 
