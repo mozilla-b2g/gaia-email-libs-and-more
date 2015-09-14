@@ -6,12 +6,14 @@ define(function(require) {
  */
 return [
   // - Account management
-  require('./tasks/account_create_autoconfig'),
-  require('./tasks/account_create_manual'),
-  require('./tasks/account_migrate'),
+  require('./tasks/account_autoconfig'),
+  require('./tasks/account_create'),
   require('./tasks/account_delete'),
+  require('./tasks/account_migrate'),
 
   // - Drafts
   require('./tasks/draft_create'),
+  // (All other drafts tasks are per-account even though they use the same
+  // global implementations.)
 ];
 });

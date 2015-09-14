@@ -1,24 +1,27 @@
 define(function(require) {
 'use strict';
 
-let logic = require('logic');
-let slog = require('./slog');
-let MailDB = require('./maildb');
-let $allback = require('./allback');
+const logic = require('logic');
+const slog = require('./slog');
+const MailDB = require('./maildb');
+const $allback = require('./allback');
 
 const AccountManager = require('./universe/account_manager');
 
-let FolderConversationsTOC = require('./db/folder_convs_toc');
-let ConversationTOC = require('./db/conv_toc');
+const FolderConversationsTOC = require('./db/folder_convs_toc');
+const ConversationTOC = require('./db/conv_toc');
 
-let TaskManager = require('./task_manager');
-let TaskRegistry = require('./task_registry');
-let TaskPriorities = require('./task_priorities');
-let TaskResources = require('./task_resources');
+const TaskManager = require('./task_manager');
+const TaskRegistry = require('./task_registry');
+const TaskPriorities = require('./task_priorities');
+const TaskResources = require('./task_resources');
 
-let globalTasks = require('./global_tasks');
+const TriggerManager = require('./db/trigger_manager');
+const dbTriggerDefs = require('./db_triggers/all');
 
-let { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
+const globalTasks = require('./global_tasks');
+
+const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
   require('./id_conversions');
 
 /**
@@ -58,6 +61,10 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
     resources: this.taskResources,
     priorities: this.taskPriorities,
     accountsTOC: this.accountManager.accountsTOC
+  });
+  this.triggerManager = new TriggerManager({
+    db: this.db,
+    triggers: dbTriggerDefs
   });
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
@@ -160,8 +167,7 @@ MailUniverse.prototype = {
           // fetch values, not keys, so the config has to self-identify even if
           // it seems silly.)
           id: 'config',
-          nextAccountNum: 0,
-          nextIdentityNum: 0,
+          nextAccountNum: carryover ? carryover.config.nextAccountNum : 0,
           debugLogging: carryover ? carryover.config.debugLogging : false
         };
         let migrationTasks;
@@ -233,14 +239,6 @@ MailUniverse.prototype = {
     }
     this.db.saveConfig(this.config);
     this.__notifyConfig();
-  },
-
-  __notifyConfig: function() {
-    var config = this.exposeConfigForClient();
-    for (var iBridge = 0; iBridge < this._bridges.length; iBridge++) {
-      var bridge = this._bridges[iBridge];
-      bridge.notifyConfig(config);
-    }
   },
 
   setInteractive: function() {
@@ -724,105 +722,12 @@ MailUniverse.prototype = {
     // XXX OLD
   },
 
-  modifyMessageTags: function(humanOp, messageSuids, addTags, removeTags) {
+  moveMessages: function(messageSuids, targetFolderId, callback) {
     // XXX OLD
   },
 
-  moveMessages: function(messageSuids, targetFolderId, callback) {
-    var self = this, longtermIds = [],
-        targetFolderAccount = this.getAccountForFolderId(targetFolderId);
-    var latch = $allback.latch();
-    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x,i) {
-      // TODO: implement cross-account moves and then remove this constraint
-      // and instead schedule the cross-account move.
-      if (x.account !== targetFolderAccount) {
-        throw new Error('cross-account moves not currently supported!');
-      }
-
-      // If the move is entirely local-only (i.e. folders that will
-      // never be synced to the server), we don't need to run the
-      // server side of the job.
-      //
-      // When we're moving a message between an outbox and
-      // localdrafts, we need the operation to succeed even if we're
-      // offline, and we also need to receive the "moveMap" returned
-      // by the local side of the operation, so that the client can
-      // call "editAsDraft" on the moved message.
-      //
-      // TODO: When we have server-side 'draft' folder support, we
-      // actually still want to run the server side of the operation,
-      // but we won't want to wait for it to complete. Maybe modify
-      // the job system to pass back localResult and serverResult
-      // independently, or restructure the way we move outbox messages
-      // back to the drafts folder.
-      var targetStorage =
-            targetFolderAccount.getFolderStorageForFolderId(targetFolderId);
-
-      // If any of the sourceStorages (or targetStorage) is not
-      // local-only, we can stop looking.
-      var isLocalOnly = targetStorage.isLocalOnly;
-      for (var j = 0; j < x.messages.length && isLocalOnly; j++) {
-        var sourceStorage =
-              self.getFolderStorageForMessageSuid(x.messages[j].suid);
-        if (!sourceStorage.isLocalOnly) {
-          isLocalOnly = false;
-        }
-      }
-
-      var longtermId = self._queueAccountOp(
-        x.account,
-        {
-          type: 'move',
-          longtermId: null,
-          lifecycle: 'do',
-          localStatus: null,
-          serverStatus: isLocalOnly ? 'n/a' : null,
-          tryCount: 0,
-          humanOp: 'move',
-          messages: x.messages,
-          targetFolder: targetFolderId,
-        }, latch.defer(i));
-      longtermIds.push(longtermId);
-    });
-
-    // When the moves finish, they'll each pass back results of the
-    // form [err, moveMap]. The moveMaps provide a mapping of
-    // sourceSuid => targetSuid, allowing the client to point itself
-    // to the moved messages. Since multiple moves would result in
-    // multiple moveMap results, we combine them here into a single
-    // result map.
-    latch.then(function(results) {
-      // results === [[err, moveMap], [err, moveMap], ...]
-      var combinedMoveMap = {};
-      for (var key in results) {
-        var moveMap = results[key][1];
-        for (var k in moveMap) {
-          combinedMoveMap[k] = moveMap[k];
-        }
-      }
-      callback && callback(/* err = */ null, /* result = */ combinedMoveMap);
-    });
-    return longtermIds;
-  },
-
   deleteMessages: function(messageSuids) {
-    var self = this, longtermIds = [];
-    this._partitionMessagesByAccount(messageSuids, null).forEach(function(x) {
-      var longtermId = self._queueAccountOp(
-        x.account,
-        {
-          type: 'delete',
-          longtermId: null,
-          lifecycle: 'do',
-          localStatus: null,
-          serverStatus: null,
-          tryCount: 0,
-          humanOp: 'delete',
-          messages: x.messages
-        });
-      longtermIds.push(longtermId);
-    });
-    return longtermIds;
+    // XXX OLD
   },
 
   /**

@@ -53,7 +53,7 @@ AccountsTOC.prototype = evt.mix({
    * returning the wireRep for the account for any legacy needs.  (We otherwise
    * have no useful return value, so why not do something ugly?)
    */
-  addAccount: function(accountDef) {
+  __addAccount: function(accountDef) {
     let idx = bsearchForInsert(this.accountDefs, accountDef,
                                accountDefComparator);
     this.accountDefs.splice(idx, 0, accountDef);
@@ -62,11 +62,9 @@ AccountsTOC.prototype = evt.mix({
 
     let wireRep = this.accountDefToWireRep(accountDef);
     this.emit('add', wireRep, idx);
-
-    return wireRep;
   },
 
-  accountModified: function(accountDef) {
+  __accountModified: function(accountDef) {
     // (Object identity holds here, and the number of accounts will always be
     // smallish, so just use indexOf.)
     let idx = this.accountDefs.indexOf(accountDef);
@@ -76,7 +74,7 @@ AccountsTOC.prototype = evt.mix({
     this.emit('change', this.accountDefToWireRep(accountDef), idx);
   },
 
-  removeAccountById: function(accountId) {
+  __removeAccountById: function(accountId) {
     let accountDef = this.accountDefsById.get(accountId);
     let idx = this.accountDefs.indexOf(accountDef);
     logic(this, 'removeAccountById', { accountId: accountId, index: idx });

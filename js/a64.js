@@ -62,6 +62,14 @@ function encodeInt(v, padTo) {
 exports.encodeInt = encodeInt;
 
 /**
+ * Get a JS Number back from a prior call to encodeInt.  This is not
+ * particularly optimized; we just use decodeUI64 and call parseInt on that.
+ */
+exports.decodeInt = function(es) {
+  return parseInt(exports.decodeUI64(es), 10);
+};
+
+/**
  * 10^14 >> 14 so that its 'lowest' binary 1 ends up in the one's place.  It
  * is encoded in 33 bits itself.
  */

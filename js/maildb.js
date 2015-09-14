@@ -93,9 +93,9 @@ const TBL_COMPLEX_TASKS = 'complexTasks';
  * The folder-info table stores meta-data about the known folders for each
  * account in a single big value.
  *
- * key: `AccountId`
+ * key: `FolderId` (which has the AccountId baked in)
  *
- * value: { meta: Object, folders: Map }
+ * value: FolderInfo
  *
  * Managed by: MailUniverse/MailAccount
  */
@@ -266,6 +266,27 @@ function computeSetDelta(before, after) {
 }
 
 /**
+ * Given a dictionary of deltas whose keys are fields and values are values to
+ * add (which can be negative to subtract) to the provided object.  Helper for
+ * atomicDeltas logic.
+ */
+const applyDeltasToObj = function(deltas, obj) {
+  for (var key of Object.keys(deltas)) {
+    obj[key] += deltas[key];
+  }
+};
+
+/**
+ * Given a dictionary of clobbers whose keys are fields and values are values
+ * to clobber onto the provided object.  Helper for atomicClobbers logic.
+ */
+const applyClobbersToObj = function(clobbers, obj) {
+  for (var key of Object.keys(clobbers)) {
+    obj[key] = clobbers[key];
+  }
+};
+
+/**
  * Deal with the lack of Array.prototype.values() existing in SpiderMonkey which
  * would let us treat Maps and Arrays identically for the addition case by
  * manually specializing.  We can just use values() once
@@ -413,6 +434,22 @@ function MailDB(testOptions) {
   logic.defineScope(this, 'MailDB');
 
   this._db = null;
+  /**
+   * @type {TriggerManager}
+   * We need access to the TriggerManager to directly manipulate its
+   * derivedMutations property that database triggers will push manipulations
+   * onto.  The TriggerManager clobbers itself onto us when it is initialized
+   * for circular dependency reasons.
+   */
+  this.triggerManager = null;
+  /**
+   * @type {AccountManager}
+   * The AccountManager is the authoritative source of the always-in-memory
+   * account definitions and folder infos which are needed for our atomic
+   * manipulations of them.  The AccountManager clobbers itself onto us when it
+   * is initialized for circular dependency reasons.
+   */
+  this.accountManager = null;
 
   this._lazyConfigCarryover = null;
 
@@ -731,6 +768,22 @@ MailDB.prototype = evt.mix({
 
       let dbReqCount = 0;
 
+      // -- In-memory lookups
+      if (requests.accounts) {
+        let accountReqs = requests.accounts;
+        for (let accountId of accountReqs.keys()) {
+          accountReqs.set(
+            accountId, this.accountManager.getAccountById(accountId));
+        }
+      }
+      if (requests.folders) {
+        let folderReqs = requests.folders;
+        for (let folderId of folderReqs.keys()) {
+          folderReqs.set(
+            folderId, this.accountManager.getFolderById(folderId));
+        }
+      }
+
       // -- Uncached lookups
       // Note that being uncached isn't actually netting us any correctness
       // wins since our mutating transactions don't live for the duration for
@@ -891,7 +944,7 @@ MailDB.prototype = evt.mix({
       let preMutateStates = ctx._preMutateStates = (ctx._preMutateStates || {});
 
       // (nothing to do for "syncStates")
-
+      // (nothing to do for "accounts")
       // (nothing to do for "folders")
 
       // Right now we only care about conversations because all other data types
@@ -956,6 +1009,24 @@ MailDB.prototype = evt.mix({
     .then(([wrappedTasks, complexTaskStates]) => {
       return { wrappedTasks, complexTaskStates };
     });
+  },
+
+  /**
+   * Load all the folders for an account.  This is intended to be used only by
+   * the AccountManager exactly once when it learns about an account.  After
+   * that, the canonical data is stored in memory by the AccountManager with
+   * write-through mutations occurring.  (Noting that the MailDB does
+   * automatically defer to the AccountManager for read requests via other
+   * helpers.)
+   */
+  loadFoldersByAccount: function(accountId) {
+    let trans = this._db.transaction(TBL_FOLDER_INFO, 'readonly');
+    let store = trans.objectStore(TBL_FOLDER_INFO);
+    let accountStringPrefix = IDBKeyRange.bound(
+      accountId + '.',
+      accountId + '.\ufff0',
+      true, true);
+    return wrapReq(store.mozGetAll(accountStringPrefix));
   },
 
   /**
@@ -1068,6 +1139,10 @@ MailDB.prototype = evt.mix({
 
       let { added, kept, removed } =
         computeSetDelta(preInfo.folderIds, convFolderIds);
+
+      // Notify wildcard listeners (probably db_triggers implementations)
+      this.emit('conv!*!change', convId, preInfo, convInfo, added, kept,
+                removed);
 
       // Notify the TOCs
       for (let folderId of added) {
@@ -1214,6 +1289,86 @@ MailDB.prototype = evt.mix({
     }
   },
 
+  /**
+   * Apply the atomicClobbers and atomicDeltas fields from the given mutation
+   * objects.  We are applied against both the task's explicit mutations payload
+   * plus also any derivedMutations provided by database triggers.
+   *
+   * As described elsewhere, all of the data that atomic manipulations mess with
+   * will be in-memory before any tasks are allowed to run.  The AccountManager
+   * is in charge of them, so we ask it for the fields.
+   *
+   * @param {Object} atomicMutations
+   *   The atomic manipulations to perform.  This could be the same as
+   *   rootMutations if specified by the task, or could be a separate object
+   *   contributed by a database trigger implementation.
+   * @param {Object} [atomicMutations.atomicDeltas]
+   * @param {Object} [atomicMutations.atomicDeltas.accounts]
+   * @param {Object} [atomicMutations.atomicDeltas.folders]
+   * @param {Object} [atomicMutations.atomicClobbers]
+   * @param {Object} [atomicMutations.atomicClobbers.accounts]
+   * @param {Object} [atomicMutations.atomicClobbers.folders]
+   * @param {Object} rootMutations
+   *   The root mutations object passed to finishMutate.  In order to create
+   *   a unified set of writes, we will manipulate existing accounts and folders
+   *   write Maps, or if they do not exist, we will create them ourselves.
+   *   Correctness fundamentally requires that if these are mutations that the
+   *   AccountManager-owned object identities are maintained.  (Which is on the
+   *   task/caller.)
+   */
+  _applyAtomics: function(atomicMutations, rootMutations) {
+    let { atomicDeltas, atomicClobbers } = atomicMutations;
+    const accountManager = this.accountManager;
+    if (atomicDeltas) {
+      if (atomicDeltas.accounts) {
+        if (!rootMutations.accounts) {
+          rootMutations.accounts = new Map();
+        }
+        let accountMutations = rootMutations.accounts;
+        for (let [accountId, deltas] of atomicDeltas.accounts) {
+          let accountDef = accountManager.getAccountDefById(accountId);
+          applyDeltasToObj(deltas, accountDef);
+          accountMutations.set(accountId, accountDef);
+        }
+      }
+      if (atomicDeltas.folders) {
+        if (!rootMutations.folders) {
+          rootMutations.folders = new Map();
+        }
+        let folderMutations = rootMutations.folders;
+        for (let [folderId, deltas] of atomicDeltas.folders) {
+          let folder = accountManager.getFolderById(folderId);
+          applyDeltasToObj(deltas, folder);
+          folderMutations.set(folderId, folder);
+        }
+      }
+    }
+    if (atomicClobbers) {
+      if (atomicClobbers.accounts) {
+        if (!rootMutations.accounts) {
+          rootMutations.accounts = new Map();
+        }
+        let accountMutations = rootMutations.accounts;
+        for (let [accountId, clobbers] of atomicClobbers.accounts) {
+          let accountDef = accountManager.getAccountDefById(accountId);
+          applyClobbersToObj(clobbers, accountDef);
+          accountMutations.set(accountId, accountDef);
+        }
+      }
+      if (atomicClobbers.folders) {
+        if (!rootMutations.folders) {
+          rootMutations.folders = new Map();
+        }
+        let folderMutations = rootMutations.folders;
+        for (let [folderId, clobbers] of atomicClobbers.folders) {
+          let folder = accountManager.getFolderById(folderId);
+          applyClobbersToObj(clobbers, folder);
+          folderMutations.set(folderId, folder);
+        }
+      }
+    }
+  },
+
   _processAccountDeletion: function(trans, accountId) {
     // Build a range that covers our family of keys where we use an
     // array whose first item is a string id that is a concatenation of
@@ -1243,7 +1398,7 @@ MailDB.prototype = evt.mix({
     trans.objectStore(TBL_SYNC_STATES).delete(accountStringPrefix);
 
     // Folders: Just delete by accountId
-    trans.objectStore(TBL_FOLDER_INFO).delete(accountId);
+    trans.objectStore(TBL_FOLDER_INFO).delete(accountStringPrefix);
 
     // Conversation: string ordering unicode tricks
     trans.objectStore(TBL_CONV_INFO).delete(accountStringPrefix);
@@ -1306,6 +1461,10 @@ MailDB.prototype = evt.mix({
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
+    // Correctness requires that we have a triggerManager, so this blind access
+    // and potentially resulting explosions are desired.
+    let derivedMutations = this.triggerManager.derivedMutations = [];
+
     // -- New / Added data
     let newData = data.newData;
     if (newData) {
@@ -1313,7 +1472,7 @@ MailDB.prototype = evt.mix({
         for (let accountDef of newData.accounts) {
           trans.objectStore(TBL_CONFIG)
             .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountDef.id);
-          this.emit('accounts!tocChange', accountDef.id, accountDef);
+          this.emit('accounts!tocChange', accountDef.id, accountDef, true);
         }
       }
       if (newData.folders) {
@@ -1322,7 +1481,7 @@ MailDB.prototype = evt.mix({
           let accountId = accountIdFromFolderId(folderInfo.id);
           store.put(folderInfo, folderInfo.id);
           this.emit(`acct!${accountId}!folders!tocChange`,
-                    folderInfo.id, folderInfo);
+                    folderInfo.id, folderInfo, true);
         }
       }
       if (newData.conversations) {
@@ -1360,6 +1519,33 @@ MailDB.prototype = evt.mix({
           trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState);
         }
       }
+    }
+
+    // -- Atomics
+    this._applyAtomics(trans, mutations);
+    if (derivedMutations.length) {
+      for (let derivedMut of derivedMutations) {
+        this._applyAtomics(trans, derivedMut);
+        // TODO: allow database triggers to contribute tasks too.
+      }
+    }
+    this.triggerManager.derivedMutations = null;
+
+    // -- Atomics-controlled writes
+    if (mutations) {
+      if (mutations.folders) {
+        let store = trans.objectStore(TBL_FOLDER_INFO);
+        for (let [folderId, folderInfo] of mutations.folders) {
+          let accountId = accountIdFromFolderId(folderId);
+          if (folderInfo !== null) {
+            store.put(folderInfo, folderId);
+          } else {
+            store.delete(folderId);
+          }
+          this.emit(`acct!${accountId}!folders!tocChange`,
+                    folderId, folderInfo, false);
+        }
+      }
 
       if (mutations.accounts) {
         // (This intentionally comes after all other mutation types and newData
@@ -1375,30 +1561,10 @@ MailDB.prototype = evt.mix({
             this._processAccountDeletion(trans, accountId);
           }
 
-          this.emit('accounts!tocChange', accountId, accountDef);
-        }
-      }
-
-      if (mutations.folders) {
-        let store = trans.objectStore(TBL_FOLDER_INFO);
-        for (let [folderId, folderInfo] of mutations.folders) {
-          let accountId = accountIdFromFolderId(folderId);
-          if (folderInfo !== null) {
-            store.put(folderInfo, folderId);
-          } else {
-            store.delete(folderId);
-          }
-          this.emit(`acct!${accountId}!folders!tocChange`,
-                    folderId, folderInfo);
+          this.emit('accounts!tocChange', accountId, accountDef, false);
         }
       }
     }
-
-    // -- Clobbers
-
-    // -- Trigger processing
-    // It's possible triggers fired.
-
 
     // -- Tasks
     // Update the task's state in the database.

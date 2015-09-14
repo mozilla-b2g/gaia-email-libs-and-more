@@ -3,10 +3,12 @@ define(function(require) {
 
 const logic = require('logic');
 
+const { accountIdFromFolderId } = require('../id_conversions');
+
 const { accountModules, engineTaskMappings } = require('../engine_glue');
 
-const AccountsTOC = require('./db/accounts_toc');
-const FoldersTOC = require('./db/folders_toc');
+const AccountsTOC = require('../db/accounts_toc');
+const FoldersTOC = require('../db/folders_toc');
 
 
 /**
@@ -38,26 +40,47 @@ function prereqify(mapPropName, func) {
 /**
  * Manages account instance life-cycles, and the TOC of accounts and the
  * per-account folder TOC's.
- *
- *
  */
-function AccountManager({ db, taskRegistry }) {
+function AccountManager({ db, universe, taskRegistry }) {
   logic.defineScope(this, 'AccountManager');
 
   this.db = db;
+  // We need to tell the DB about us so that it can synchronously lookup
+  // accounts and folders for atomicClobbers and atomicDeltas manipulations.
+  db.accountManager = this;
+  this.universe = universe;
   this.taskRegistry = taskRegistry;
 
   this.accountsTOC = new AccountsTOC();
 
+  // prereqify maps.
   this._taskTypeLoads = new Map();
-  this._accountFolderTOCLoads = new Map();
-
+  this._accountFoldersTOCLoads = new Map();
   this._accountLoads = new Map();
 
-  /** @type{Map<AccountId, FoldersTOC>} */
-  this.accountFoldersTOCs = new Map();
+  /**
+   * In the case of initial account creation, there will be an available
+   * connection that we can transfer directly to the account when it is created.
+   * Account creation calls `stashAccountConnection` on us and we put it in
+   * here until we here about the account and create it.
+   */
+  this._stashedConnectionsByAccountId = new Map();
 
-  this.db.on('accounts!tocChange', this._onAccountRemoved.bind(this));
+  /**
+   * @type{Map<AccountId, FoldersTOC>}
+   * Account FoldersTOCs keyed by accountId for use by methods that need
+   * synchronous access.  (Or debugging; it's a hassle to pull things out of
+   * the prereqify maps.)
+   */
+  this.accountFoldersTOCs = new Map();
+  /**
+   * @type{Map<AccountId, Account>}
+   * Accounts keyed by AccountId for use by methods that need synchronous
+   * access.  (Or debugging.)
+   */
+  this.accounts = new Map();
+
+  this.db.on('accounts!tocChange', this._onTOCChange.bind(this));
 }
 AccountManager.prototype = {
   /**
@@ -78,10 +101,13 @@ AccountManager.prototype = {
     let waitFor = [];
 
     for (let accountDef of accountDefs) {
-      waitFor.push(this._ensureTasksLoaded(accountDef.engine));
-      waitFor.push(this._ensureAccountFolderTOC(accountDef.id));
+      waitFor.push(this._accountAdded(accountDef));
     }
     return Promise.all(waitFor);
+  },
+
+  stashAccountConnection: function(accountId, conn) {
+    this._stashedConnectionsByAccountId.set(accountId, conn);
   },
 
   /**
@@ -98,118 +124,124 @@ AccountManager.prototype = {
     });
   }),
 
-  _ensureAccountFolderTOC: prereqify('_accountFolderTOCLoads',
+  /**
+   * Ensure the folders for the given account have been loaded from disk and the
+   * FoldersTOC accordingly initialized.
+   */
+  _ensureAccountFolderTOC: prereqify('_accountFoldersTOCLoads',
                                      function(accountId) {
-    return new Promise((resolve) => {
-
+    return this.db.loadFoldersByAccount(accountId).then((folders) => {
+      let foldersTOC = new FoldersTOC(folders);
+      this.accountFoldersTOCs.set(accountId, foldersTOC);
+      return foldersTOC;
     });
   }),
 
   /**
    * Ensure the given account has been loaded.
    */
-  _ensureAccount: function (accountId, receiveProtoConn) {
-    return new Promise((resolve) => {
+  _ensureAccount: prereqify('_accountLoads', function (accountId) {
+    return this._ensureAccountFolderTOC(accountId).then((foldersTOC) => {
+      return new Promise((resolve) => {
+        let accountDef = this.getAccountDefById(accountId);
+        require([accountModules.get(accountDef.type)], (accountConstructor) => {
+          let stashedConn = this._stashedConnectionsByAccountId.get(accountId);
+          this._stashedConnectionsByAccountId.delete(accountId);
 
-    });
-
-    let accountDef;
-    let promise = new Promise((resolve) => {
-      $acctcommon.accountTypeToClass(accountDef.type, (constructor) => {
-        if (!constructor) {
-          logic(this, 'badAccountType', { type: accountDef.type });
-          return;
-        }
-        let account = new constructor(this, accountDef, foldersTOC, this.db,
-                                      receiveProtoConn);
-
-        this._loadingAccountsById.delete(accountDef.id);
-        this._residentAccountsById.set(accountDef.id, account);
-
-        // - issue a (non-persisted) syncFolderList if needed
-        let timeSinceLastFolderSync =
-          Date.now() - account.meta.lastFolderSyncAt;
-        if (timeSinceLastFolderSync >= $syncbase.SYNC_FOLDER_LIST_EVERY_MS) {
-          this.syncFolderList(accountDef.id, 'loadAccount');
-        }
-
-        resolve(account);
+          let account = new accountConstructor(
+            this.universe, accountDef, foldersTOC, this.db, stashedConn);
+          this.accounts.set(accountId, account);
+          // If we're online, issue a syncFolderList task.
+          if (this.universe.online) {
+            this.universe.syncFolderList(accountId, 'loadAccount');
+          }
+          resolve(account);
+        });
       });
     });
-    this._loadingAccountsById.set(accountDef.id, promise);
-    return promise;
-  },
+  }),
 
   acquireAccount: function(ctx, accountId) {
-    return this._ensureAccount(accountId).then((account) => {
+    let account = this.accounts.get(accountId);
+    if (account) {
       return ctx.acquire(account);
-    });
-    if (this._residentAccountsById.has(accountId)) {
-      // If the account is already loaded, acquire it immediately.
-      let account = this._residentAccountsById.get(accountId);
-      return ctx.acquire(account);
-    } else if (this._loadingAccountsById.has(accountId)) {
-      // It's loading; wait on the promise and acquire it when the promise is
-      // resolved.
-      return this._loadingAccountsById.get(accountId).then((account) => {
-        return ctx.acquire(account);
-      });
-    } else {
-      // We need to trigger loading it ourselves and then help
-      let accountDef = this.accountsTOC.accountDefsById.get(accountId);
-      if (!accountDef) {
-        throw new Error('No accountDef with id: ' + accountId);
-      }
-      let foldersTOC = this.accountFoldersTOCs.get(accountId);
-      return this._loadAccount(accountDef, foldersTOC, null).then((account) => {
-        return ctx.acquire(account);
-      });
-      // (_loadAccount puts the promise in _loadingAccountsByID and clears it
-      // when it finishes)
     }
+    return this._ensureAccount(accountId).then((_account) => {
+      return ctx.acquire(_account);
+    });
   },
 
   acquireAccountFoldersTOC: function(ctx, accountId) {
     let foldersTOC = this.accountFoldersTOCs.get(accountId);
-    if (!foldersTOC) {
-      throw new Error('Account ' + accountId + ' lacks a foldersTOC!');
+    if (foldersTOC) {
+      return ctx.acquire(foldersTOC);
     }
-    return Promise.resolve(foldersTOC);
+    return this._ensureAccountFolderTOC(accountId).then((_foldersTOC) => {
+      return ctx.acquire(_foldersTOC);
+    });
   },
 
+  /**
+   * Return the AccountDef for the given AccountId.  This is only safe to call
+   * after the universe has fully loaded.
+   */
+  getAccountDefById: function(accountId) {
+    return this.accountsTOC.accountDefsById.get(accountId);
+  },
+
+  /**
+   * Return the FolderInfo for the given FolderId.  This is only safe to call
+   * after the universe has fully loaded.
+   */
+  getFolderById: function(folderId) {
+    let accountId = accountIdFromFolderId(folderId);
+    let foldersTOC = this.accountFoldersTOCs.get(accountId);
+    return foldersTOC.foldersbyId.get(folderId);
+  },
+
+  /**
+   * Our MailDB.on('accounts!tocChange') listener.
+   */
+  _onTOCChange: function(accountId, accountDef, isNew) {
+    if (isNew) {
+      // - Added
+      this._accountAdded(accountDef);
+    } else if (!accountDef) {
+      // - Removed
+      this._accountRemoved(accountId);
+    } else {
+      // - Changed
+      // Skip if we haven't reported the account to the TOC yet.  We can tell
+      // by the presence of the foldersTOC.  We don't defer the notification
+      // because our object identity rules mean that when the accountDef is
+      // reported it will be the most up-to-date representation available.
+      if (this.accountFoldersTOCs.has(accountId)) {
+        this.accountsTOC.__accountModified(accountDef);
+      }
+    }
+  },
 
   /**
    * When we find out about the existence of an account, ensure that the task
    * definitions are loaded for the account and that we initiate loads of the
-   * folders for the account.
+   * folders for the account.  The AccountsTOC is only notified about the
+   * account after these events have occurred.
    *
-   * Call this to tell the AccountsTOC about the existence of an account and
-   * create/remember the corresponding FoldersTOC.  This does not load the
-   * account.
-   *
-   * Returns the wireRep for the added account for the horrible benefit of
-   * saveAccountDef and the legacy MailAPI tryToCreateAccount signature.
+   * @returns {Promise}
+   *   A promise that's resolved onced our pre-reqs have completed loading and
+   *   we have announced the existence of the account via the AccountsTOC.
    */
-  _onAccountAdded: function(accountDef, folderInfo) {
+  _accountAdded: function(accountDef) {
     logic(this, 'accountExists', { accountId: accountDef.id });
 
-    this._ensureTasksLoaded(accountDef.engine);
+    let waitFor = [
+      this._ensureTasksLoaded(accountDef.engine),
+      this._ensureAccountFolderTOC(accountDef.id)
+    ];
 
-    // TODO: as noted above, these should really be doing lazy requires and
-    // registration as accounts demand to be loaded.  (Note: not particularly
-    // hard, but during current dev phase, we want to fail early, not lazily.)
-
-    this.taskRegistry.registerPerAccountTypeTasks(
-      'vanillaImap', vanillaImapTasks);
-    this.taskRegistry.registerPerAccountTypeTasks(
-      'activesync', activesyncTasks);
-    this.taskRegistry.registerPerAccountTypeTasks(
-      'pop3', pop3Tasks);
-
-
-    let foldersTOC = new FoldersTOC(folderInfo);
-    this.accountFoldersTOCs.set(accountDef.id, foldersTOC);
-    return this.accountsTOC.addAccount(accountDef);
+    return Promise.all(waitFor).then(() => {
+      this.accountsTOC.__addAccount(accountDef);
+    });
   },
 
   /**
@@ -217,29 +249,40 @@ AccountManager.prototype = {
    * a call to the AccountsTOC to notify it and clean-up the associated
    * FoldersTOC instance.
    */
-  _onAccountRemoved: function(accountId, accountDef) {
-    // We're actually subscribed to a TOC change; bail if the account isn't
-    // actually being removed.
-    if (accountDef) {
-      return;
-    }
-
-    let cleanupLiveAccount = (account) => {
-      this._residentAccountsById.delete(accountId);
-      account.shutdown();
+  _accountRemoved: function(accountId) {
+    // - Account cleanup
+    // (a helper is needed because a load could be pending)
+    let doAccountCleanup = () => {
+      let account = this.accounts.get(accountId);
+      this.accounts.delete(accountId);
+      this._accountLoads.delete(accountId);
+      if (account) {
+        account.shutdown();
+      }
     };
 
-    if (this._residentAccountsById.has(accountId)) {
-      let account = this._residentAccountsById.get(accountId);
-      cleanupLiveAccount(account);
-    } else if (this._loadingAccountsById.has(accountId)) {
-      this._loadAccountsById.get(accountId).then(cleanupLiveAccount);
+    if (this.accounts.has(accountId)) {
+      // We can cleanup immediately if the account is already loaded.
+      doAccountCleanup();
+    } else if (this._accountLoads.has(accountId)) {
+      // If a load is pending, wait for it to finish.
+      this._accountLoads.get(accountId).then(doAccountCleanup);
     }
 
-    this.accountsTOC.removeAccountById(accountId);
-    this.accountFoldersTOCs.delete(accountId);
+    // - Folder TOCs and Account TOC cleanup
+    let doFolderCleanup = () => {
+      this.accountFoldersTOCs.delete(accountId);
+      this._accountFoldersTOCLoads.delete(accountId);
+      // We don't announce the account to the TOC until the folder TOC loaded,
+      // so this is the right place to nuke.
+      this.accountsTOC.__removeAccountById(accountId);
+    };
+    if (this.accountFoldersTOCs.has(accountId)) {
+      doFolderCleanup();
+    } else if (this._accountFoldersTOCLoads.has(accountId)) {
+      this._accountFoldersTOCLoads.then(doFolderCleanup);
+    }
   },
-
 };
 return AccountManager;
 });

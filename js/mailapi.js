@@ -75,6 +75,10 @@ var unexpectedBridgeDataError = reportError,
 
 /**
  * The public API exposed to the client via the MailAPI global.
+ *
+ * TODO: Implement a failsafe timeout mechanism for returning Promises for
+ * requests that will timeout and reject or something.  The idea is to allow
+ * code that
  */
 function MailAPI() {
   evt.Emitter.call(this);
@@ -712,43 +716,6 @@ MailAPI.prototype = evt.mix({
         };
       }
     });
-
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'tryToCreateAccount',
-      u
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'tryToCreateAccount',
-      handle: handle,
-      details: details,
-      domainInfo: domainInfo
-    });
-  },
-
-  _recv_tryToCreateAccountResults:
-      function ma__recv_tryToCreateAccountResults(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for create account:', msg.handle);
-      return;
-    }
-    delete this._pendingRequests[msg.handle];
-
-    // (On failure, there is no account.)
-    if (msg.account) {
-      // Pull the account out of our automatically created accounts slice.  We
-      // guarantee that slice notification went out over the bridge prior to
-      // this notification so we can just pull it out of the slice.
-      // XXX THE ABOVE IS LIES!  THIS IS NOT CURRENTLY GUARANTEED!  I NEED TO
-      // FIX THIS!
-      this.accounts.eventuallyGetAccountById(msg.account.id).then((account) => {
-        req.callback.call(null, msg.error, msg.errorDetails, account);
-      });
-    } else {
-      req.callback.call(null, msg.error, msg.errorDetails, null);
-    }
   },
 
   _clearAccountProblems: function ma__clearAccountProblems(account, callback) {

@@ -174,7 +174,7 @@ These events provide the maximum amount of information possible to the listener.
 They also include the
 
 - `conv!*!add`: The conversation came into existence.  Arguments: [convInfo]
-- `conv!*!modify`: The conversation was modified.  Arguments: [convId, preInfo,
+- `conv!*!change`: The conversation was modified.  Arguments: [convId, preInfo,
   convInfo, added, kept, removed].
 
 ### Cache events ###

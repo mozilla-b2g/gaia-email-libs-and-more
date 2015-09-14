@@ -12,12 +12,14 @@ function FoldersViewSlice(api, handle) {
   // is a secret implementation right now, please do consider your risk profile
   // as you read this code and uncover its dark secrets.
   this.inbox = null;
-  var inboxListener = function(mailFolder) {
+  var inboxListener = (mailFolder) => {
     if (mailFolder.type === 'inbox') {
       this.inbox = mailFolder;
       this.removeListener('add', inboxListener);
+      this.emit('inbox', mailFolder);
     }
-  }.bind(this);
+  };
+  this.on('add', inboxListener);
 }
 FoldersViewSlice.prototype = Object.create(EntireListView.prototype);
 

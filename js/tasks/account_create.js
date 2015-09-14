@@ -5,7 +5,7 @@ const co = require('co');
 const TaskDefiner = require('../task_definer');
 
 const { encodeInt } = require('../a64');
-const { makeAccountDef, makeIdentity } = require('../db/accout_def_rep');
+const { makeAccountDef, makeIdentity } = require('../db/account_def_rep');
 
 const { configuratorModules, validatorModules } = require('../engine_glue');
 
@@ -78,18 +78,15 @@ return TaskDefiner.defineSimpleTask([
         return validationResult;
       }
 
-      let receiveProtoConn = validationResult.receiveProtoConn;
-      // TODO: we want to be passing this off to the account somehow, but
-      // with our normalized control flow, it's currently easiest to just drop
-      // the connection.  Probably the simplest way to deal with this is to add
-      // a method to the AccountManager to let us associate the connection with
-      // the account id prior to adding it to the database.
-      if (receiveProtoConn) {
-        receiveProtoConn.close();
-      }
-
+      // Allocate an id for the account now that it's a sure thing.
       let accountNum = ctx.universe.config.nextAccountNum;
       let accountId = encodeInt(accountNum);
+
+      // Hand-off the connection if one was returned.
+      if (validationResult.receiveProtoConn) {
+        ctx.universe.accountManager.stashAccountConnection(
+          accountId, validationResult.receiveProtoConn);
+      }
 
       let identity = makeIdentity({
         id: accountId + '.' + encodeInt(0),
