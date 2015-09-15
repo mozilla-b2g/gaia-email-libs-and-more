@@ -3,7 +3,8 @@ define(function(require) {
 
 const co = require('co');
 const logic = require('logic');
-const tcpSocket = require('tcp-socket');
+
+const probe = require('./probe');
 
 const { AUTOCONFIG_TIMEOUT_MS } = require('../syncbase');
 
@@ -11,55 +12,6 @@ const { raw_autodiscover, HttpError, AutodiscoverDomainError } =
   require('activesync/protocol');
 
 const scope = logic.scope('ActivesyncConfigurator');
-
-
-function checkServerCertificate(url, callback) {
-  var match = /^https:\/\/([^:/]+)(?::(\d+))?/.exec(url);
-  // probably unit test http case?
-  if (!match) {
-    callback(null);
-    return;
-  }
-  var port = match[2] ? parseInt(match[2], 10) : 443,
-      host = match[1];
-
-  console.log('checking', host, port, 'for security problem');
-
-  var sock = tcpSocket.open(host, port);
-  function reportAndClose(err) {
-    if (sock) {
-      var wasSock = sock;
-      sock = null;
-      try {
-        wasSock.close();
-      }
-      catch (ex) {
-        // nothing to do
-      }
-      callback(err);
-    }
-  }
-  // this is a little dumb, but since we don't actually get an event right now
-  // that tells us when our secure connection is established, and connect always
-  // happens, we write data when we connect to help trigger an error or have us
-  // receive data to indicate we successfully connected.
-  // so, the deal is that connect is going to happen.
-  sock.onopen = function() {
-    sock.send(
-      new TextEncoder('utf-8').encode('GET /images/logo.png HTTP/1.1\n\n'));
-  };
-  sock.onerror = function(err) {
-    var reportErr = null;
-    if (err && typeof(err) === 'object' &&
-        /^Security/.test(err.name)) {
-      reportErr = 'bad-security';
-    }
-    reportAndClose(reportErr);
-  };
-  sock.ondata = function(/*data*/) {
-    reportAndClose(null);
-  };
-}
 
 function getFullDetailsFromAutodiscover(userDetails, url) {
   return new Promise((resolve) => {
@@ -112,91 +64,64 @@ function getFullDetailsFromAutodiscover(userDetails, url) {
   });
 }
 
-
 /**
- * Validate the credentials and connection configurations for the given account.
- * This is currently used for account creation, but could also be used for
- * validating potentially more serious changes to an account, should we allow
- * more of the configuration to be changed than just the password.
+ * A combination of validation and filling in autodiscover blanks.
  *
- * Note that the credentials may be mutated in the case of oauth2, so this is
- * not some pure functional routine.
+ * There are 2 scenarios we can get invoked with:
+ * - Direct creation.  We already know the ActiveSync endpoint.  This happens
+ *   from a hardcoded (for testing) or local (hotmail.com/outlook.com)
+ *   autoconfig entry OR from a user typing that stuff in manually.
  *
- * Returns { engineFields, receiveProtoConn } on success, { error,
- * errorDetails } on failure.
+ * - Indirection creation.  We just know an AutoDiscover endpoint and need
+ *   to run AutoDiscover.  If our autoconfig process probed and found some
+ *   AutoDiscover looking endpoints, that's how we end up here.  It's also
+ *   conceivable that in the future the manual config mode could use this
+ *   path.
+ *
+ * In the indirect path we will run autodiscover and mutate connInfoFields.
+ * Alternately, we could arguably have done this during the configurator stage,
+ * but we're currently trying to keep the configurator stage offline-only with
+ * the validator as the spot the online stuff happens.
  */
-return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
-  let isImap = (typeFields.receiveType === 'imap');
+return co.wrap(function*(fragments) {
+  let { credentials, connInfoFields } = fragments;
+  // - Need to run an autodiscover?
+  if (connInfoFields.connInfo.autodiscoverEndpoint) {
+    let { error, errorDetails, fullConfigInfo } =
+      yield getFullDetailsFromAutodiscover(
+        credentials, connInfoFields.connInfo.autodiscoverEndpoint);
 
-  // - Dynamically load the required modules.
-  let receiveProbeId =  isImap ? '../imap/probe' : '../pop3/probe';
-
-  let [receiveProber, sendProber] = yield new Promise((resolve) => {
-    require(
-      [receiveProbeId, '../smtp/probe'],
-      (receiveMod, sendMod) => {
-        resolve([receiveMod, sendMod]);
-      });
-  });
-
-  // - Initiate the probes in parallel...
-  // Note: For OAUTH accounts, the credentials may be updated
-  // in-place if a new access token was required.  Our callers are required to
-  // be cool with this.
-  let receivePromise =
-    receiveProber.probeAccount(credentials, connInfoFields.receiveConnInfo);
-  let sendPromise =
-    sendProber.probeAccount(credentials, connInfoFields.sendConnInfo);
-  // ... but we don't have to process them in that order.
-
-  // - Process the receive probe results
-  let engineFields;
-  let protoConn;
-  // (the prober will throw any failure result)
-  try {
-    let receiveResults = yield receivePromise;
-
-    protoConn = receiveResults.conn;
-    if (isImap) {
-      engineFields = {
-        engine: receiveResults.engine,
-        engineDetails: {
-          capability: protoConn.capability
-        }
-      };
-    } else {
-      engineFields = {
-        engine: 'pop3',
-        engineDetails: {
-          preferredAuthMethod: protoConn.authMethod
-        }
-      };
+    if (error) {
+      return { error, errorDetails };
     }
-  } catch (err) {
-    return {
-      error: err,
-      errorDetails: { server: connInfoFields.receiveConnInfo.hostname }
+
+    fragments.credentials = credentials = {
+      username: fullConfigInfo.incoming.username,
+      password: credentials.password
+    };
+    connInfoFields.connInfo = {
+      server: fullConfigInfo.incoming.server,
+      deviceId: connInfoFields.connInfo.deviceId
     };
   }
+  // (now it's as if we were a fully specified direct creation)
 
-  try {
-    // We don't actually care about the return value, just that the probing
-    // didn't fail.
-    yield sendPromise;
-  } catch (err) {
-    // If we have an open connection, close it on the way out.
-    if (protoConn) {
-      protoConn.close();
-    }
-    return {
-      error: err,
-      errorDetails: { server: connInfoFields.sendConnInfo.hostname }
-    };
+  // - Run the probe!
+  let { conn, error, errorDetails } = yield probe({
+     connInfo: connInfoFields.connInfo,
+     credentials
+  });
+
+  if (error) {
+    return { error, errorDetails };
   }
 
   return {
-    engineFields,
-    receiveProtoConn: protoConn
+    engineFields: {
+      engine: 'activesync',
+      engineData: {}
+    },
+    receiveProtoConn: conn
   };
 });
 });
