@@ -46,7 +46,18 @@ rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst 
 
 OUR_JS_DEPS := $(rwildcard js/*.js)
 
-install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
+JS_FILES = $(shell find js -type f -name "*.js")
+JS_ES5 = $(patsubst js/%.js, build/%.js, $(JS_FILES))
+
+.PHONY: es5
+es5: $(JS_ES5)
+
+build/%.js: js/%.js
+	@mkdir -p "$(@D)"
+	./node_modules/.bin/babel -l es6.blockScoping $< -o $@
+
+.PHONY: install-into-gaia
+install-into-gaia: es5 gaia-symlink
 	rsync --delete -arv --exclude='.git' \
 	                    --exclude='.gitignore' \
 	                    --exclude='.gitmodules' \
@@ -58,11 +69,33 @@ install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
 	                    --exclude='NOTICE' \
 	                    --exclude='package.json' \
 	                    --exclude='README.*' \
+	                    --exclude='*.md' \
+	                    --exclude='examples' \
+	                    --exclude='test' \
+	                    --exclude='ext/rdplat' \
+	                    build/ gaia-symlink/apps/email/js/ext/
+
+# Non-babelify install, for cases where "let" is okay.
+.PHONY: let-install-into-gaia
+let-install-into-gaia: clean build gaia-symlink $(OUR_JS_DEPS)
+	rsync --delete -arv --exclude='.git' \
+	                    --exclude='.gitignore' \
+	                    --exclude='.gitmodules' \
+	                    --exclude='.jshintrc' \
+	                    --exclude='.travis.yml' \
+	                    --exclude='Gruntfile.js' \
+	                    --exclude='LICENSE' \
+	                    --exclude='Makefile' \
+	                    --exclude='NOTICE' \
+	                    --exclude='package.json' \
+	                    --exclude='README.*' \
+	                    --exclude='*.md' \
 	                    --exclude='examples' \
 	                    --exclude='test' \
 	                    --exclude='ext/rdplat' \
 	                    js/ gaia-symlink/apps/email/js/ext/
 
+.PHONY: build
 build: $(OUR_JS_DEPS)
 	git submodule update --init --recursive
 	node scripts/sync-js-ext-deps.js
@@ -192,6 +225,7 @@ autoconfig:
 
 
 clean:
+	rm -rf build
 	rm -rf data/deps
 	rm -rf node-transformed-deps
 
