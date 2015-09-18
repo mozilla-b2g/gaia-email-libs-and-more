@@ -105,10 +105,6 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    * expunging deleted messages.
    */
   this._TEST_doNotCloseFolder = false;
-
-  // Immediately ensure that we have any required local-only folders,
-  // as those can be created even while offline.
-  this.ensureEssentialOfflineFolders();
 }
 
 exports.Account = exports.ImapAccount = ImapAccount;
@@ -432,7 +428,6 @@ var properties = {
   },
 
   _bindConnectionDeathHandlers: function(conn) {
-
     conn.breakIdle(function() {
       conn.client.TIMEOUT_ENTER_IDLE = $syncbase.STALE_CONNECTION_TIMEOUT_MS;
       conn.client.onidle = function() {
@@ -498,230 +493,6 @@ var properties = {
     logic(this, 'connectionMismatch');
   },
 
-  //////////////////////////////////////////////////////////////////////////////
-  // Folder synchronization
-
-  /**
-   * A map of namespaces: { personal: { prefix: '', delimiter: '' }, ... }.
-   * Populated in _syncFolderComputeDeltas.
-   */
-  _namespaces: {
-    personal: { prefix: '', delimiter: '/' },
-    provisional: true
-  },
-
-  /**
-   * TODO: migrate this and its friends above into a helper like activesync's
-   * normalize_folder.js and then invoke it from the syncing task.
-   */
-  processFolderListUpdates: function(boxesRoot, namespaces) {
-    if (namespaces) {
-      this._namespaces = namespaces;
-    }
-    this._namespaces.provisional = false;
-
-    // - build a map of known existing folders
-    var folderPubsByPath = {};
-    var folderPub;
-    for (var iFolder = 0; iFolder < this.folders.length; iFolder++) {
-      folderPub = this.folders[iFolder];
-      folderPubsByPath[folderPub.path] = folderPub;
-    }
-
-    // - walk the boxes
-    let walkBoxes = (boxLevel, pathDepth, parentId) => {
-      boxLevel.forEach((box) => {
-        var meta;
-
-        var delim = box.delimiter || '/';
-
-         if (box.path.indexOf(delim) === 0) {
-          box.path = box.path.slice(delim.length);
-        }
-
-        var path = box.path;
-
-        // - normalize jerk-moves
-        var type = this._determineFolderType(box, path);
-
-        // gmail finds it amusing to give us the localized name/path of its
-        // inbox, but still expects us to ask for it as INBOX.
-        if (type === 'inbox') {
-          path = 'INBOX';
-        }
-
-        // - already known folder
-        if (folderPubsByPath.hasOwnProperty(path)) {
-          // Because we speculatively create the Inbox, both its display name
-          // and delimiter may be incorrect and need to be updated.
-          meta = folderPubsByPath[path];
-          meta.name = box.name;
-          meta.delim = delim;
-
-          logic(this, 'folder-sync:existing', {
-            type,
-            name: box.name,
-            path,
-            delim
-          });
-
-          // mark it with true to show that we've seen it.
-          folderPubsByPath[path] = true;
-        }
-        // - new to us!
-        else {
-          logic(this, 'folder-sync:add', {
-            type,
-            name: box.name,
-            path,
-            delim
-          });
-          meta = this._learnAboutFolder(box.name, path, path, parentId, type,
-                                        delim, pathDepth);
-        }
-
-        if (box.children) {
-          walkBoxes(box.children, pathDepth + 1, meta.id);
-        }
-      });
-    };
-
-    walkBoxes(boxesRoot.children, 0, null);
-
-    // - detect deleted folders
-    // track dead folder id's so we can issue a
-    for (var folderPath in folderPubsByPath) {
-      folderPub = folderPubsByPath[folderPath];
-      // (skip those we found above)
-      if (folderPub === true) {
-        continue;
-      }
-      // Never delete our localdrafts or outbox folder.
-      if (folderInfoRep.isTypeLocalOnly(folderPub.type)) {
-        continue;
-      }
-      logic(this, 'delete-dead-folder', {
-        folderType: folderPub.type,
-        folderId: folderPub.id
-      });
-      // It must have gotten deleted!
-      this._forgetFolder(folderPub.id);
-    }
-
-    // Once we've synchonized the folder list, kick off another job to
-    // check that we have all essential online folders. Once that
-    // completes, we'll check to make sure our offline-only folders
-    // (localdrafts, outbox) are in the right place according to where
-    // this server stores other built-in folders.
-    // XXX this stuff should be triggered by the task logic.
-    // XXX this stuff should also not be 100% disabled.
-    //this.ensureEssentialOnlineFolders();
-    //this.normalizeFolderHierarchy();
-  },
-
-  /**
-   * Ensure that local-only folders exist. This runs synchronously
-   * before we sync the folder list with the server. Ideally, these
-   * folders should reside in a proper place in the folder hierarchy,
-   * which may differ between servers depending on whether the
-   * account's other folders live underneath the inbox or as
-   * top-level-folders. But since moving folders is easy and doesn't
-   * really affect the backend, we'll just ensure they exist here, and
-   * fix up their hierarchical location when syncing the folder list.
-   */
-  ensureEssentialOfflineFolders: function() {
-    [ 'outbox', 'localdrafts' ].forEach(function(folderType) {
-      if (!this.getFirstFolderWithType(folderType)) {
-        this._learnAboutFolder(
-          /* name: */ folderType,
-          /* path: */ folderType,
-          /* serverPath */ null,
-          /* parentId: */ null,
-          /* type: */ folderType,
-          /* delim: */ '',
-          /* depth: */ 0,
-          /* suppressNotification: */ true);
-      }
-    }, this);
-  },
-
-  /**
-   * Kick off jobs to create essential folders (sent, trash) if
-   * necessary. These folders should be created on both the client and
-   * the server; contrast with `ensureEssentialOfflineFolders`.
-   *
-   * TODO: Support localizing all automatically named e-mail folders
-   * regardless of the origin locale.
-   * Relevant bugs: <https://bugzil.la/905869>, <https://bugzil.la/905878>.
-   *
-   * @param {function} callback
-   *   Called when all ops have run.
-   */
-  ensureEssentialOnlineFolders: function() {
-    var essentialFolders = { 'trash': 'Trash', 'sent': 'Sent' };
-    var latch = $allback.latch();
-
-    for (var type in essentialFolders) {
-      if (!this.getFirstFolderWithType(type)) {
-        this.universe.createFolder(
-          this.id, null, essentialFolders[type], type, false);
-      }
-    }
-  },
-
-  /**
-   * Ensure that local-only folders live in a reasonable place in the
-   * folder hierarchy by moving them if necessary.
-   *
-   * We proactively create local-only folders at the root level before
-   * we synchronize with the server; if possible, we want these
-   * folders to reside as siblings to other system-level folders on
-   * the account. This is called at the end of syncFolderList, after
-   * we have learned about all existing server folders.
-   */
-  normalizeFolderHierarchy: $acctmixins.normalizeFolderHierarchy,
-
-  /**
-   * Asynchronously save the sent message to the sent folder, if applicable.
-   * This should only be called once the SMTP send has completed.
-   *
-   * If non-gmail, append a bcc-including version of the message into the sent
-   * folder.  For gmail, the SMTP server automatically copies the message into
-   * the sent folder so we don't need to do this.
-   *
-   * There are several notable limitations with the current implementation:
-   * - We do not write a copy of the message into the sent folder locally, so
-   *   the message must be downloaded/synchronized for the user to see it.
-   * - The operation to append the message does not get persisted to disk, so
-   *   in the event the app crashes or is closed, a copy of the message will
-   *   not end up in the sent folder.  This has always been the emergent
-   *   phenomenon for IMAP, except previously we would persist the operation
-   *   and then mark it moot at 'check' time.  Our new technique of not saving
-   *   the operation is preferable for disk space reasons.  (NB: We could
-   *   persist it, but the composite Blob we build would be flattened which
-   *   could generate an I/O storm, cause temporary double-storage use, etc.)
-   */
-  saveSentMessage: function(composer) {
-    if (this.sentMessagesAutomaticallyAppearInSentFolder) {
-      return;
-    }
-
-    composer.withMessageBlob({ includeBcc: true }, function(blob) {
-      var message = {
-        messageText: blob,
-        // do not specify date; let the server use its own timestamping
-        // since we want the approximate value of 'now' anyways.
-        flags: ['\\Seen'],
-      };
-
-      var sentFolder = this.getFirstFolderWithType('sent');
-      if (sentFolder) {
-        this.universe.appendMessages(sentFolder.id,
-                                     [message]);
-      }
-    }.bind(this));
-  },
-
   shutdown: function(callback) {
     this._backoffEndpoint.shutdown();
 
@@ -770,5 +541,4 @@ for (var k in properties) {
   Object.defineProperty(ImapAccount.prototype, k,
                         Object.getOwnPropertyDescriptor(properties, k));
 }
-
 }); // end define

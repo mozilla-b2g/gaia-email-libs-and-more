@@ -1,10 +1,13 @@
 define(function(require) {
 'use strict';
 
-let evt = require('evt');
-let logic = require('logic');
+const evt = require('evt');
+const logic = require('logic');
 
-let { bsearchForInsert } = require('../util');
+const { bsearchForInsert } = require('../util');
+
+const { encodeInt: encodeA64Int } = require('../a64');
+const { decodeSpecificFolderIdFromFolderId } = require('../id_conversions');
 
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
@@ -45,24 +48,21 @@ function strcmp(a, b) {
  * ordered things by our crazy sort priority.  Now we use the sort priority here
  * in the back-end and expose that to the front-end too.
  */
-function FoldersTOC(foldersDbState) {
+function FoldersTOC(db, accountId, folders) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'FoldersTOC');
 
-  this._foldersDbState = foldersDbState;
-
-  this.meta = foldersDbState.meta;
-
+  this.accountId = accountId;
   /**
    * Canonical folder state representation.  This is what goes in the database.
    * @type {Map<FolderId, FolderInfo>}
    */
-  this.foldersById = foldersDbState.folders;
+  this.foldersById = new Map();
 
   /**
    * Ordered list of the folders.
    */
-  this.items = [];
+  this.items = this.folders = [];
   /**
    * Parallel ordering array to items; the contents are the folder sort strings
    * corresponding to the folder at the same index.
@@ -74,10 +74,22 @@ function FoldersTOC(foldersDbState) {
    */
   this.folderSortStrings = [];
 
-
-  for (let folderInfo of this.foldersById.values()) {
-    this.addFolder(folderInfo);
+  let nextFolderNum = 0;
+  for (let folderInfo of folders) {
+    this._addFolder(folderInfo);
+    nextFolderNum =
+      Math.max(
+        nextFolderNum,
+        decodeSpecificFolderIdFromFolderId(folderInfo.id) + 1);
   }
+
+  // See `issueFolderId` for the sordid details.
+  this._nextFolderNum = nextFolderNum;
+
+  // TODO: on account deletion we should be removing this listener, but this
+  // is a relatively harmless leak given that account creation and deletion is
+  // a relatively rare operation.
+  db.on(`acct!${accountId}!folders!tocChange`, this._onTOCChange.bind(this));
 }
 FoldersTOC.prototype = evt.mix({
   type: 'FoldersTOC',
@@ -90,6 +102,56 @@ FoldersTOC.prototype = evt.mix({
 
   __release: function() {
     // nothing to do
+  },
+
+  /**
+   * Someone needs to allocate folder id's (that are namespaced by the account
+   * id), and we are it.  Using `_deriveNextFolderId`, we determine the high
+   * specific folder id portion and convert it to a number and add one.
+   *
+   * There are other ways of doing this.  We used to store all folders in a
+   * single per-account aggregate object with an explicit "meta" field.  Since
+   * the folders are logically orthogonal and dealing with them independently
+   * normalizes our handling of them, the meta field no longer had a home.  The
+   * options were:
+   * - This.  Rely on the fact that the folders are all in-memory all the time
+   *   and so we can reliably choose an id without collision and can allocate
+   *   id's in O(1) time following a one-off O(n) scan we were basically already
+   *   doing.  The downside is that our "high water mark" is inherently not
+   *   persisted, so if a folder is added and deleted and we restart and
+   *   re-derive id's, we will reissue the id.  This really only matters to
+   *   logging.
+   * - Store the information in the account data which is also always-in-memory
+   *   and therefore something we can manipulate using our atomicClobbers
+   *   construct.  This is roughly what we do for account id allocation,
+   *   except in that case it's sitting on the global config object.  I'm still
+   *   not 100% happy with that, but the situation is somewhat different
+   *   because:
+   *   - The global config object is relatively boring and has very little in
+   *     it.  Most settings are per-account.  This is relevant because it means
+   *     that there is little chance for database triggers to be interested in
+   *     the configuration.
+   *   - Reuse of account id's is undesirable for paranoia reasons related to
+   *     the database.  Also, there is useful debugging information in the
+   *     account id's as they are directly correlated with user actions (but
+   *     without having serious privacy implications.)  If a user reports a
+   *     problem where logs show an extremely high account id, we know something
+   *     very buggy is going on or the user may be a QA tester in disguise! ;)
+   * - Store the information in some other data structure.  The best option
+   *   would be an atomicClobber-able structure that just holds a lot of id's.
+   *   This may still be the best way forward.  The worst option is a structure
+   *   that is loaded on-demand and thus precludes atomic manipulations.  The
+   *   ActiveSync implementation temporarily used its account-level sync-state
+   *   since it already needed it for mapping purposes.  But this potentially
+   *   could induce blocking against an online task if insufficiently careful
+   *   (we like sync tasks to be able to hold their sync states exclusively
+   *   while doing online things), so was not desirable.
+   *
+   * It's definitely okay to revisit this informed by time and implementation
+   * regret.
+   */
+  issueFolderId: function() {
+    return this.accountId + '.' + encodeA64Int(this._nextFolderNum++);
   },
 
   getAllItems: function() {
@@ -114,6 +176,20 @@ FoldersTOC.prototype = evt.mix({
     return this._makeFolderSortString(parentFolderInfo) + '!' +
            FOLDER_TYPE_TO_SORT_PRIORITY[folderInfo.type] + '!' +
            folderInfo.name.toLocaleLowerCase();
+  },
+
+  _onTOCChange: function(folderId, folderInfo, isNew) {
+    if (isNew) {
+      // - add
+      this._addFolder(folderInfo);
+    } else if (folderInfo) {
+      // - change
+      // object identity ensures folderInfo is already present.
+      this.emit('change', folderInfo, this.items.indexOf(folderInfo));
+    } else {
+      // - remove
+      this._removeFolderById(folderId);
+    }
   },
 
   _addFolder: function(folderInfo) {

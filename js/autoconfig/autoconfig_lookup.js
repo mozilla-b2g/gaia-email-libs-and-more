@@ -517,17 +517,17 @@ Autoconfigurator.prototype = {
         resolve({ result: result, source: source, configInfo: configInfo });
       };
       // Call this if we can't find a configuration.
-      var failsafeFailure = (err) => {
-        logic(this, 'autoconfig:end', { err: {
-          message: err && err.message,
-          stack: err && err.stack
+      var failsafeFailure = (error) => {
+        logic(this, 'autoconfig:end', { error: {
+          message: error && error.message,
+          stack: error && error.stack
         }});
         resolve({ result: 'no-config-info', configInfo: null });
       };
 
       // Helper that turns a rejection into a null and outputs a log entry.
-      var coerceRejectionToNull = (err) => {
-        logic(scope, 'autoconfig:coerceRejection', { err: err });
+      var coerceRejectionToNull = (error) => {
+        logic(scope, 'autoconfig:coerceRejection', { error });
         return null;
       };
 

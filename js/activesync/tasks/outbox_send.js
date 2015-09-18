@@ -28,7 +28,7 @@ return TaskDefiner.defineComplexTask([
       try {
         conn = yield account.ensureConnection();
       } catch (ex) {
-        return { err: ex.message };
+        return { error: ex.message };
       }
 
       let mimeBlob = composer.superBlob;
@@ -43,10 +43,10 @@ return TaskDefiner.defineComplexTask([
           yield* sendMail12x(conn, { mimeBlob, progress });
         }
       } catch (ex) {
-        return { err: ex.message };
+        return { error: ex.message };
       }
 
-      return { err: null };
+      return { error: null };
     }),
   }
 ]);

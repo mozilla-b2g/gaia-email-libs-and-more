@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 92;
+const CUR_VERSION = 99;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -31,7 +31,7 @@ const CUR_VERSION = 92;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 86;
+const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 94;
 
 /**
  * The configuration table contains configuration data that should persist

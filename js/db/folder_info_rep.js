@@ -28,6 +28,8 @@ define(function() {
  *   server.  This will be null if the folder is local-only.  When we eventually
  *   support folder renames, this may potentially be different from the `path`
  *   until we replay the move against the server.
+ * @property {String} [delim]
+ *   The delimiter to be used when constructing paths for child folders.
  * @property {number} depth
  *   The depth of the folder in the folder tree.  This is useful since the
  *   folders are stored as a flattened list, so attempts to display the folder
@@ -64,6 +66,7 @@ function makeFolderMeta(raw) {
     path: raw.path || null,
     serverPath: raw.serverPath || null,
     parentId: raw.parentId || null,
+    delim: raw.delim || null,
     depth: raw.depth || 0,
     syncGranularity: raw.syncGranularity || null,
     lastSuccessfulSyncAt: raw.lastSuccessfulSyncAt || 0,

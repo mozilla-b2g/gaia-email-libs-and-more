@@ -292,7 +292,9 @@ MailBridge.prototype = {
   _cmd_viewAccounts: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'AccountsView');
 
-    ctx.proxy = new EntireListProxy(this.universe.accountsTOC, ctx);
+    let toc = yield this.universe.acquireAccountsTOC(ctx);
+
+    ctx.proxy = new EntireListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
   }),

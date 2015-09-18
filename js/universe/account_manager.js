@@ -131,7 +131,7 @@ AccountManager.prototype = {
   _ensureAccountFolderTOC: prereqify('_accountFoldersTOCLoads',
                                      function(accountId) {
     return this.db.loadFoldersByAccount(accountId).then((folders) => {
-      let foldersTOC = new FoldersTOC(folders);
+      let foldersTOC = new FoldersTOC(this.db, accountId, folders);
       this.accountFoldersTOCs.set(accountId, foldersTOC);
       return foldersTOC;
     });
@@ -160,6 +160,10 @@ AccountManager.prototype = {
       });
     });
   }),
+
+  acquireAccountsTOC: function(ctx) {
+    return ctx.acquire(this.accountsTOC);
+  },
 
   acquireAccount: function(ctx, accountId) {
     let account = this.accounts.get(accountId);

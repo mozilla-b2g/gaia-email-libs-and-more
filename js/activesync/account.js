@@ -1,7 +1,7 @@
 /**
  * Implements the ActiveSync protocol for Hotmail and Exchange.
  **/
-
+// XXX update the AMD idiom used
 define(
   [
     'logic',
@@ -15,8 +15,7 @@ define(
     '../util',
     '../db/folder_info_rep',
     'module',
-    'require',
-    'exports'
+    'require'
   ],
   function(
     logic,
@@ -28,47 +27,21 @@ define(
     $util,
     $folder_info,
     $module,
-    require,
-    exports
+    require
   ) {
 'use strict';
 
 // Lazy loaded vars.
 var $wbxml, $asproto, ASCP;
 
-var DEFAULT_TIMEOUT_MS = exports.DEFAULT_TIMEOUT_MS = 30 * 1000;
-
-/**
- * Randomly create a unique device id so that multiple devices can independently
- * synchronize without interfering with each other.  Our only goals are to avoid
- * needlessly providing fingerprintable data and avoid collisions with other
- * instances of ourself.  We're using Math.random over crypto.getRandomValues
- * since node does not have the latter right now and predictable values aren't
- * a concern.
- *
- * @return {String} An multi-character ASCII alphanumeric sequence.  (Probably
-     10 or 11 digits.)
- */
-exports.makeUniqueDeviceId = function() {
-  return Math.random().toString(36).substr(2);
-};
+// XXX pull out of syncbase instead
+var DEFAULT_TIMEOUT_MS = 30 * 1000;
 
 function ActiveSyncAccount(universe, accountDef, foldersTOC, dbConn,
                            receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
-
-  // Transparent upgrade; allocate a device-id if we don't have one.  By doing
-  // this we avoid forcing the user to manually re-create the account.  And the
-  // current migration system would throw away any saved drafts, which is not
-  // desirable.  The common thing in all cases is that we will need to re-sync
-  // the folders.
-  // XXX remove this upgrade logic when we next compel a version upgrade (and do
-  // so safely.)
-  if (!accountDef.connInfo.deviceId) {
-    accountDef.connInfo.deviceId = exports.makeUniqueDeviceId();
-  }
 
   this._db = dbConn;
 
@@ -97,13 +70,7 @@ function ActiveSyncAccount(universe, accountDef, foldersTOC, dbConn,
   this._syncsInProgress = 0;
   this._lastSyncKey = null;
   this._lastSyncResponseWasEmpty = false;
-
-  // Mix in any fields common to all accounts.
-  $acctmixins.accountConstructorMixin.call(
-    this, /* receivePiece = */ this, /* sendPiece = */ this);
 }
-
-exports.Account = exports.ActiveSyncAccount = ActiveSyncAccount;
 ActiveSyncAccount.prototype = {
   type: 'activesync',
   supportsServerFolders: true,
@@ -322,25 +289,6 @@ ActiveSyncAccount.prototype = {
   },
 
   /**
-   * Kick off jobs to create essential folders (sent, trash) if
-   * necessary. These folders should be created on both the client and
-   * the server; contrast with `ensureEssentialOfflineFolders`.
-   *
-   * TODO: Support localizing all automatically named e-mail folders
-   * regardless of the origin locale.
-   * Relevant bugs: <https://bugzil.la/905869>, <https://bugzil.la/905878>.
-   *
-   * @param {function} callback
-   *   Called when all ops have run.
-   */
-  ensureEssentialOnlineFolders: function(callback) {
-    // Our ActiveSync implementation currently assumes that all
-    // ActiveSync servers always come with Sent and Trash folders. If
-    // that assumption proves false, we'd add them here like IMAP.
-    callback && callback();
-  },
-
-  /**
    * Ensure that local-only folders live in a reasonable place in the
    * folder hierarchy by moving them if necessary.
    *
@@ -370,4 +318,5 @@ ActiveSyncAccount.prototype = {
   allOperationsCompleted: function() {
   }
 };
+return ActiveSyncAccount;
 }); // end define

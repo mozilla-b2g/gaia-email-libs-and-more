@@ -2,9 +2,7 @@ define(function(require, exports) {
 'use strict';
 
 let log = require('rdcommon/log');
-let $a64 = require('../a64');
 let $acctmixins = require('../accountmixins');
-let $folder_info = require('../db/folder_info_rep');
 
 
 /**
@@ -40,51 +38,6 @@ function CompositeIncomingAccount(
   this.foldersTOC = foldersTOC;
   // this is owned by the TOC.  Do not mutate!
   this.folders = this.foldersTOC.items;
-
-  /**
-   * @dict[
-   *   @param[nextFolderNum Number]{
-   *     The next numeric folder number to be allocated.
-   *   }
-   *   @param[nextMutationNum Number]{
-   *     The next mutation id to be allocated.
-   *   }
-   *   @param[lastFolderSyncAt DateMS]{
-   *     When was the last time we ran `syncFolderList`?
-   *   }
-   *   @param[capability @listof[String]]{
-   *     The post-login capabilities from the server.
-   *   }
-   *   @param[overflowMap @dictof[
-   *     @key[uidl String]
-   *     @value[@dict[
-   *       @key[size Number]
-   *     ]]
-   *   ]]{
-   *     The list of messages that will NOT be downloaded by a sync
-   *     automatically, but instead need to be fetched with a "Download
-   *     more messages..." operation. (POP3 only.)
-   *   }
-   *   @param[uidlMap @dictof[
-   *     @key[uidl String]
-   *     @value[headerID String]
-   *   ]]{
-   *     A mapping of UIDLs to message header IDs. (POP3 only.)
-   *   }
-   * ]{
-   *   Meta-information about the account derived from probing the account.
-   *   This information gets flushed on database upgrades.
-   * }
-   */
-  this.meta = foldersTOC.meta;
-
-  // Ensure we have an inbox.  This is a folder that must exist with a standard
-  // name, so we can create it without talking to the server.
-  var inboxFolder = this.getFirstFolderWithType('inbox');
-  if (!inboxFolder) {
-    this._learnAboutFolder(
-      'INBOX', 'INBOX', 'INBOX', null, 'inbox', '/', 0, true);
-  }
 }
 exports.CompositeIncomingAccount = CompositeIncomingAccount;
 CompositeIncomingAccount.prototype = {
@@ -95,43 +48,6 @@ CompositeIncomingAccount.prototype = {
   getFolderByPath: $acctmixins.getFolderByPath,
   saveAccountState: $acctmixins.saveAccountState,
   runAfterSaves: $acctmixins.runAfterSaves,
-
-  /**
-   * Make a given folder known to us, creating state tracking instances, etc.
-   *
-   * @param {Boolean} suppressNotification
-   *   Don't report this folder to subscribed slices.  This is used in cases
-   *   where the account has not been made visible to the front-end yet and/or
-   *   syncFolderList hasn't yet run, but something subscribed to the "all
-   *   accounts" unified folder slice could end up seeing something before it
-   *   should.  This is a ret-con'ed comment, so maybe do some auditing before
-   *   adding new call-sites that use this, especially if it's not used for
-   *   offline-only folders at account creation/app startup.
-   */
-  _learnAboutFolder: function(name, path, serverPath, parentId, type, delim,
-                              depth) {
-    let folderId = this.id + '.' + $a64.encodeInt(this.meta.nextFolderNum++);
-    let folderInfo =
-      $folder_info.makeFolderMeta({
-        id: folderId,
-        name,
-        type,
-        path,
-        serverPath,
-        parentId,
-        delim,
-        depth,
-        lastSyncedAt: 0
-      });
-
-    this.foldersTOC.addFolder(folderInfo);
-
-    return folderInfo;
-  },
-
-  _forgetFolder: function(folderId) {
-    this.foldersTOC.removeFolderById(folderId);
-  },
 
   /**
    * We receive this notification from our _backoffEndpoint.
@@ -195,7 +111,7 @@ exports.LOGFAB_DEFINITION = {
       opError: { mode: false, type: false, ex: log.EXCEPTION },
     },
     asyncJobs: {
-      checkAccount: { err: null },
+      checkAccount: { error: null },
       runOp: { mode: true, type: true, error: true, op: false },
       saveAccountState: { reason: true, folderSaveCount: true },
     },

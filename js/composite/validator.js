@@ -62,9 +62,9 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
         }
       };
     }
-  } catch (err) {
+  } catch (error) {
     return {
-      error: err,
+      error,
       errorDetails: { server: connInfoFields.receiveConnInfo.hostname }
     };
   }
@@ -73,13 +73,13 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
     // We don't actually care about the return value, just that the probing
     // didn't fail.
     yield sendPromise;
-  } catch (err) {
+  } catch (error) {
     // If we have an open connection, close it on the way out.
     if (protoConn) {
       protoConn.close();
     }
     return {
-      error: err,
+      error,
       errorDetails: { server: connInfoFields.sendConnInfo.hostname }
     };
   }

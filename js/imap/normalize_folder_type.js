@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-function determineFolderType(box, path) {
+return function normalizeFolderType(box, path, namespaces) {
   var attribs = (box.flags || []).map(function(flag) {
     return flag.substr(1).toUpperCase(); // Map "\\Noselect" => "NOSELECT"
   });
@@ -76,8 +76,8 @@ function determineFolderType(box, path) {
     // heuristic based type assignment based on the name
     if (!type) {
       // ensure that we treat folders at the root, see bug 854128
-      var prefix = this._namespaces.personal[0] &&
-            this._namespaces.personal[0].prefix;
+      var prefix = namespaces.personal[0] &&
+            namespaces.personal[0].prefix;
       var isAtNamespaceRoot = path === (prefix + box.name);
       // If our name is our path, we are at the absolute root of the tree.
       // This will be the case for INBOX even if there is a namespace.
@@ -119,7 +119,5 @@ function determineFolderType(box, path) {
     }
   }
   return type;
-},
-
-
+};
 });

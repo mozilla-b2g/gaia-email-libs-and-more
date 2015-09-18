@@ -65,7 +65,7 @@ exports.encodeInt = encodeInt;
  * Get a JS Number back from a prior call to encodeInt.  This is not
  * particularly optimized; we just use decodeUI64 and call parseInt on that.
  */
-exports.decodeInt = function(es) {
+exports.decodeA64Int = function(es) {
   return parseInt(exports.decodeUI64(es), 10);
 };
 

@@ -3,6 +3,8 @@ define(function(require) {
 
 let co = require('co');
 
+const { makeFolderMeta } = require('../../db/folder_info_rep');
+
 const { shallowClone } = require('../../util');
 
 /**
@@ -15,18 +17,74 @@ const { shallowClone } = require('../../util');
  * takes a hit for now.
  *
  * Consumers must provide:
- * - this.syncFolders(ctx, account)
- * - one of the following to handle offline folders:
- *   - this.ensureEssentialOfflineFolders(ctx, account) [preferred]
- *   - account.ensureEssentialOfflineFolders() [lazy legacy]
+ * - this.syncFolders(ctx, account) returning { modifiedFolders, newFolders,
+ *   newTasks }.  This method is responsible for generating deltas to the
+ *   current set of folders to reflect the current server state.  If there are
+ *   missing online folders, this function should provide tasks in newTasks
+ *
+ * Consumers may provide, clobbering the default implementation:
+ * - this.ensureEssentialOfflineFolders(ctx, account) returning {
+ *   modifiedFolders, newFolders }.  Note that you can also just clobber
+ *   essentialOfflineFolders if you need less/more.  *do not mutate it* because
+ *   the rep is shared.
  *
  * In the case of POP3 where the server has no concept of folders, all folders
  * are offline folders and the planning stage is smart enough to realize it
  * should conclude the task after planning.
+ *
+ * XXX this implementation should probably be moved into the global tasks
+ * location.
  */
 return {
   name: 'sync_folder_list',
   args: ['accountId'],
+
+  essentialOfflineFolders: [
+    // The inbox is special; we are creating it so that we have an id for it
+    // even before we talk to the server.  This makes life easier for UI
+    // logic even in weird account creation setups.  The one trick is that
+    // the normalizeFolder function and our online step have to be clever to
+    // fix-up this speculative folder to be a real folder.
+    {
+      type: 'inbox',
+      // A previous comment indicated the title-case is intentional, although
+      // I think our l10n hacks don't care nor does our fixup logic.
+      displayName: 'Inbox'
+    },
+    {
+      type: 'outbox',
+      displayName: 'outbox'
+    },
+    {
+      type: 'localdrafts',
+      displayName: 'localdrafts'
+    }
+  ],
+
+  ensureEssentialOfflineFolders: function(ctx, account) {
+    let foldersTOC = account.foldersTOC;
+    let newFolders = [];
+
+    for (let desired of this.essentialOfflineFolders) {
+      if (foldersTOC.getCanonicalFolderByType(desired.type) === null) {
+        newFolders.push(makeFolderMeta({
+          id: foldersTOC.issueFolderId(),
+          serverId: null,
+          name: desired.displayName,
+          type: desired.type,
+          path: desired.displayName,
+          serverPath: null,
+          parentId: null,
+          depth: 0,
+          lastSyncedAt: 0
+        }));
+      }
+    }
+
+    return Promise.resolve({
+      newFolders
+    });
+  },
 
   /**
    * Ensure offline folders.
@@ -43,24 +101,17 @@ return {
     ];
 
     let account = yield ctx.universe.acquireAccount(ctx, rawTask.accountId);
-    let mutations = {}, didMutateFolders;
-    if (this.ensureEssentialOfflineFolders) {
-      didMutateFolders =
-        yield this.ensureEssentialOfflineFolders(ctx, account, mutations);
-    } else {
-      // TODO: normalize these to happen in-task too, ideally with reused logic.
-      account.ensureEssentialOfflineFolders();
-      didMutateFolders = true;
-    }
 
-    if (didMutateFolders) {
-      mutations.folders = new Map([
-        [account.id, account.foldersTOC.generatePersistenceInfo()]
-      ]);
-    }
+    let { newFolders, modifiedFolders } =
+      yield this.ensureEssentialOfflineFolders(ctx, account);
 
     yield ctx.finishTask({
-      mutations,
+      mutations: {
+        folders: modifiedFolders
+      },
+      newData: {
+        folders: newFolders
+      },
       // If we don't have an execute method, we're all done already. (POP3)
       taskState: this.execute ? decoratedTask : null
     });
@@ -69,7 +120,8 @@ return {
   execute: co.wrap(function*(ctx, planned) {
     let account = yield ctx.universe.acquireAccount(ctx, planned.accountId);
 
-    yield* this.syncFolders(ctx, account);
+    let { modifiedFolders, newFolders, newTasks, modifiedSyncStates } =
+      yield* this.syncFolders(ctx, account);
 
     // XXX migrate ensureEssentialOnlineFolders to be something the actual
     // instance provides and that we convert into a list of create_folder tasks.
@@ -83,15 +135,13 @@ return {
 
     yield ctx.finishTask({
       mutations: {
-        folders: new Map([
-          [account.id, account.foldersTOC.generatePersistenceInfo()]
-        ]),
+        folders: modifiedFolders,
+        syncStates: modifiedSyncStates
       },
-      /*
       newData: {
-        tasks: ...
+        folders: newFolders,
+        tasks: newTasks
       },
-      */
       // all done!
       taskState: null
     });

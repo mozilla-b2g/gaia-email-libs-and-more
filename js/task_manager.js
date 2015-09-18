@@ -135,8 +135,9 @@ TaskManager.prototype = evt.mix({
    * means the TaskManager has or will soon have work to do and so we need to
    * stay awake.
    */
-  _ensureWakeLock: function() {
+  _ensureWakeLock: function(why) {
     if (!this._activeWakeLock) {
+      logic(this, 'ensureWakeLock', { why });
       this._activeWakeLock = new SmartWakeLock({ locks: ['cpu'] });
     } else {
       this._activeWakeLock.renew('TaskManager:ensure');
@@ -187,7 +188,7 @@ TaskManager.prototype = evt.mix({
    *   towards v3 undo support.  This may be removed.
    */
   scheduleTasks: function(rawTasks, why) {
-    this._ensureWakeLock();
+    this._ensureWakeLock(why);
     let wrappedTasks = this.__wrapTasks(rawTasks);
 
     logic(this, 'schedulePersistent', { why: why, tasks: wrappedTasks });
@@ -236,7 +237,7 @@ TaskManager.prototype = evt.mix({
    * In general you don't want to be calling this.
    */
   scheduleNonPersistentTasks: function(rawTasks, why) {
-    this._ensureWakeLock();
+    this._ensureWakeLock(why);
     let wrappedTasks = this.__wrapTasks(rawTasks);
     logic(this, 'scheduleNonPersistent', { why: why, tasks: wrappedTasks });
 
@@ -260,9 +261,9 @@ TaskManager.prototype = evt.mix({
    * interactive.
    */
   scheduleNonPersistentTaskAndWaitForPlannedResult: function(rawTask, why) {
-    return this.taskManager.scheduleNonPersistentTasks([rawTask], why)
+    return this.scheduleNonPersistentTasks([rawTask], why)
     .then((taskIds) => {
-      return this.taskManager.waitForTasksToBePlanned(taskIds);
+      return this.waitForTasksToBePlanned(taskIds);
     }).then((results) => {
       return results[0];
     });
@@ -281,9 +282,9 @@ TaskManager.prototype = evt.mix({
    * interactive.
    */
   scheduleNonPersistentTaskAndWaitForExecutedResult: function(rawTask, why) {
-    return this.taskManager.scheduleNonPersistentTasks([rawTask], why)
+    return this.scheduleNonPersistentTasks([rawTask], why)
     .then((taskIds) => {
-      return this.taskManager.waitForTasksToBeExecuted(taskIds);
+      return this.waitForTasksToBeExecuted(taskIds);
     }).then((results) => {
       return results[0];
     });
@@ -396,9 +397,9 @@ TaskManager.prototype = evt.mix({
     this._activePromise.then(() => {
       this._activePromise = null;
       this._maybeDoStuff();
-    }, (err) => {
+    }, (error) => {
       this._activePromise = null;
-      logic(this, 'taskError', { err: err, stack: err.stack });
+      logic(this, 'taskError', { error, stack: error.stack });
       this._maybeDoStuff();
     });
   },

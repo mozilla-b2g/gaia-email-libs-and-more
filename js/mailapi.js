@@ -1,4 +1,4 @@
-define(function(require, exports, module) {
+define(function(require, exports) {
 'use strict';
 
 var logic = require('logic');
@@ -12,7 +12,6 @@ const addressparser = require('./ext/addressparser');
 const evt = require('evt');
 
 const MailAccount = require('./clientapi/mail_account');
-const MailSenderIdentity = require('./clientapi/mail_sender_identity');
 const MailFolder = require('./clientapi/mail_folder');
 
 const MailConversation = require('./clientapi/mail_conversation');
@@ -310,7 +309,7 @@ MailAPI.prototype = evt.mix({
    * (Someday it may also be rejected if we lose the back-end.)
    */
   _sendPromisedRequest: function(sendMsg) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       let handle = sendMsg.handle = this._nextHandle++;
       this._pendingRequests[handle] = {
         type: sendMsg.type,
@@ -353,9 +352,10 @@ MailAPI.prototype = evt.mix({
         type: itemType,
         id: itemId,
         callback: (msg) => {
-          if (msg.err || !msg.data) {
-            throw new Error('suspicious suspicion');
-            reject(msg.err);
+          if (msg.error || !msg.data) {
+            reject(
+              new Error('track problem, error: ' + msg.error + ' has data?: ' +
+                        !!msg.data));
             return;
           }
 
@@ -372,7 +372,8 @@ MailAPI.prototype = evt.mix({
         type: 'getItemAndTrackUpdates',
         handle: handle,
         itemType: itemType,
-        itemId: itemId
+        itemId: itemId,
+        priorityTags
       });
       return handle;
     });
@@ -677,8 +678,8 @@ MailAPI.prototype = evt.mix({
    *   ]]
    *   @param[callback @func[
    *     @args[
-   *       @param[err AccountCreationError]
-   *       @param[errDetails @dict[
+   *       @param[error AccountCreationError]
+   *       @param[errorDetails @dict[
    *         @key[server #:optional String]{
    *           The server we had trouble talking to.
    *         }
@@ -703,16 +704,16 @@ MailAPI.prototype = evt.mix({
         return this.accounts.eventuallyGetAccountById(result.accountId).then(
           (account) => {
             return {
-              err: null,
-              errDetails: null,
+              error: null,
+              errorDetails: null,
               account
             };
           }
         );
       } else {
         return {
-          err: result.err,
-          errDetails: result.errDetails
+          error: result.error,
+          errorDetails: result.errorDetails
         };
       }
     });
@@ -896,23 +897,8 @@ MailAPI.prototype = evt.mix({
    *   ]]
    * ]
    */
-  searchFolderMessages:
-      function ma_searchFolderMessages(folder, text, whatToSearch) {
-    var handle = this._nextHandle++,
-        slice = new HeadersViewSlice(this, handle, 'matchedHeaders');
-    // the initial population counts as a request.
-    slice.pendingRequestCount++;
-    this._slices[handle] = slice;
-
-    this.__bridgeSend({
-      type: 'searchFolderMessages',
-      folderId: folder.id,
-      handle: handle,
-      phrase: text,
-      whatToSearch: whatToSearch,
-    });
-
-    return slice;
+  searchFolderMessages: function (folder, text, whatToSearch) {
+    // XXX OLD
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1086,7 +1072,7 @@ MailAPI.prototype = evt.mix({
     // this.  we may need to revisit semantics somewhat, since this is mainly
     // about moving deferred tasks immediately back into the "go" bucket and
     // maybe re-scheduling drafts we had given up on.
-    // TODO: clera up what to do here.
+    // TODO: clear up what to do here.
   },
 
   /**
@@ -1137,8 +1123,9 @@ MailAPI.prototype = evt.mix({
 
     req.undoableOp._tempHandle = null;
     req.undoableOp._longtermIds = msg.longtermIds;
-    if (req.undoableOp._undoRequested)
+    if (req.undoableOp._undoRequested) {
       req.undoableOp.undo();
+    }
 
     if (req.callback) {
       req.callback(msg.result);
@@ -1303,8 +1290,9 @@ MailAPI.prototype = evt.mix({
       type: 'localizedStrings',
       strings: strings
     });
-    if (strings.folderNames)
+    if (strings.folderNames) {
       this.l10n_folder_names = strings.folderNames;
+    }
   },
 
   /**
@@ -1322,8 +1310,9 @@ MailAPI.prototype = evt.mix({
       if ((type === lowerName) ||
           (type === 'drafts') ||
           (type === 'junk') ||
-          (type === 'queue'))
+          (type === 'queue')) {
         return this.l10n_folder_names[type];
+      }
     }
     return name;
   },
@@ -1338,8 +1327,9 @@ MailAPI.prototype = evt.mix({
    */
   modifyConfig: function(mods) {
     for (var key in mods) {
-      if (LEGAL_CONFIG_KEYS.indexOf(key) === -1)
+      if (LEGAL_CONFIG_KEYS.indexOf(key) === -1) {
         throw new Error(key + ' is not a legal config key!');
+      }
     }
     this.__bridgeSend({
       type: 'modifyConfig',
@@ -1392,8 +1382,9 @@ MailAPI.prototype = evt.mix({
   },
 
   debugSupport: function(command, argument) {
-    if (command === 'setLogging')
+    if (command === 'setLogging') {
       this.config.debugLogging = argument;
+    }
     this.__bridgeSend({
       type: 'debugSupport',
       cmd: command,
@@ -1403,5 +1394,4 @@ MailAPI.prototype = evt.mix({
 
   //////////////////////////////////////////////////////////////////////////////
 });
-
 }); // end define

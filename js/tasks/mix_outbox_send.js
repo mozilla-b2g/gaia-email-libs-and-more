@@ -151,7 +151,7 @@ return {
     messageInfo.folderIds = [outboxFolder.id];
     // Reset the sending problems; we'll assume the user fixed things.
     messageInfo.draftInfo.sendProblems = {
-      err: null,
+      error: null,
       badAddresses: null,
       sendFailures: 0
     };
@@ -351,7 +351,7 @@ return {
     });
 
     // -- Perform the send.
-    let { err: sendErr, badAddresses } =
+    let { error: sendError, badAddresses } =
       yield this.sendMessage(ctx, account, composer);
 
     // -- Acquire the message and conversation for exclusive mutation.
@@ -370,9 +370,9 @@ return {
     let newTasks = [];
     let modifyMessages = new Map();
     let modifyConversations = new Map();
-    if (sendErr) {
+    if (sendError) {
       // -- On error, update draftInfo and re-churn.
-      switch (sendErr) {
+      switch (sendError) {
         // Bad messages and bad addresses are persistent failures.
         case 'bad-message':
         case 'bad-address':
@@ -399,7 +399,7 @@ return {
 
       messageInfo.draftInfo.sendProblems = {
         state: 'error',
-        err: sendErr,
+        error: sendError,
         badAddresses,
       };
     } else {

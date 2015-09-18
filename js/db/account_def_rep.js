@@ -94,6 +94,8 @@ function makeAccountDef({ infra, credentials, prefFields, typeFields,
   for (let key of Object.keys(connInfoFields)) {
     def[key] = connInfoFields[key];
   }
+
+  return def;
 }
 
 function makeIdentity(raw) {
@@ -105,30 +107,6 @@ function makeIdentity(raw) {
     signature: raw.signature,
     signatureEnabled: raw.signatureEnabled
   };
-}
-
-/**
- * Recreate the array of identities for a given account.
- *
- * @param universe the MailUniverse
- * @param accountId the ID for this account
- * @param oldIdentities an array of the old identities
- * @return the new identities
- */
-function recreateIdentities(universe, accountId, oldIdentities) {
-  var identities = [];
-  for (var iter in Iterator(oldIdentities)) {
-    var oldIdentity = iter[1];
-    identities.push({
-      id: accountId + '.' + $a64.encodeInt(universe.config.nextIdentityNum++),
-      name: oldIdentity.name,
-      address: oldIdentity.address,
-      replyTo: oldIdentity.replyTo,
-      signature: oldIdentity.signature,
-      signatureEnabled: oldIdentity.signatureEnabled
-    });
-  }
-  return identities;
 }
 
 return {

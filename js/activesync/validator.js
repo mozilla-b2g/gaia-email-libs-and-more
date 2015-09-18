@@ -39,7 +39,7 @@ function getFullDetailsFromAutodiscover(userDetails, url) {
           else if (error instanceof AutodiscoverDomainError) {
             logic(scope, 'autodiscover.error', { message: error.message });
           }
-          logic(scope, 'autodiscover:end', { url: url, err: failureType });
+          logic(scope, 'autodiscover:end', { url: url, error: failureType });
           resolve({
             error: failureType,
             errorDetails: failureDetails

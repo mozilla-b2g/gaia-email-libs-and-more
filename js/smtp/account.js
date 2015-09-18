@@ -123,17 +123,17 @@ SmtpAccount.prototype = {
          */
         onSendComplete: function(/* conn */) {
           slog.log('smtp:sent');
-          resolve({ err: null });
+          resolve({ error: null });
         },
         /**
          * The send failed.
          */
-        onError: function(err, badAddresses) {
+        onError: function(error, badAddresses) {
           slog.error('smtp:error', {
-            error: err,
+            error,
             badAddresses: badAddresses
           });
-          resolve({ err, badAddresses });
+          resolve({ error, badAddresses });
         }
       });
     });

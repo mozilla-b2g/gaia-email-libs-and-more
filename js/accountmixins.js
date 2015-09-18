@@ -2,30 +2,6 @@ define(function(require, exports) {
 'use strict';
 
 /**
- * Account Mixins:
- *
- * This mixin function is executed from the constructor of the
- * CompositeAccount and ActiveSyncAccount, with 'this' being bound to
- * the main account instance. If the account has separate receive/send
- * parts, they are passed as arguments. (ActiveSync's receive and send
- * pieces merely reference the root account.)
- */
-exports.accountConstructorMixin = function(receivePiece, sendPiece) {
-  // The following flags are set on the receivePiece, because the
-  // receiving side is what manages the job operations (and sending
-  // messages from the outbox is a job).
-
-  // On startup, we need to ignore any stale sendStatus information
-  // from messages in the outbox. See `sendOutboxMessages` in
-  // jobmixins.js.
-  receivePiece.outboxNeedsFreshSync = true;
-  // This is a runtime flag, used to temporarily prevent
-  // `sendOutboxMessages` from executing, such as when the user is
-  // actively trying to edit the list of messages in the Outbox.
-  receivePiece.outboxSyncEnabled = true;
-};
-
-/**
  * Return the folder metadata for the first folder with the given type, or null
  * if no such folder exists.
  */
@@ -69,6 +45,10 @@ exports.getFolderById = function(id) {
  * folders to reside as siblings to other system-level folders on
  * the account. This is called at the end of syncFolderList, after
  * we have learned about all existing server folders.
+ *
+ * TODO: move this into mix_sync_folder_list as a common helper in execute that
+ * triggers only when the underlying logic changed something and idempotently
+ * ensures the paths of the folders.
  */
 exports.normalizeFolderHierarchy = function() {
   // Find a folder for which we'd like to become a sibling.

@@ -1,10 +1,23 @@
-define(function() {
+define(function(require) {
 'use strict';
+
+const { decodeA64Int } = require('./a64');
 
 return {
   // From Folder Id's
   accountIdFromFolderId: function(folderId) {
     return folderId.split(/\./g, 1)[0];
+  },
+
+  /**
+   * Return the JS Number that the folder-specific portion of the folder id
+   * represents.  Specifically, we've got "<account portion>.<folder portion>",
+   * and folder portion has been a64 encodeInt'ed.  We pick out that portion
+   * and decode it back to a Number.
+   */
+  decodeSpecificFolderIdFromFolderId(folderId) {
+    let idxFirst = folderId.indexOf('.');
+    return decodeA64Int(folderId.substring(idxFirst + 1));
   },
 
   // -- From Conversation Id's

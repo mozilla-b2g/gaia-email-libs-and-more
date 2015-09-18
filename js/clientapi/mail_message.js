@@ -149,7 +149,7 @@ MailMessage.prototype = evt.mix({
 
     // Messages in the outbox will have `sendProblems` populated like so:
     // {
-    //   err: null,
+    //   error: null,
     //   badAddresses: null,
     //   sendFailures: 2
     // }

@@ -24,8 +24,7 @@ define(
     $imapacct,
     $pop3acct,
     $smtpacct,
-    allback,
-    exports
+    allback
   ) {
 'use strict';
 
@@ -90,15 +89,7 @@ function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
 
   // expose public lists that are always manipulated in place.
   this.folders = this._receivePiece.folders;
-  // foldersTOC is a getter; both work.
-  this.meta = this._receivePiece.meta;
-
-  // Mix in any fields common to all accounts.
-  $acctmixins.accountConstructorMixin.call(
-    this, this._receivePiece, this._sendPiece);
 }
-
-exports.Account = exports.CompositeAccount = CompositeAccount;
 CompositeAccount.prototype = {
   toString: function() {
     return '[CompositeAccount: ' + this.id + ']';
@@ -253,5 +244,5 @@ CompositeAccount.prototype = {
     }
   }
 };
-
+return CompositeAccount;
 }); // end define

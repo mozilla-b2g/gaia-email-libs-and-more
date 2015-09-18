@@ -30,7 +30,7 @@ return TaskDefiner.defineSimpleTask([
       // Run autoconfig.
       let result = yield autoconfigLookup(planned.userDetails);
       // Formally complete the task.
-      yield ctx.finishTask();
+      yield ctx.finishTask({});
       // Return the autoconfig result.
       return result;
     })

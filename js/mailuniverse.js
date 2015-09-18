@@ -4,7 +4,6 @@ define(function(require) {
 const logic = require('logic');
 const slog = require('./slog');
 const MailDB = require('./maildb');
-const $allback = require('./allback');
 
 const AccountManager = require('./universe/account_manager');
 
@@ -31,7 +30,7 @@ const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
  * especially as we push more of our implementation into helpers that live in
  * the `universe` subdirectory.
  */
-function MailUniverse(callAfterBigBang, online, testOptions) {
+function MailUniverse(online, testOptions) {
   logic.defineScope(this, 'Universe');
   this._initialized = false;
 
@@ -52,7 +51,8 @@ function MailUniverse(callAfterBigBang, online, testOptions) {
 
   this.accountManager = new AccountManager({
     db: this.db,
-    taskTregistry: this.taskRegistry
+    universe: this,
+    taskRegistry: this.taskRegistry
   });
   this.taskManager = new TaskManager({
     universe: this,
@@ -157,7 +157,7 @@ MailUniverse.prototype = {
       throw new Error('misuse');
     }
     this._initialized = 'initializing';
-    return this.db.getConfig(({ config, accountDefs, carryover }) => {
+    return this.db.getConfig().then(({ config, accountDefs, carryover }) => {
       if (config) {
         return this._initFromConfig({ config, accountDefs });
       }
@@ -178,7 +178,7 @@ MailUniverse.prototype = {
         this.db.saveConfig(freshConfig);
 
         return this._initFromConfig({
-          config,
+          config: freshConfig,
           accountDefs: [],
           tasksToPlan: migrationTasks
         });
@@ -207,7 +207,9 @@ MailUniverse.prototype = {
         return this.taskManager.__restoreFromDB();
       })
       .then(() => {
-        this.taskManager.scheduleTasks(tasksToPlan, 'initFromConfig');
+        if (tasksToPlan) {
+          this.taskManager.scheduleTasks(tasksToPlan, 'initFromConfig');
+        }
         return this;
       });
 
@@ -300,11 +302,15 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Resource Acquisition stuff
 
+  acquireAccountsTOC: function(ctx) {
+    return this.accountManager.acquireAccountsTOC(ctx);
+  },
+
   /**
    * Acquire an account.
    */
   acquireAccount: function(ctx, accountId) {
-    return this._accountManager.acquireAccount(ctx, accountId);
+    return this.accountManager.acquireAccount(ctx, accountId);
   },
 
   /**
@@ -315,7 +321,7 @@ MailUniverse.prototype = {
    * counting, etc.  However, we conform to the idiom.
    */
   acquireAccountFoldersTOC: function(ctx, accountId) {
-    return this._accountManager.acquireAccountFoldersTOC(ctx, accountId);
+    return this.accountManager.acquireAccountFoldersTOC(ctx, accountId);
   },
 
   acquireFolderConversationsTOC: function(ctx, folderId) {

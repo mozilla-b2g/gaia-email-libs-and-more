@@ -1,15 +1,26 @@
-/**
- * Configurator for activesync
- **/
-
-define(function(require) {
+define(function() {
 'use strict';
 
-const { makeUniqueDeviceId } = require('./account');
+/**
+ * Randomly create a unique device id so that multiple devices can independently
+ * synchronize without interfering with each other.  Our only goals are to avoid
+ * needlessly providing fingerprintable data and avoid collisions with other
+ * instances of ourself.  We're using Math.random over crypto.getRandomValues
+ * since node does not have the latter right now and predictable values aren't
+ * a concern.
+ *
+ * @return {String}
+ *   A multi-character ASCII alphanumeric sequence.  (Probably 10 or 11 digits.)
+ */
+function makeUniqueDeviceId() {
+  return Math.random().toString(36).substr(2);
+}
 
 /**
  * Consuming userDetails and domainInfo, create the account-specific account
- * definition fragments.
+ * definition fragments.  ActiveSync really only has an endpoint, so there isn't
+ * much going on in here.  The main tricky thing is that we still might need
+ * to run autodiscover; see the validator for more details on that.
  */
 return function(userDetails, domainInfo) {
   let deviceId = makeUniqueDeviceId();

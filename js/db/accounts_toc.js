@@ -40,6 +40,17 @@ function AccountsTOC() {
 }
 AccountsTOC.prototype = evt.mix({
   type: 'AccountsTOC',
+
+  // We don't care about who references us because we have the lifetime of the
+  // universe.
+  __acquire: function() {
+    return Promise.resolve(this);
+  },
+
+  __release: function() {
+    // nothing to do
+  },
+
   isKnownAccount: function(accountId) {
     return this.accountDefsById.has(accountId);
   },
