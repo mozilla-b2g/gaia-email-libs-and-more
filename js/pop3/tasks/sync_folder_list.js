@@ -10,7 +10,7 @@ return TaskDefiner.defineSimpleTask([
   require('../../imap/vanilla_tasks/mix_sync_folder_list'),
   {
     essentialOfflineFolders: [
-      // (these are the same as in mix_sync_folder_list)
+      // Note that versus IMAP, our inbox is offline.
       {
         type: 'inbox',
         displayName: 'Inbox'

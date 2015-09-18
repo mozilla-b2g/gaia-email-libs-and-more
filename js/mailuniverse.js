@@ -34,7 +34,10 @@ function MailUniverse(online, testOptions) {
   logic.defineScope(this, 'Universe');
   this._initialized = false;
 
-  this.db = new MailDB(testOptions);
+  this.db = new MailDB({
+    universe: this,
+    testOptions
+  });
 
   this._bridges = [];
 

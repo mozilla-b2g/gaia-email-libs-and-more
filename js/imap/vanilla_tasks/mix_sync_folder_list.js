@@ -23,6 +23,9 @@ const { shallowClone } = require('../../util');
  *   missing online folders, this function should provide tasks in newTasks
  *
  * Consumers may provide, clobbering the default implementation:
+ * - this.essentialOfflineFolders: A list of folder definitions for offline
+ *   folders.  Alternately, the next method can be implemented instead, mooting
+ *   this.
  * - this.ensureEssentialOfflineFolders(ctx, account) returning {
  *   modifiedFolders, newFolders }.  Note that you can also just clobber
  *   essentialOfflineFolders if you need less/more.  *do not mutate it* because
@@ -39,6 +42,9 @@ return {
   name: 'sync_folder_list',
   args: ['accountId'],
 
+  // XXX these are IMAP-specific; these should stay here in an IMAP sub-mix-in
+  // (these work for gmail too), while most everything else wants to go into a
+  // global mix-in soup.  see higher level comment.
   essentialOfflineFolders: [
     // The inbox is special; we are creating it so that we have an id for it
     // even before we talk to the server.  This makes life easier for UI
@@ -49,7 +55,12 @@ return {
       type: 'inbox',
       // A previous comment indicated the title-case is intentional, although
       // I think our l10n hacks don't care nor does our fixup logic.
-      displayName: 'Inbox'
+      displayName: 'Inbox',
+      // IMAP wants this to be at INBOX.  And the other account types don't
+      // care.
+      path: 'INBOX',
+      // The IMAP inbox is an online folder that must exist by definition.
+      serverPath: 'INBOX'
     },
     {
       type: 'outbox',
@@ -72,8 +83,8 @@ return {
           serverId: null,
           name: desired.displayName,
           type: desired.type,
-          path: desired.displayName,
-          serverPath: null,
+          path: desired.path || desired.displayName,
+          serverPath: desired.serverPath || null,
           parentId: null,
           depth: 0,
           lastSyncedAt: 0

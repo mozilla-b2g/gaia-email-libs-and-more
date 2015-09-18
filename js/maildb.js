@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 100;
+const CUR_VERSION = 104;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -31,7 +31,7 @@ const CUR_VERSION = 100;
  * Note that this type of upgrade can still be EXTREMELY DANGEROUS because it
  * may blow away user actions that haven't hit a server yet.
  */
-const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 94;
+const FRIENDLY_LAZY_DB_UPGRADE_VERSION = 104;
 
 /**
  * The configuration table contains configuration data that should persist
@@ -429,10 +429,11 @@ function genericCachedLookups(store, requestMap, cache) {
  *   ]]
  * ]
  */
-function MailDB(testOptions) {
+function MailDB({ universe, testOptions }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'MailDB');
 
+  this.universe = universe;
   this._db = null;
   /**
    * @type {TriggerManager}
@@ -769,11 +770,14 @@ MailDB.prototype = evt.mix({
       let dbReqCount = 0;
 
       // -- In-memory lookups
+      if (requests.config) {
+        requests.config = this.universe.config;
+      }
       if (requests.accounts) {
         let accountReqs = requests.accounts;
         for (let accountId of accountReqs.keys()) {
           accountReqs.set(
-            accountId, this.accountManager.getAccountById(accountId));
+            accountId, this.accountManager.getAccountDefById(accountId));
         }
       }
       if (requests.folders) {
@@ -1320,6 +1324,12 @@ MailDB.prototype = evt.mix({
     let { atomicDeltas, atomicClobbers } = atomics;
     const accountManager = this.accountManager;
     if (atomicDeltas) {
+      if (atomicDeltas.config) {
+        if (!rootMutations.config) {
+          rootMutations.config = this.universe.config;
+        }
+        applyDeltasToObj(atomicDeltas.config, rootMutations.config);
+      }
       if (atomicDeltas.accounts) {
         if (!rootMutations.accounts) {
           rootMutations.accounts = new Map();
@@ -1344,6 +1354,12 @@ MailDB.prototype = evt.mix({
       }
     }
     if (atomicClobbers) {
+      if (atomicClobbers.config) {
+        if (!rootMutations.config) {
+          rootMutations.config = this.universe.config;
+        }
+        applyClobbersToObj(atomicClobbers.config, rootMutations.config);
+      }
       if (atomicClobbers.accounts) {
         if (!rootMutations.accounts) {
           rootMutations.accounts = new Map();
@@ -1566,6 +1582,11 @@ MailDB.prototype = evt.mix({
 
           this.emit('accounts!tocChange', accountId, accountDef, false);
         }
+      }
+
+      if (mutations.config) {
+        trans.objectStore(TBL_CONFIG).put(mutations.config, 'config');
+        this.emit('config', mutations.config);
       }
     }
 

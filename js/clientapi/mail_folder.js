@@ -31,8 +31,10 @@ MailFolder.prototype = evt.mix({
 
     this.localUnreadConversations = wireRep.localUnreadConversations;
 
-    this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
-                                             : null;
+    let datify = (maybeDate) => (maybeDate ? new Date(maybeDate) : null);
+
+    this.lastSuccessfulSyncAt = datify(wireRep.lastSuccessfulSyncAt);
+    this.lastAttemptedSyncAt = datify(wireRep.lastAttemptedSyncAt);
     this.path = wireRep.path;
     this.id = wireRep.id;
 

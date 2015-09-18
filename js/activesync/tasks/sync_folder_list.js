@@ -16,6 +16,25 @@ const enumerateHierarchyChanges = require('../smotocol/enum_hierarchy_changes');
 return TaskDefiner.defineSimpleTask([
   require('../../imap/vanilla_tasks/mix_sync_folder_list'),
   {
+    essentialOfflineFolders: [
+      // Although the inbox is an online folder, we aren't daring enough to
+      // predict its server id, so it will be fixed up later, so we just
+      // leave it starting out as offline.  (For Microsoft servers, I believe
+      // the inbox does have a consistent guid, but we can't assume Microsoft.)
+      {
+        type: 'inbox',
+        displayName: 'Inbox'
+      },
+      {
+        type: 'outbox',
+        displayName: 'outbox'
+      },
+      {
+        type: 'localdrafts',
+        displayName: 'localdrafts'
+      },
+    ],
+
     syncFolders: function*(ctx, req) {
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let foldersTOC = account.foldersTOC;

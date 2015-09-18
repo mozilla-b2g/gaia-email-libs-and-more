@@ -119,7 +119,7 @@ return TaskDefiner.defineSimpleTask([
         },
         atomicClobbers: {
           config: {
-            nextAccoutNum: accountNum + 1
+            nextAccountNum: accountNum + 1
           }
         }
       });
