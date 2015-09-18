@@ -1,5 +1,7 @@
-define(function() {
+define(function(require) {
 'use strict';
+
+const logic = require('logic');
 
 /**
  * Helps the trigger implementations be clean and have a chance of being
@@ -15,6 +17,7 @@ define(function() {
  * TODO: either expose logging in here or in MailDB.
  */
 function TriggerManager({ db, triggers }) {
+  logic.defineScope(this, 'TriggerManager');
   this.db = db;
   db.triggerManager = this;
 
@@ -35,6 +38,7 @@ function TriggerManager({ db, triggers }) {
 }
 TriggerManager.prototype = {
   _triggerMutate: function(triggerName, dict) {
+    logic(this, 'triggerMutate', { triggerName, dict });
     if (this.derivedMutations) {
       this.derivedMutations.push(dict);
     }

@@ -29,7 +29,7 @@ MailFolder.prototype = evt.mix({
     // Hold on to wireRep for caching
     this._wireRep = wireRep;
 
-    this.unread = wireRep.unreadCount;
+    this.localUnreadConversations = wireRep.localUnreadConversations;
 
     this.lastSyncedAt = wireRep.lastSyncedAt ? new Date(wireRep.lastSyncedAt)
                                              : null;

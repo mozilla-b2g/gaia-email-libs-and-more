@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 99;
+const CUR_VERSION = 100;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -1298,16 +1298,16 @@ MailDB.prototype = evt.mix({
    * will be in-memory before any tasks are allowed to run.  The AccountManager
    * is in charge of them, so we ask it for the fields.
    *
-   * @param {Object} atomicMutations
+   * @param {Object} atomics
    *   The atomic manipulations to perform.  This could be the same as
    *   rootMutations if specified by the task, or could be a separate object
    *   contributed by a database trigger implementation.
-   * @param {Object} [atomicMutations.atomicDeltas]
-   * @param {Object} [atomicMutations.atomicDeltas.accounts]
-   * @param {Object} [atomicMutations.atomicDeltas.folders]
-   * @param {Object} [atomicMutations.atomicClobbers]
-   * @param {Object} [atomicMutations.atomicClobbers.accounts]
-   * @param {Object} [atomicMutations.atomicClobbers.folders]
+   * @param {Object} [atomics.atomicDeltas]
+   * @param {Object} [atomics.atomicDeltas.accounts]
+   * @param {Object} [atomics.atomicDeltas.folders]
+   * @param {Object} [atomics.atomicClobbers]
+   * @param {Object} [atomics.atomicClobbers.accounts]
+   * @param {Object} [atomics.atomicClobbers.folders]
    * @param {Object} rootMutations
    *   The root mutations object passed to finishMutate.  In order to create
    *   a unified set of writes, we will manipulate existing accounts and folders
@@ -1316,8 +1316,8 @@ MailDB.prototype = evt.mix({
    *   AccountManager-owned object identities are maintained.  (Which is on the
    *   task/caller.)
    */
-  _applyAtomics: function(atomicMutations, rootMutations) {
-    let { atomicDeltas, atomicClobbers } = atomicMutations;
+  _applyAtomics: function(atomics, rootMutations) {
+    let { atomicDeltas, atomicClobbers } = atomics;
     const accountManager = this.accountManager;
     if (atomicDeltas) {
       if (atomicDeltas.accounts) {
@@ -1519,13 +1519,16 @@ MailDB.prototype = evt.mix({
           trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState);
         }
       }
+    } else {
+      // atomics potentially need this.
+      mutations = {};
     }
 
     // -- Atomics
-    this._applyAtomics(trans, mutations);
+    this._applyAtomics(data, mutations);
     if (derivedMutations.length) {
       for (let derivedMut of derivedMutations) {
-        this._applyAtomics(trans, derivedMut);
+        this._applyAtomics(derivedMut, mutations);
         // TODO: allow database triggers to contribute tasks too.
       }
     }
@@ -1596,7 +1599,9 @@ MailDB.prototype = evt.mix({
 // emitting events.
 MailDB.prototype._emit = MailDB.prototype.emit;
 MailDB.prototype.emit = function(eventName) {
-  logic(this, 'emit', { name: eventName });
+  var listeners = this._events[eventName];
+  var listenerCount = listeners ? listeners.length : 0;
+  logic(this, 'emit', { name: eventName, listenerCount });
   this._emit.apply(this, arguments);
 };
 MailDB.prototype._on = MailDB.prototype.on;

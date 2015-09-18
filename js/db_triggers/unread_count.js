@@ -64,7 +64,7 @@ return {
         // - The conversation is newly unread
         // The changes in folder id's don't matter, all that matters is now.
         // That's right, inspirational code comments.  You saw them here first.
-        applyDelta(convId.folderIds, 1);
+        applyDelta(convInfo.folderIds, 1);
       } else {
         // - The conversation was already unread and is still unread
         // We just need to compensate for changes to the set of folder id's.

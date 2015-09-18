@@ -200,7 +200,7 @@ AccountManager.prototype = {
   getFolderById: function(folderId) {
     let accountId = accountIdFromFolderId(folderId);
     let foldersTOC = this.accountFoldersTOCs.get(accountId);
-    return foldersTOC.foldersbyId.get(folderId);
+    return foldersTOC.foldersById.get(folderId);
   },
 
   /**

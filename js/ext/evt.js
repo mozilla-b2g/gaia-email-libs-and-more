@@ -157,6 +157,7 @@
             // This also means we do not need to .catch()
             // for the wrapping promise.
             setTimeout(function() {
+              console.error('evt eating error:', e, e.stack);
               throw e;
             });
           }
