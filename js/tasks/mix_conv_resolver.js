@@ -27,9 +27,9 @@ function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
 
   let headerIdLookupRequests = new Map();
   for (let ref of references) {
-    headerIdLookupRequests.set(ref, null);
+    headerIdLookupRequests.set([accountId, ref], null);
   }
-  headerIdLookupRequests.set(msgIdHeader, null);
+  headerIdLookupRequests.set([accountId, msgIdHeader], null);
 
   let fromDb = yield ctx.read({
     headerIdMaps: headerIdLookupRequests
@@ -45,7 +45,7 @@ function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
   let conversationIds = new Set();
   let idsLackingEntries = [];
   let existingMessageEntry = null;
-  for (let [headerId, result] of fromDb.headerIdMaps) {
+  for (let [[, headerId], result] of fromDb.headerIdMaps) {
     if (headerId === msgIdHeader) {
       existingMessageEntry = headerId;
     }
@@ -92,13 +92,13 @@ function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
   let headerIdWrites = new Map();
   // For the entries missing things, they just get the conversation id.
   for (let idLackingEntry of idsLackingEntries) {
-    headerIdWrites.set(idLackingEntry, convId);
+    headerIdWrites.set([accountId, idLackingEntry], convId);
   }
   if (Array.isArray(existingMessageEntry)) {
     existingMessageEntry.push(messageId);
-    headerIdWrites.set(msgIdHeader, existingMessageEntry);
+    headerIdWrites.set([accountId, msgIdHeader], existingMessageEntry);
   } else {
-    headerIdWrites.set(msgIdHeader, [messageId]);
+    headerIdWrites.set([accountId, msgIdHeader], [messageId]);
   }
 
   return {
@@ -111,5 +111,4 @@ function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
 return {
   resolveConversationTaskHelper
 };
-
 });
