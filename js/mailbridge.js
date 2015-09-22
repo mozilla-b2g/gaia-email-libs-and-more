@@ -508,7 +508,8 @@ MailBridge.prototype = {
     ).then(() => {
       this.__sendMessage({
         type: 'promisedResult',
-        handle: msg.handle
+        handle: msg.handle,
+        data: null
       });
     });
   },
@@ -532,8 +533,10 @@ MailBridge.prototype = {
       this.__sendMessage({
         type: 'promisedResult',
         handle: msg.handle,
-        messageId,
-        messageDate
+        data: {
+          messageId,
+          messageDate
+        }
       });
     });
   },

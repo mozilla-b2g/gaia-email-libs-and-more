@@ -323,7 +323,7 @@ MailAPI.prototype = evt.mix({
     let handle = msg.handle;
     let pending = this._pendingRequests[handle];
     delete this._pendingRequests[handle];
-    pending.resolve(msg);
+    pending.resolve(msg.data);
   },
 
   /**
@@ -547,8 +547,6 @@ MailAPI.prototype = evt.mix({
     return this._sendPromisedRequest({
       type: 'learnAboutAccount',
       details
-    }).then((msg) => {
-      return msg.data;
     });
   },
 
@@ -1090,10 +1088,7 @@ MailAPI.prototype = evt.mix({
       type: 'outboxSetPaused',
       accountId: account.id,
       bePaused: !enabled
-    }).then(() => {
-      // we just exist to convert the return value to undefined.
-      return;
-    });
+    }); // (the bridge sends null for the data, which is what gets resolved)
   },
 
   /**
@@ -1192,8 +1187,8 @@ MailAPI.prototype = evt.mix({
       refMessageId: message ? message.id : null,
       refMessageDate: message ? message.date.valueOf() : null,
       folderId: folder ? folder.id : null
-    }).then((msg) => {
-      let namer = { id: msg.messageId, date: msg.messageDate };
+    }).then((data) => {
+      let namer = { id: data.messageId, date: data.messageDate };
       if (options.noComposer) {
         return namer;
       } else {

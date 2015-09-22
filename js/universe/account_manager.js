@@ -244,6 +244,21 @@ AccountManager.prototype = {
     ];
 
     return Promise.all(waitFor).then(() => {
+      // If we have a stashed connection, then immediately instantiate the
+      // account so that we will also issue a syncFolderList call when an
+      // account has just been created.
+      //
+      // Although this does not seem, nor is it, super clean, we really do not
+      // want account_create creating tasks for the freshly created account
+      // until after our promises above have run, so this is arguably an okay
+      // place to do this.  We probably just want to refactor this out into
+      // a more explicit "things to do for freshly created accounts" mechanism.
+      // (Maybe a task "account_created" that's per account so the accounts can
+      // hang everything they want to do off that.
+      if (this._stashedConnectionsByAccountId.has(accountDef.id)) {
+        this._ensureAccount(accountDef.id);
+      }
+
       this.accountsTOC.__addAccount(accountDef);
     });
   },

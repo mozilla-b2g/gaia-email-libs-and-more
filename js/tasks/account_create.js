@@ -123,6 +123,12 @@ return TaskDefiner.defineSimpleTask([
           }
         }
       });
+
+      return {
+        accountId,
+        error: null,
+        errorDetails: null
+      };
     })
   }
 ]);
