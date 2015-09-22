@@ -3,7 +3,7 @@ define(function(require) {
 
 const co = require('co');
 
-const TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const sendMail = require('../smotocol/send_mail');
 const sendMail12x = require('../smotocol/send_mail_12x');

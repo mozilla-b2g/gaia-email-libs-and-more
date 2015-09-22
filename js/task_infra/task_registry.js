@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let logic = require('logic');
+const logic = require('logic');
 
 /**
  * Tracks the set of known tasks, both global and per-account-type, and manages
@@ -12,12 +12,8 @@ let logic = require('logic');
  * - Deciding which task implementation is appropriate for a given task.  This
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
- *
- * @param {MailDB} db
- *   Database reference to pass through to complex tasks during their
- *   initialization.
  */
-function TaskRegistry(db) {
+function TaskRegistry() {
   logic.defineScope(this, 'TaskRegistry');
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();

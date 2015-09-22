@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 /**
  * We use the vanilla IMAP store flags implementation without any execute stage

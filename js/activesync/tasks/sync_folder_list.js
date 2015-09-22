@@ -2,7 +2,7 @@ define(function(require) {
 'use strict';
 
 const evt = require('evt');
-const TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const normalizeFolder = require('../normalize_folder');
 const AccountSyncStateHelper = require('../account_sync_state_helper');

@@ -2,7 +2,7 @@ define(function(require) {
 'use strict';
 
 const co = require('co');
-const TaskDefiner = require('../task_definer');
+const TaskDefiner = require('../task_infra/task_definer');
 
 const { encodeInt } = require('../a64');
 const { makeAccountDef, makeIdentity } = require('../db/account_def_rep');

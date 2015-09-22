@@ -2,7 +2,7 @@ define(function(require) {
 'use strict';
 
 const co = require('co');
-const TaskDefiner = require('../task_definer');
+const TaskDefiner = require('../task_infra/task_definer');
 
 const { accountIdFromFolderId, accountIdFromMessageId, convIdFromMessageId } =
   require('../id_conversions');

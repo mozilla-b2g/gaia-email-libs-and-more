@@ -5,7 +5,7 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('logic');
 
-const TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const { shallowClone } = require('../../util');
 

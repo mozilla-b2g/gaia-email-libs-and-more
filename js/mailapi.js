@@ -547,6 +547,8 @@ MailAPI.prototype = evt.mix({
     return this._sendPromisedRequest({
       type: 'learnAboutAccount',
       details
+    }).then((msg) => {
+      return msg.data;
     });
   },
 

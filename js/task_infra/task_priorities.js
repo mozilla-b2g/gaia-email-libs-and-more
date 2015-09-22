@@ -3,7 +3,7 @@ define(function(require) {
 
 const logic = require('logic');
 
-const FibonacciHeap = require('./ext/fibonacci-heap');
+const FibonacciHeap = require('../ext/fibonacci-heap');
 
 /**
  * Helper class for use by TaskManager that is in charge of maintaining the

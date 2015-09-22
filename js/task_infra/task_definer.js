@@ -1,11 +1,13 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let mix = require('mix');
-let { shallowClone } = require('./util');
+const co = require('co');
+const mix = require('mix');
+const { shallowClone } = require('../util');
 
-let SimpleTaskBase = {
+//const AtMostOnceTaskBase = require('./task_bases/at_most_once');
+
+const SimpleTaskBase = {
   isSimple: true,
   isComplex: false,
 
@@ -27,7 +29,7 @@ let SimpleTaskBase = {
   execute: null,
 };
 
-let ComplexTaskBase = {
+const ComplexTaskBase = {
   isSimple: false,
   isComplex: true,
 };
@@ -51,6 +53,22 @@ TaskDefiner.prototype = {
     }
 
     return task;
+  },
+
+  /**
+   * Define a task that that only makes sense to have at most one task queued/
+   * active for a given set of arguments at a time.  For example, since sync
+   * tasks should usually bring us up-to-date with "now" when they run, letting
+   * the UI queue up a bunch of them in a row is potentially very wasteful.
+   *
+   * We wrap the task into a complex task, but the task is largely able to
+   * pretend that it is a simple task.  The task definitions `binByArgs`
+   * indicate what arguments we should use to bin/uniquely group the tasks by.
+   * A new task covered by an existing task/marker will be dropped, although it
+   * will be told the
+   */
+  defineAtMostOnceTask: function(mixparts) {
+
   },
 
   /**

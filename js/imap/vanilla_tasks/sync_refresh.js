@@ -6,7 +6,7 @@ let { shallowClone } = require('../../util');
 
 let { NOW } = require('../../date');
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 

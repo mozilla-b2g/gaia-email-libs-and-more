@@ -3,7 +3,7 @@ define(function(require) {
 
 const logic = require('logic');
 
-const TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const { makeFolderMeta } = require('../../db/folder_info_rep');
 

@@ -27,9 +27,7 @@ define(function(require) {
  * make sense to allow the app_logic to also provide a similar mechanism to the
  * conv_churn but also for overlays.  Right now we believe all the overlay
  * information is universally desired, so there's no real benefit to providing
- * the ability to break that information.  (And in fact, we may change the
- * operation of the conv_churn somewhat so that only parts of it are app_logic
- * controlled.)
+ * the ability to vary that information.
  *
  * ## Task Hookup ##
  *
@@ -46,11 +44,11 @@ define(function(require) {
  * Note that in the pull case, rather than actually pulling, we could
  * alternately have `deriveMemoryStateFromPersistentState` generate a list of
  * current overlays and latch those values, updating them as push updates occur.
- * This would result in a higher memory usage, and have minor performance.  The
- * explicit pull structuring seems most beneficial for future enhancement cases
- * where on-demand-annotation logic could do raindrop-type things like looking
- * up the current state of Bugzilla bugs to annotate them onto the message /
- * conversation state, complete with clever caching.
+ * This would result in a higher memory usage, and differing minor performance
+ * implications.  The explicit pull structuring seems most beneficial for future
+ * enhancement cases where on-demand-annotation logic could do raindrop-type
+ * things like looking up the current state of Bugzilla bugs to annotate them
+ * onto the message / conversation state, complete with clever caching.
  */
 function DataOverlayManager() {
 

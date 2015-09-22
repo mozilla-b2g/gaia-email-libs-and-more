@@ -10,10 +10,10 @@ const AccountManager = require('./universe/account_manager');
 const FolderConversationsTOC = require('./db/folder_convs_toc');
 const ConversationTOC = require('./db/conv_toc');
 
-const TaskManager = require('./task_manager');
-const TaskRegistry = require('./task_registry');
-const TaskPriorities = require('./task_priorities');
-const TaskResources = require('./task_resources');
+const TaskManager = require('./task_infra/task_manager');
+const TaskRegistry = require('./task_infra/task_registry');
+const TaskPriorities = require('./task_infra/task_priorities');
+const TaskResources = require('./task_infra/task_resources');
 
 const TriggerManager = require('./db/trigger_manager');
 const dbTriggerDefs = require('./db_triggers/all');
@@ -48,7 +48,7 @@ function MailUniverse(online, testOptions) {
   /** @type{Map<ConverastionId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
-  this.taskRegistry = new TaskRegistry(this.db);
+  this.taskRegistry = new TaskRegistry();
   this.taskPriorities = new TaskPriorities();
   this.taskResources = new TaskResources(this.taskPriorities);
 

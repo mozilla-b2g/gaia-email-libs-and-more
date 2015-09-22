@@ -8,7 +8,7 @@ let { shallowClone } = require('../../util');
 let { prioritizeNewer } = require('../../date_priority_adjuster');
 
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 let a64 = require('../../a64');
 let expandGmailConvId = a64.decodeUI64;
 

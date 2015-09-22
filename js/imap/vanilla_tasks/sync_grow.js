@@ -4,7 +4,7 @@ define(function(require) {
 let co = require('co');
 let logic = require('logic');
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 let { makeDaysAgo, makeDaysBefore, quantizeDate, NOW } = require('../../date');
 

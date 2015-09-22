@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 /**
  * Planning-only task that applies modifications to a conversation based on

@@ -4,7 +4,7 @@ define(function(require) {
 let co = require('co');
 let logic = require('logic');
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 let GmailLabelMapper = require('../gmail/gmail_label_mapper');
 let SyncStateHelper = require('../gmail/sync_state_helper');

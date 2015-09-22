@@ -5,7 +5,7 @@ const co = require('co');
 
 const { BLOB_BASE64_BATCH_CONVERT_SIZE } = require('../syncbase');
 
-const TaskDefiner = require('../task_definer');
+const TaskDefiner = require('../task_infra/task_definer');
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 const { makeAttachmentPart } = require('../db/mail_rep');

@@ -3,7 +3,7 @@ define(function(require) {
 
 const co = require('co');
 
-const TaskDefiner = require('../../task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const FolderSyncStateHelper = require('../folder_sync_state_helper');
 

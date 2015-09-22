@@ -7,7 +7,7 @@ const logic = require('logic');
 
 const TaskContext = require('./task_context');
 
-const { SmartWakeLock } = require('./wakelocks');
+const { SmartWakeLock } = require('../wakelocks');
 
 /**
  * The public API and ultimate coordinator of all tasks.  Tracks and prioritizes

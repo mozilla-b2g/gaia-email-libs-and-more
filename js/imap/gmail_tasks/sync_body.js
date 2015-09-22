@@ -3,7 +3,7 @@ define(function(require) {
 
 let { numericUidFromMessageId } = require('../../id_conversions');
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 return TaskDefiner.defineComplexTask([
   require('../vanilla_tasks/mix_sync_body'),

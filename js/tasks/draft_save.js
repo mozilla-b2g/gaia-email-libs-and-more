@@ -4,7 +4,7 @@ define(function(require) {
 const co = require('co');
 const logic = require('logic');
 
-const TaskDefiner = require('../task_definer');
+const TaskDefiner = require('../task_infra/task_definer');
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 const { convIdFromMessageId } = require('../id_conversions');

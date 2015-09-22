@@ -5,7 +5,7 @@ let co = require('co');
 let { shallowClone } = require('../../util');
 let { prioritizeNewer } = require('../../date_priority_adjuster');
 
-let TaskDefiner = require('../../task_definer');
+let TaskDefiner = require('../../task_infra/task_definer');
 
 let { resolveConversationTaskHelper } =
   require('../../tasks/mix_conv_resolver');
