@@ -13,8 +13,11 @@ const logic = require('logic');
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
  */
-function TaskRegistry() {
+function TaskRegistry({ dataOverlayManager }) {
   logic.defineScope(this, 'TaskRegistry');
+
+  this._dataOverlayManager = dataOverlayManager;
+
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();
   this._perAccountTypeTasks = new Map();
@@ -27,6 +30,9 @@ TaskRegistry.prototype = {
     for (let taskImpl of taskImpls) {
       this._globalTasks.set(taskImpl.name, taskImpl);
       // currently all global tasks must be simple
+      if (taskImpl.isComplex) {
+        throw new Error('hey, no complex global tasks yet!');
+      }
       this._globalTaskRegistry.set(
         taskImpl.name,
         {
@@ -73,6 +79,34 @@ TaskRegistry.prototype = {
     }
   },
 
+  /**
+   * Given a complex task implementation bound to an account (which is tracked
+   * in a taskMeta dict), find methods named like "overlay_NAMESPACE", and
+   * dynamically register them with the `DataOverlayManager`.
+   *
+   * We currently do not support unregistering which is consistent with other
+   * simplifications we've made like this.  We would implement all of that at
+   * the same time.
+   */
+  _registerComplexTaskImplWithDataOverlayManager: function(meta) {
+    let taskImpl = meta.impl;
+
+    // (Tasks are strictly mix-in based and do not use the prototype chain.
+    // Obviously, if this changes, this traversal needs to change.)
+    for (let key of Object.keys(taskImpl)) {
+      let overlayMatch = /^overlay_(.+)$/.exec(key);
+      if (overlayMatch) {
+        this._dataOverlayManager.registerProvider(
+          overlayMatch[1],
+          taskImpl.name,
+          taskImpl[key].bind(
+            taskImpl,
+            meta.persistentState,
+            meta.memoryState)
+        );
+      }
+    }
+  },
 
   /**
    * Initialize the per-account per-task-type data structures for a given
@@ -106,8 +140,8 @@ TaskRegistry.prototype = {
       let taskType = taskImpl.name;
       let meta = {
         impl: taskImpl,
-        persistent: dataByTaskType.get(taskType),
-        transient: null
+        persistentState: dataByTaskType.get(taskType),
+        memoryState: null
       };
       if (taskImpl.isComplex) {
         logic(
@@ -125,8 +159,12 @@ TaskRegistry.prototype = {
         let saveOffMemoryState = ({ memoryState, markers }) => {
           meta.memoryState = memoryState;
           if (markers) {
-            accountMarkers = accountMarkers.concat(markers);
+            // markers may be an iterator so concat is not safe (at least it
+            // bugged on gecko as of writing this), so use push/spread.
+            accountMarkers.push(...markers);
           }
+
+          this._registerComplexTaskImplWithDataOverlayManager(meta);
         };
         if (maybePromise.then) {
           pendingPromises.push(maybePromise.then(saveOffMemoryState));
@@ -143,7 +181,7 @@ TaskRegistry.prototype = {
     });
   },
 
-  accountRemoved: function(accountId) {
+  accountRemoved: function(/*accountId*/) {
     // TODO: properly handle and propagate account removal
   },
 
@@ -178,14 +216,14 @@ TaskRegistry.prototype = {
   },
 
   executeTask: function(ctx, taskThing) {
-    let isTask = !taskThing.type;
-    let taskType = isTask ? taskThing.plannedTask.type : taskThing.type;
+    let isMarker = !!taskThing.type;
+    let taskType = isMarker ? taskThing.type : taskThing.plannedTask.type;
     let taskMeta;
     if (this._globalTaskRegistry.has(taskType)) {
       taskMeta = this._globalTaskRegistry.get(taskType);
     } else {
-      let accountId = isTask ? taskThing.plannedTask.accountId
-                             : taskThing.accountId;
+      let accountId = isMarker ? taskThing.accountId
+                               : taskThing.plannedTask.accountId;
       taskMeta = this._perAccountIdTaskRegistry.get(accountId).get(taskType);
     }
 
@@ -193,15 +231,16 @@ TaskRegistry.prototype = {
       return Promise.resolve();
     }
 
-    if (isTask === taskMeta.impl.isComplex) {
-      throw new Error('Complex task executions consume markers not tasks.');
+    if (isMarker !== taskMeta.impl.isComplex) {
+      throw new Error('Trying to exec ' + taskType + ' but isComplex:' +
+                       taskMeta.impl.isComplex);
     }
 
-    if (isTask) {
-      return taskMeta.impl.execute(ctx, taskThing.plannedTask);
-    } else {
+    if (isMarker) {
       return taskMeta.impl.execute(
         ctx, taskMeta.persistentState, taskMeta.memoryState, taskThing);
+    } else {
+      return taskMeta.impl.execute(ctx, taskThing.plannedTask);
     }
   },
 

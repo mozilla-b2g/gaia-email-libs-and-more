@@ -18,16 +18,27 @@ let parseImapDateTime = imapchew.parseImapDateTime;
 /**
  * Steady state vanilla IMAP folder sync.
  */
-return TaskDefiner.defineSimpleTask([
+return TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
-    args: ['accountId', 'folderId'],
+
+    binByArg: 'folderId',
+
+    helped_overlay_folders: function(folderId, marker, inProgress) {
+      if (!marker) {
+        return null;
+      } else if (inProgress) {
+        return 'active';
+      } else {
+        return 'pending';
+      }
+    },
 
     /**
      * In our planning phase we discard nonsensical requests to refresh
      * local-only folders.
      */
-    plan: co.wrap(function*(ctx, rawTask) {
+    helped_plan: co.wrap(function*(ctx, rawTask) {
       // Get the folder
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
@@ -39,29 +50,38 @@ return TaskDefiner.defineSimpleTask([
       // edge case we would expect is offline folder creation.  But in that
       // case we still wouldn't want refreshes triggered before we've created
       // the folder and populated it.)
-      let plannedTask;
       if (!folderInfo.serverPath) {
-        plannedTask = null;
-      } else {
-        plannedTask = shallowClone(rawTask);
-        plannedTask.exclusiveResources = [
-          `sync:${rawTask.folderId}`
-        ];
-        plannedTask.priorityTags = [
-          `view:folder:${rawTask.folderId}`
-        ];
+        return {
+          taskState: null
+        };
       }
 
-      yield ctx.finishTask({
-        taskState: plannedTask
-      });
+      // - Plan!
+      let plannedTask = shallowClone(rawTask);
+      plannedTask.exclusiveResources = [
+        `sync:${rawTask.folderId}`
+      ];
+      plannedTask.priorityTags = [
+        `view:folder:${rawTask.folderId}`
+      ];
+
+      return {
+        taskState: plannedTask,
+        announceUpdatedOverlayData: [['folders', rawTask.folderId]]
+      };
     }),
 
-    execute: co.wrap(function*(ctx, req) {
+    helped_execute: co.wrap(function*(ctx, req) {
+      // Our overlay logic will report us as active already, so send the update
+      // to avoid inconsistencies.  (Alternately, we could mutate the marker
+      // with non-persistent changes.)
+      ctx.announceUpdatedOverlayData('folders', req.folderId);
+
       // -- Exclusively acquire the sync state for the folder
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
       });
+
 
       let rawSyncState = fromDb.syncStates.get(req.folderId);
 
@@ -69,7 +89,7 @@ return TaskDefiner.defineSimpleTask([
       // We need to do this if we don't have any sync state or if we do have
       // sync state but we don't have a high uid.
       if (!rawSyncState || !rawSyncState.lastHighUid) {
-        yield ctx.finishTask({
+        return {
           // we ourselves are done
           taskState: null,
           newData: {
@@ -81,8 +101,7 @@ return TaskDefiner.defineSimpleTask([
               }
             ]
           }
-        });
-        return;
+        };
       }
 
       let syncState = new FolderSyncStateHelper(
@@ -205,7 +224,7 @@ return TaskDefiner.defineSimpleTask([
 
       syncState.lastHighUid = highestUid;
 
-      yield ctx.finishTask({
+      return {
         mutations: {
           syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
           umidLocations: syncState.umidLocationWrites
@@ -223,8 +242,9 @@ return TaskDefiner.defineSimpleTask([
                 failedSyncsSinceLastSuccessfulSync: 0
               }
             ]])
-        }
-      });
+        },
+        announceUpdatedOverlayData: [['folders', req.folderId]]
+      };
     })
   }
 ]);

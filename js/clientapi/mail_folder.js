@@ -3,11 +3,12 @@ define(function(require) {
 
 var evt = require('evt');
 
-function MailFolder(api, wireRep, slice) {
+function MailFolder(api, wireRep, overlays, slice) {
   evt.Emitter.call(this);
   this._api = api;
 
   this.__update(wireRep);
+  this.__updateOverlays(overlays);
 }
 MailFolder.prototype = evt.mix({
   toString: function() {
@@ -104,6 +105,16 @@ MailFolder.prototype = evt.mix({
       default:
         this.isValidMoveTarget = true;
     }
+  },
+
+  __updateOverlays: function(overlays) {
+    /**
+     * syncStatus is defined to be one of: null/'pending'/'active'.
+     * Eventually, sync_refresh will also provide syncBlocked which will be
+     * one of: null/'offline/'bad-auth'/'unknown'.  This is per discussion
+     * with :jrburke on IRC.
+     */
+    this.syncStatus = overlays.sync_refresh ? overlays.sync_refresh : null;
   },
 
   release: function() {

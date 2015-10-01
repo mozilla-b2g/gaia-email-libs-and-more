@@ -7,6 +7,7 @@ const MailDB = require('./maildb');
 
 const AccountManager = require('./universe/account_manager');
 
+const DataOverlayManager = require('./db/data_overlay_manager');
 const FolderConversationsTOC = require('./db/folder_convs_toc');
 const ConversationTOC = require('./db/conv_toc');
 
@@ -14,6 +15,7 @@ const TaskManager = require('./task_infra/task_manager');
 const TaskRegistry = require('./task_infra/task_registry');
 const TaskPriorities = require('./task_infra/task_priorities');
 const TaskResources = require('./task_infra/task_resources');
+
 
 const TriggerManager = require('./db/trigger_manager');
 const dbTriggerDefs = require('./db_triggers/all');
@@ -48,7 +50,11 @@ function MailUniverse(online, testOptions) {
   /** @type{Map<ConverastionId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
-  this.taskRegistry = new TaskRegistry();
+  this.dataOverlayManager = new DataOverlayManager();
+
+  this.taskRegistry = new TaskRegistry({
+    dataOverlayManager: this.dataOverlayManager
+  });
   this.taskPriorities = new TaskPriorities();
   this.taskResources = new TaskResources(this.taskPriorities);
 
@@ -332,7 +338,11 @@ MailUniverse.prototype = {
     if (this._folderConvsTOCs.has(folderId)) {
       toc = this._folderConvsTOCs.get(folderId);
     } else {
-      toc = new FolderConversationsTOC(this.db, folderId);
+      toc = new FolderConversationsTOC({
+        db: this.db,
+        folderId,
+        dataOverlayManager: this.dataOverlayManager
+      });
       this._folderConvsTOCs.set(folderId, toc);
       // TODO: have some means of the TOC to tell us to forget about it when
       // it gets released.
@@ -345,7 +355,11 @@ MailUniverse.prototype = {
     if (this._conversationTOCs.has(conversationId)) {
       toc = this._conversationTOCs.get(conversationId);
     } else {
-      toc = new ConversationTOC(this.db, conversationId);
+      toc = new ConversationTOC({
+        db: this.db,
+        conversationId,
+        dataOverlayManager: this.dataOverlayManager
+      });
       this._conversationTOCs.set(conversationId, toc);
       // TODO: have some means of the TOC to tell us to forget about it when
       // it gets released.

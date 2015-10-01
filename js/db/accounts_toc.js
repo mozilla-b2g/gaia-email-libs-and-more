@@ -35,11 +35,12 @@ function AccountsTOC() {
   evt.Emitter.call(this);
   logic.defineScope(this, 'AccountsTOC');
 
-  this.accountDefs = [];
-  this.accountDefsById = new Map();
+  this.accountDefs = this.items = [];
+  this.accountDefsById = this.itemsById = new Map();
 }
 AccountsTOC.prototype = evt.mix({
   type: 'AccountsTOC',
+  overlayNamespace: 'accounts',
 
   // We don't care about who references us because we have the lifetime of the
   // universe.

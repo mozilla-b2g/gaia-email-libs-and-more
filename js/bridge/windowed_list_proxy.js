@@ -53,8 +53,8 @@ define(function(require) {
  * ## Accumulated State ##
  *
  * At all times we know:
- * - viewSet: The id's that the view has valid state for (based on what we told
- *   it.)  As we hear about changes that are in our viewSet, we remove them so
+ * - validDataSet: The id's that the view has valid state for (based on what we told
+ *   it.)  As we hear about changes that are in our validDataSet, we remove them so
  *   that when we flush we pull the value from the database cache.
  */
 function WindowedListProxy(toc, ctx) {
@@ -62,18 +62,37 @@ function WindowedListProxy(toc, ctx) {
   this.ctx = ctx;
   this.batchManager = ctx.batchManager;
 
-  this.viewSet = new Set();
+  /**
+   * The set of id's for which we have provided still-valid data to the
+   * front-end/our view counterpart.  As items are modified and the data
+   * rendered no longer up-to-date, we remove the id's from this set.  This will
+   * trigger propagation of the data at flush-time.
+   */
+  this.validDataSet = new Set();
+
+  /**
+   * The same rationale as `validDataSet`, but for overlays.
+   */
+  this.validOverlaySet = new Set();
 
   this._bound_onChange = this.onChange.bind(this);
+  this._bound_onOverlayPush = this.onOverlayPush.bind(this);
 }
 WindowedListProxy.prototype = {
   __acquire: function() {
     this.toc.on('change', this._bound_onChange);
+
+    this.ctx.dataOverlayManager.on(
+      this.toc.overlayNamespace, this._bound_onOverlayPush);
+
     return Promise.resolve(this);
   },
 
   __release: function() {
     this.toc.removeListener('change', this._bound_onChange);
+
+    this.ctx.dataOverlayManager.removeListener(
+      this.toc.overlayNamespace, this._bound_onOverlayPush);
   },
 
   seek: function(req) {
@@ -162,11 +181,24 @@ WindowedListProxy.prototype = {
       // If we haven't told the view about the data, there's no need for us to
       // do anything.  Note that this also covers the case where we have an
       // async read in flight.
-      if (!this.viewSet.has(id) && metadataOnly) {
+      if (!this.validDataSet.has(id) && metadataOnly) {
         return;
       }
-      this.viewSet.delete(id);
+      this.validDataSet.delete(id);
     }
+
+    if (this.dirty) {
+      return;
+    }
+    this.dirty = true;
+    this.batchManager.registerDirtyView(this, /* immediate */ false);
+  },
+
+  onOverlayPush: function(id) {
+    if (!this.validOverlaySet.has(id)) {
+      return;
+    }
+    this.validOverlaySet.delete(id);
 
     if (this.dirty) {
       return;
@@ -228,11 +260,15 @@ WindowedListProxy.prototype = {
     // XXX prioritization hints should be generated as a result of the visible
     // range!
 
-    let { ids, state, readPromise, newKnownSet } =
+    let { ids, state, readPromise, newValidDataSet } =
       this.toc.getDataForSliceRange(
-        beginBufferedInclusive, endBufferedExclusive, this.viewSet);
+        beginBufferedInclusive, endBufferedExclusive, this.validDataSet,
+        this.validOverlaySet);
 
-    this.viewSet = newKnownSet;
+    this.validDataSet = newValidDataSet;
+    // We will have generated valid overlay information for all valid data
+    // (filling in any holes), so duplicate the set.
+    this.validOverlaySet = new Set(newValidDataSet);
 
     if (readPromise) {
       readPromise.then(() => {

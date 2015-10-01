@@ -28,12 +28,17 @@ define(function() {
     module.sendMessage = function(uid, cmd, args, transferArgs) {
     //dump('\x1b[34mM => w: send: ' + name + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
       //debug('onmessage: ' + name + ": " + uid + " - " + cmd);
-      worker.postMessage({
-        type: name,
-        uid: uid,
-        cmd: cmd,
-        args: args
-      }, transferArgs);
+      try {
+        worker.postMessage({
+          type: name,
+          uid: uid,
+          cmd: cmd,
+          args: args
+        }, transferArgs);
+      } catch (ex) {
+        console.error('Presumed DataCloneError on:', args, 'with transfer args',
+                      transferArgs);
+      }
     };
   }
 
@@ -43,8 +48,9 @@ define(function() {
 
   function shutdown() {
     modules.forEach(function(module) {
-      if (module.shutdown)
+      if (module.shutdown) {
         module.shutdown();
+      }
     });
   }
 
@@ -54,8 +60,9 @@ define(function() {
       var data = evt.data;
 //dump('\x1b[37mM <= w: recv: '+data.type+' '+data.uid+' '+data.cmd+'\x1b[0m\n');
       var listener = listeners[data.type];
-      if (listener)
+      if (listener) {
         listener(data);
+      }
     };
   }
 

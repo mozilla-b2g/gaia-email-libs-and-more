@@ -1,5 +1,9 @@
 define(function(require) {
 'use strict';
+
+const evt = require('evt');
+const logic = require('logic');
+
 /**
  * Data overlays are bonus data that may change with a high frequency that we
  * send to the front-end along-side our more persistent database records (which
@@ -51,11 +55,52 @@ define(function(require) {
  * onto the message / conversation state, complete with clever caching.
  */
 function DataOverlayManager() {
+  evt.Emitter.call(this);
+  logic.defineScope(this, 'DataOverlayManager');
 
+  this.registeredProvidersByNamespace = new Map([
+    ['accounts', new Map()],
+    ['folders', new Map()],
+    ['conversations', new Map()],
+    ['messages', new Map()]
+  ]);
 }
-DataOverlayManager.prototype = {
+DataOverlayManager.prototype = evt.mix({
+  registerProvider: function(namespace, name, func) {
+    let providersForNamespace =
+      this.registeredProvidersByNamespace.get(namespace);
+    if (!providersForNamespace) {
+      logic(this, 'badNamespace', { namespace });
+    }
+    providersForNamespace.set(name, func);
+  },
 
-};
+  /**
+   * Announce that there is new overlay data available for the given id in the
+   * given namespace.  If anyone/anything cares, the data will be pulled out.
+   */
+  announceUpdatedOverlayData: function(namespace, id) {
+    logic(this, 'announceUpdatedOverlayData', { namespace, id });
+    this.emit(namespace, id);
+  },
+
+  makeBoundResolver: function(namespace/*, ctx*/) {
+    return this._resolveOverlays.bind(
+      this,
+      this.registeredProvidersByNamespace.get(namespace));
+  },
+
+  _resolveOverlays: function(providersForNamespace, itemId) {
+    let overlays = {};
+    for (let [name, func] of providersForNamespace) {
+      let contrib = func(itemId);
+      if (contrib !== undefined) {
+        overlays[name] = contrib;
+      }
+    }
+    return overlays;
+  }
+});
 
 return DataOverlayManager;
 });

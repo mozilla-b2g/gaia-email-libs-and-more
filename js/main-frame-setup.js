@@ -65,11 +65,15 @@ var bridge = {
     if (msg.type === 'hello') {
       delete MailAPI._fake;
       MailAPI.__bridgeSend = function(msg) {
-        worker.postMessage({
-          uid: uid,
-          type: 'bridge',
-          msg: msg
-        });
+        try {
+          worker.postMessage({
+            uid: uid,
+            type: 'bridge',
+            msg: msg
+          });
+        } catch (ex) {
+          console.error('Presumed DataCloneError on:', msg);
+        }
       };
 
       MailAPI.config = msg.config;

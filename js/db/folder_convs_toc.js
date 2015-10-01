@@ -31,9 +31,8 @@ let { folderConversationComparator } = require('./comparators');
  * Our composite key is { date, id }, ordered thusly.  From a seek/persistence
  * perspective, if a conversation gets updated, it is no longer the same and
  * we instead treat the position where the { date, id } would be inserted now.
- * However, for
  */
-function FolderConversationsTOC(db, folderId) {
+function FolderConversationsTOC({ db, folderId, dataOverlayManager }) {
   RefedResource.call(this);
   evt.Emitter.call(this);
 
@@ -43,12 +42,19 @@ function FolderConversationsTOC(db, folderId) {
   this.folderId = folderId;
   this._eventId = '';
 
+  // We share responsibility for providing overlay data with the list proxy.
+  // Our getDataForSliceRange performs the resolving, but we depend on the proxy
+  // to be listening for overlay updates and to perform appropriate dirtying.
+  this._overlayResolver = dataOverlayManager.makeBoundResolver(
+    this.overlayNamespace, null);
+
   this._bound_onTOCChange = this.onTOCChange.bind(this);
 
   this.__deactivate(true);
 }
 FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
   type: 'FolderConversationsTOC',
+  overlayNamespace: 'conversations',
   heightAware: true,
 
   __activate: co.wrap(function*() {
@@ -309,21 +315,27 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     return rval;
   },
 
-  getDataForSliceRange: function(beginInclusive, endExclusive, alreadyKnown) {
+  getDataForSliceRange: function(beginInclusive, endExclusive,
+      alreadyKnownData, alreadyKnownOverlays) {
     beginInclusive = Math.max(0, beginInclusive);
     endExclusive = Math.min(endExclusive, this.idsWithDates.length);
 
-    // Things we were able to directly extract from the cache
-    let haveData = new Map();
+    let overlayResolver = this._overlayResolver;
+
+    // State and overlay data to be sent to our front-end view counterpart.
+    // This is (needed) state information we have synchronously available from
+    // the db cache and (needed) overlay information (which can always be
+    // synchronously derived.)
+    let sendState = new Map();
     // Things we need to request from the database.  (Although MailDB.read will
     // immediately populate the things we need, WindowedListProxy's current
     // wire protocol calls for omitting things we don't have the state for yet.
     // And it's arguably nice to avoid involving going async here with flushes
     // and all that if we can avoid it.
     let needData = new Map();
-    // The new known set which is the stuff from alreadyKnown we reused plus the
-    // data we were able to provide synchronously.  (And the stuff we have to
-    // read from the DB does NOT go in here.)
+    // The new known set which is the stuff from alreadyKnownData we reused plus
+    // the data we were able to provide synchronously.  (And the stuff we have
+    // to read from the DB does NOT go in here.)
     let newKnownSet = new Set();
 
     let idsWithDates = this.idsWithDates;
@@ -332,13 +344,19 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
       ids.push(id);
-      if (alreadyKnown.has(id)) {
+      let haveData = alreadyKnownData.has(id);
+      let haveOverlays = alreadyKnownOverlays.has(id);
+      if (haveData && haveOverlays) {
         newKnownSet.add(id);
         continue;
       }
-      if (convCache.has(id)) {
+
+      if (haveData) {
+        // only need overlays
+        sendState.set(id, [null, overlayResolver(id)]);
+      } else if (convCache.has(id)) {
         newKnownSet.add(id);
-        haveData.set(id, convCache.get(id));
+        sendState.set(id, [convCache.get(id), overlayResolver(id)]);
       } else {
         needData.set(id, null);
       }
@@ -355,10 +373,10 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
 
     return {
       ids: ids,
-      state: haveData,
+      state: sendState,
       pendingReads: needData,
-      readPromise: readPromise,
-      newKnownSet: newKnownSet
+      readPromise,
+      newValidDataSet: newKnownSet
     };
   }
 }));

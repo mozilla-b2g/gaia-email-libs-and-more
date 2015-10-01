@@ -31,7 +31,7 @@ let { conversationMessageComparator } = require('./comparators');
  * view slice is requested for a given conversation and destroyed once no more
  * view slices care about.
  */
-function ConversationTOC(db, convId) {
+function ConversationTOC({ db, convId, dataOverlayManager }) {
   RefedResource.call(this);
   evt.Emitter.call(this);
 
@@ -45,6 +45,12 @@ function ConversationTOC(db, convId) {
   // conversation
   this._convEventId = '';
 
+  // We share responsibility for providing overlay data with the list proxy.
+  // Our getDataForSliceRange performs the resolving, but we depend on the proxy
+  // to be listening for overlay updates and to perform appropriate dirtying.
+  this._overlayResolver = dataOverlayManager.makeBoundResolver(
+    this.overlayNamespace, null);
+
   this._bound_onTOCChange = this.onTOCChange.bind(this);
   this._bound_onConvChange = this.onConvChange.bind(this);
 
@@ -52,6 +58,7 @@ function ConversationTOC(db, convId) {
 }
 ConversationTOC.prototype = evt.mix(RefedResource.mix({
   type: 'ConversationTOC',
+  overlayNamespace: 'messages',
   heightAware: false,
 
   __activate: co.wrap(function*() {
@@ -190,18 +197,27 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     return index;
   },
 
-  getDataForSliceRange: function(beginInclusive, endExclusive, alreadyKnown) {
-    // Things we were able to directly extract from the cache
-    let haveData = new Map();
+  getDataForSliceRange: function(beginInclusive, endExclusive,
+      alreadyKnownData, alreadyKnownOverlays) {
+    beginInclusive = Math.max(0, beginInclusive);
+    endExclusive = Math.min(endExclusive, this.idsWithDates.length);
+
+    let overlayResolver = this._overlayResolver;
+
+    // State and overlay data to be sent to our front-end view counterpart.
+    // This is (needed) state information we have synchronously available from
+    // the db cache and (needed) overlay information (which can always be
+    // synchronously derived.)
+    let sendState = new Map();
     // Things we need to request from the database.  (Although MailDB.read will
     // immediately populate the things we need, WindowedListProxy's current
     // wire protocol calls for omitting things we don't have the state for yet.
     // And it's arguably nice to avoid involving going async here with flushes
     // and all that if we can avoid it.
     let needData = new Map();
-    // The new known set which is the stuff from alreadyKnown we reused plus the
-    // data we were able to provide synchronously.  (And the stuff we have to
-    // read from the DB does NOT go in here.)
+    // The new known set which is the stuff from alreadyKnownData we reused plus
+    // the data we were able to provide synchronously.  (And the stuff we have
+    // to read from the DB does NOT go in here.)
     let newKnownSet = new Set();
 
     let idsWithDates = this.idsWithDates;
@@ -210,13 +226,19 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     for (let i = beginInclusive; i < endExclusive; i++) {
       let id = idsWithDates[i].id;
       ids.push(id);
-      if (alreadyKnown.has(id)) {
+      let haveData = alreadyKnownData.has(id);
+      let haveOverlays = alreadyKnownOverlays.has(id);
+      if (haveData && haveOverlays) {
         newKnownSet.add(id);
         continue;
       }
-      if (messageCache.has(id)) {
+
+      if (haveData) {
+        // only need overlays
+        sendState.set(id, [null, overlayResolver(id)]);
+      } else if (messageCache.has(id)) {
         newKnownSet.add(id);
-        haveData.set(id, messageCache.get(id));
+        sendState.set(id, [messageCache.get(id), overlayResolver(id)]);
       } else {
         let date = idsWithDates[i].date;
         needData.set([id, date], null);
@@ -234,10 +256,10 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
 
     return {
       ids: ids,
-      state: haveData,
+      state: sendState,
       pendingReads: needData,
-      readPromise: readPromise,
-      newKnownSet: newKnownSet
+      readPromise,
+      newValidDatSet: newKnownSet
     };
   }
 }));

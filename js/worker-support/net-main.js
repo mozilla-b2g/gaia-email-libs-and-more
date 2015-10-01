@@ -1,5 +1,5 @@
 /**
- * The main-thread counterpart to our node-net.js wrapper.
+ * The main-thread counterpart to our tcp-socket.js wrapper.
  *
  * Provides the smarts for streaming the content of blobs.  An alternate
  * implementation would be to provide a decorating proxy to implement this

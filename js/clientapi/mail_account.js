@@ -7,7 +7,7 @@ let MailSenderIdentity = require('./mail_sender_identity');
 /**
  *
  */
-function MailAccount(api, wireRep, acctsSlice) {
+function MailAccount(api, wireRep, overlays, acctsSlice) {
   evt.Emitter.call(this);
 
   this._api = api;
@@ -103,6 +103,10 @@ MailAccount.prototype = evt.mix({
                                         wireRep.identities[i]));
       }
     }
+  },
+
+  __updateOverlays: function(overlays) {
+
   },
 
   release: function() {

@@ -97,7 +97,7 @@ TaskManager.prototype = evt.mix({
       if (wrappedTask.state === null) {
         this._tasksToPlan.push(wrappedTask);
       } else {
-        this.__queueTasksOrMarkers(wrappedTask, 'restored', true);
+        this.__queueTasksOrMarkers([wrappedTask], 'restored:simple', true);
       }
     }
 
@@ -109,13 +109,13 @@ TaskManager.prototype = evt.mix({
         this._registry.accountExistsInitTasks(
           accountInfo.id, accountInfo.engine)
         .then((markers) => {
-          this.__queueTasksOrMarkers(markers, 'restored', true);
+          this.__queueTasksOrMarkers(markers, 'restored:complex', true);
         }));
     });
     this._accountsTOC.on('add', (accountInfo) => {
       this._registry.accountExistsInitTasks(accountInfo.id, accountInfo.engine)
         .then((markers) => {
-          this.__queueTasksOrMarkers(markers, 'restored', true);
+          this.__queueTasksOrMarkers(markers, 'restored:complex', true);
         });
     });
     this._accountsTOC.on('remove', (accountInfo) => {
@@ -326,7 +326,7 @@ TaskManager.prototype = evt.mix({
   __queueTasksOrMarkers: function(taskThings, sourceId, noTrigger) {
     let prioritized = 0;
     for (let taskThing of taskThings) {
-      logic(this, 'queueing', { taskThing: taskThing, sourceId });
+      logic(this, 'queueing', { taskThing, sourceId });
       if (this._resources.ownOrRelayTaskThing(taskThing)) {
         prioritized++;
       }

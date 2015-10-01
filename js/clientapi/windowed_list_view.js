@@ -74,7 +74,6 @@ function WindowedListView(api, itemConstructor, handle) {
    * for this, use once('complete').
    */
   this.complete = false;
-
 }
 WindowedListView.prototype = evt.mix({
   toString: function() {
@@ -114,10 +113,16 @@ WindowedListView.prototype = evt.mix({
         obj = existingSet.get(id);
         // Update the object if we have new state
         if (newStates.has(id)) {
+          let [newState, newOverlays] = newStates.get(id);
           contentsChanged = true;
           obj.serial = newSerial;
-          obj.__update(newStates.get(id));
-          obj.emit('change');
+          if (newState) {
+            obj.__update(newState);
+          }
+          if (newOverlays) {
+            obj.__updateOverlays(newOverlays);
+          }
+          obj.emit('change', !!newState, !!newOverlays);
         }
         // Remove it from the existingSet so we can infer objects no longer in
         // the set.
@@ -125,7 +130,9 @@ WindowedListView.prototype = evt.mix({
         newSet.set(id, obj);
       } else if (newStates.has(id)) {
         itemSetChanged = true;
-        obj = new this._itemConstructor(this._api, newStates.get(id), this);
+        let [newState, newOverlays] = newStates.get(id);
+        obj = new this._itemConstructor(
+          this._api, newState, newOverlays, this);
         obj.serial = newSerial;
         newSet.set(id, obj);
       } else {

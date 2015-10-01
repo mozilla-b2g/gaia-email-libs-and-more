@@ -57,7 +57,7 @@ function FoldersTOC(db, accountId, folders) {
    * Canonical folder state representation.  This is what goes in the database.
    * @type {Map<FolderId, FolderInfo>}
    */
-  this.foldersById = new Map();
+  this.foldersById = this.itemsById = new Map();
 
   /**
    * Ordered list of the folders.
@@ -93,6 +93,7 @@ function FoldersTOC(db, accountId, folders) {
 }
 FoldersTOC.prototype = evt.mix({
   type: 'FoldersTOC',
+  overlayNamespace: 'folders',
 
   // We don't care about who references us because we have the lifetime of the
   // universe.  (At least, unless our owning account gets deleted.)

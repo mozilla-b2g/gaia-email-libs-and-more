@@ -84,7 +84,7 @@ function filterOutBuiltinFlags(flags) {
  * continues to have its original value.  If you want to consult that value with
  * its new state then you should wait for our 'update' event to be emitted.
  */
-function MailMessage(api, wireRep, slice) {
+function MailMessage(api, wireRep, overlays, slice) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;
@@ -112,6 +112,7 @@ function MailMessage(api, wireRep, slice) {
   // actual attachments population occurs in __update
   this.attachments = [];
   this.__update(wireRep);
+  this.__updateOverlays(overlays);
   this.hasAttachments = wireRep.hasAttachments;
 
   this.subject = wireRep.subject;
@@ -128,7 +129,7 @@ MailMessage.prototype = evt.mix({
     };
   },
 
-  __update: function(wireRep, detail) {
+  __update: function(wireRep) {
     this._wireRep = wireRep;
     if (wireRep.snippet !== null) {
       this.snippet = wireRep.snippet;
@@ -172,6 +173,10 @@ MailMessage.prototype = evt.mix({
       updateEvent: 'attachment:update',
       removeEvent: 'attachment:remove'
     });
+  },
+
+  __updateOverlays: function(overlays) {
+
   },
 
   /**

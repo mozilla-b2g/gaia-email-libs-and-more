@@ -1,6 +1,8 @@
 define(function(require) {
 'use strict';
 
+const logic = require('logic');
+
 /**
  * Backs an `EntireListView`, see its docs for more context.
  *
@@ -8,16 +10,20 @@ define(function(require) {
  *   An unowned reference to the TOC.  It is expected/required that our caller
  *   has acquired a reference for it and will __release it at the same time
  *   they __release us.
- * @param {BatchManager} batchManager
- *   The batch manager that manages our flushing (once we tell it we are dirty).
+ * @param {NamedContext} ctx
  */
 function EntireListProxy(toc, ctx) {
+  logic.defineScope(this, 'EntireListProxy', { tocType: toc.type });
+
   this.toc = toc;
   this.ctx = ctx;
   this.batchManager = ctx.batchManager;
+  this.overlayResolver = ctx.dataOverlayManager.makeBoundResolver(
+    toc.overlayNamespace, ctx);
 
   this._bound_onAdd = this.onAdd.bind(this);
   this._bound_onChange = this.onChange.bind(this);
+  this._bound_onOverlayPush = this.onOverlayPush.bind(this);
   this._bound_onRemove = this.onRemove.bind(this);
 
   this._pendingChanges = [];
@@ -43,6 +49,9 @@ EntireListProxy.prototype = {
     this.toc.on('add', this._bound_onAdd);
     this.toc.on('change', this._bound_onChange);
     this.toc.on('remove', this._bound_onRemove);
+
+    this.ctx.dataOverlayManager.on(
+      this.toc.overlayNamespace, this._bound_onOverlayPush);
   },
 
   /**
@@ -62,6 +71,9 @@ EntireListProxy.prototype = {
     this.toc.removeListener('add', this._bound_onAdd);
     this.toc.removeListener('change', this._bound_onChange);
     this.toc.removeListener('remove', this._bound_onRemove);
+
+    this.ctx.dataOverlayManager.removeListener(
+      this.toc.overlayNamespace, this._bound_onOverlayPush);
   },
 
   _dirty: function() {
@@ -80,7 +92,9 @@ EntireListProxy.prototype = {
     this._pendingChanges.push({
       type: 'add',
       index: index,
-      state: item
+      state: item,
+      // since we're adding the item, we need to pull the overlay data.
+      overlays: this.overlayResolver(item.id)
     });
   },
 
@@ -99,7 +113,41 @@ EntireListProxy.prototype = {
     this._pendingChanges.push({
       type: 'change',
       index: index,
-      state: item
+      state: item,
+      // we don't need to pull the overlay data because it will not have changed
+      // unless we get a push.
+      overlays: null
+    });
+  },
+
+  onOverlayPush: function(itemId) {
+    // If the TOC does't know about the item, then there's nothing to report.
+    if (!this.toc.itemsById.has(itemId)) {
+      return;
+    }
+
+    // We must be interested, demand that the overlay be computed.
+    // TODO: potential improvement: consider having the event also pass in a
+    // lazy/memoizing func.
+    let overlays = this.overlayResolver(itemId);
+
+    // If we had a pending data change or overlays change already, reuse.
+    if (this._idToChangeIndex.has(itemId)) {
+      // (we're already dirty)
+      let changeIndex = this._idToChangeIndex.get(itemId);
+      this._pendingChanges[changeIndex].overlays = overlays;
+      return;
+    }
+
+    this._dirty();
+    this._idToChangeIndex.set(itemId, this._pendingChanges.length);
+    this._pendingChanges.push({
+      type: 'change',
+      // This is absolutely essential; it's not freebie meta-data, it's how the
+      // EntireListView currently retrieves the object from its list.
+      index: this.toc.items.indexOf(this.toc.itemsById.get(itemId)),
+      state: null,
+      overlays
     });
   },
 

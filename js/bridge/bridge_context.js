@@ -27,6 +27,10 @@ NamedContext.prototype = {
     return this._bridgeContext.batchManager;
   },
 
+  get dataOverlayManager() {
+    return this._bridgeContext.dataOverlayManager;
+  },
+
   /**
    * Asynchronously acquire a resource and track that we are using it so that
    * when the task completes or is terminated we can automatically release all
@@ -88,12 +92,12 @@ NamedContext.prototype = {
  *
  * Things that end up using this:
  * - View proxies (EntireListProxy, WindowedListProxy)
- * - maybe: Composition instances
  */
-function BridgeContext(bridge, batchManager) {
+function BridgeContext({ bridge, batchManager, dataOverlayManager }) {
   logic.defineScope(this, 'BridgeContext', { name: bridge.name });
   this.bridge = bridge;
   this.batchManager = batchManager;
+  this.dataOverlayManager = dataOverlayManager;
 
   this._namedContexts = new Map();
 }

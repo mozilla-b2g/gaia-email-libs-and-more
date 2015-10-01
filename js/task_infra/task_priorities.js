@@ -201,11 +201,11 @@ TaskPriorities.prototype = {
   prioritizeTaskThing: function(taskThing/*, sourceId */) {
     // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
     // the root (they're simple/flat).
-    let isTask = !taskThing.type;
-    let priorityTags = isTask ? taskThing.plannedTask.priorityTags
-                              : taskThing.priorityTags;
-    let relPriority = (isTask ? taskThing.plannedTask.relPriority
-                              : taskThing.relPriority) || 0;
+    let isMarker = !!taskThing.type;
+    let priorityTags = isMarker ? taskThing.priorityTags
+                                : taskThing.plannedTask.priorityTags;
+    let relPriority = (isMarker ? taskThing.relPriority
+                                : taskThing.plannedTask.relPriority) || 0;
     let priority = relPriority + this._computePriorityForTags(priorityTags);
     // it's a minheap, we negate keys
     let nodeKey = -priority;

@@ -25,7 +25,11 @@ function MailBridge(universe, db, name) {
   this.db = db;
 
   this.batchManager = new BatchManager(db);
-  this.bridgeContext = new BridgeContext(this, this.batchManager);
+  this.bridgeContext = new BridgeContext({
+    bridge: this,
+    batchManager: this.batchManager,
+    dataOverlayManager: this.universe.dataOverlayManager
+  });
   this._pendingMessagesByHandle;
 
   // outstanding persistent objects that aren't slices. covers: composition
@@ -414,24 +418,59 @@ MailBridge.prototype = {
     // Normalize to wire rep form
     let dbWireRep = rawToWireRep(fromDb[readKey].get(normId));
 
+    const dataOverlayManager = this.universe.dataOverlayManager;
+    let boundOverlayResolver = dataOverlayManager.makeBoundResolver(readKey);
+
     // - Register an event listener that will be removed at context cleanup
     // (We only do this after we have loaded the up-to-date rep.  Note that
     // under the current DB implementation there is a potential short-lived
     // race here that will be addressed to support this idiom correctly.)
-    let eventHandler = (arg1, arg2) => {
+    let dataEventHandler = (arg1, arg2) => {
       let rep = eventArgsToRaw(arg1, arg2);
       if (rep) {
+        // an update!
         rep = rawToWireRep(rep);
+        ctx.sendMessage(
+          'updateItem',
+          {
+            state: rep,
+            // (the overlay will trigger independently)
+            overlays: null
+          });
+      } else {
+        // a deletion!
+        ctx.sendMessage('updateItem', null);
       }
-      ctx.sendMessage('update', rep);
     };
-    this.db.on(eventId, eventHandler);
+    let overlayEventHandler = (modId) => {
+      // (this is an unfiltered firehose event, it might make sense to have the
+      // DataOverlayManager have an id-specific setup too.)
+      if (modId === normId) {
+        // if it's just the overlays changing, we can send that update without
+        // re-sending (or re-reading) the data.  We convey this by
+        ctx.sendMessage(
+          'updateItem',
+          {
+            state: null,
+            overlays: boundOverlayResolver(normId)
+          });
+      }
+    };
+    this.db.on(eventId, dataEventHandler);
+    dataOverlayManager.on(readKey, overlayEventHandler);
+    this.universe.dataOverlayManager.on(readKey);
     ctx.runAtCleanup(() => {
-      this.db.removeListener(eventId, eventHandler);
+      this.db.removeListener(eventId, dataEventHandler);
+      dataOverlayManager.removeListener(readKey, overlayEventHandler);
     });
 
     // - Send the wire rep
-    ctx.sendMessage('gotItemNowTrackingUpdates', dbWireRep);
+    ctx.sendMessage(
+      'gotItemNowTrackingUpdates',
+      {
+        state: dbWireRep,
+        overlays: boundOverlayResolver(normId)
+      });
   }),
 
   _cmd_updateTrackedItemPriorityTags: function(msg) {

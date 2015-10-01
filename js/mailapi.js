@@ -359,7 +359,8 @@ MailAPI.prototype = evt.mix({
             return;
           }
 
-          let obj = new itemConstructor(this, msg.data, null, handle);
+          let obj = new itemConstructor(
+            this, msg.data.state, msg.data.overlays, null, handle);
           resolve(obj);
           this._trackedItemHandles.set(handle, {
             type: itemType,
@@ -396,7 +397,20 @@ MailAPI.prototype = evt.mix({
     });
   },
 
+  // update event for list views.  This used to be shared logic with updateItem
+  // but when overlays came into the picture the divergence got too crazy.
   _recv_update: function(msg) {
+    let details = this._trackedItemHandles.get(msg.handle);
+    if (details && details.obj) {
+      let obj = details.obj;
+
+      let data = msg.data;
+      obj.__update(data);
+    }
+  },
+
+  // update event for tracked items (rather than list views)
+  _recv_updateItem: function(msg) {
     let details = this._trackedItemHandles.get(msg.handle);
     if (details && details.obj) {
       let obj = details.obj;
@@ -409,14 +423,14 @@ MailAPI.prototype = evt.mix({
         obj.emit('remove', obj);
       } else {
         // - non-null means it's an update!
-        obj.__update(data);
-        // If this is a single object (and not a list view), then bump its serial
-        // and emit a change event.  In the case of list views, the list view is
-        // handling all that.
-        if (obj._handle) {
-          obj.serial++;
-          obj.emit('change', obj);
+        if (data.state) {
+          obj.__update(data.state);
         }
+        if (data.overlays) {
+          obj.__updateOverlays(data.overlays);
+        }
+        obj.serial++;
+        obj.emit('change', obj);
       }
     }
   },
