@@ -32,7 +32,8 @@ let { folderConversationComparator } = require('./comparators');
  * perspective, if a conversation gets updated, it is no longer the same and
  * we instead treat the position where the { date, id } would be inserted now.
  */
-function FolderConversationsTOC({ db, folderId, dataOverlayManager }) {
+function FolderConversationsTOC({ db, folderId, dataOverlayManager,
+                                  onForgotten }) {
   RefedResource.call(this);
   evt.Emitter.call(this);
 
@@ -40,6 +41,7 @@ function FolderConversationsTOC({ db, folderId, dataOverlayManager }) {
 
   this._db = db;
   this.folderId = folderId;
+    this._onForgotten = onForgotten;
   this._eventId = '';
 
   // We share responsibility for providing overlay data with the list proxy.
@@ -79,6 +81,10 @@ FolderConversationsTOC.prototype = evt.mix(RefedResource.mix({
     this.totalHeight = 0;
     if (!firstTime) {
       this._db.removeListener(this._eventId, this._bound_onTOCChange);
+      if (this._onForgotten) {
+        this._onForgotten(this, this.convId);
+      }
+      this._onForgotten = null;
     }
   },
 

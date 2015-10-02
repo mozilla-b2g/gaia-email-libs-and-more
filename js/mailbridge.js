@@ -143,14 +143,14 @@ MailBridge.prototype = {
     return null;
   },
 
-  _cmd_ping: function mb__cmd_ping(msg) {
+  _cmd_ping: function(msg) {
     this.__sendMessage({
       type: 'pong',
       handle: msg.handle,
     });
   },
 
-  _cmd_modifyConfig: function mb__cmd_modifyConfig(msg) {
+  _cmd_modifyConfig: function(msg) {
     this.universe.modifyConfig(msg.mods);
   },
 
@@ -161,7 +161,7 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_debugSupport: function mb__cmd_debugSupport(msg) {
+  _cmd_debugSupport: function(msg) {
     switch (msg.cmd) {
       case 'setLogging':
         this.universe.modifyConfig({ debugLogging: msg.arg });

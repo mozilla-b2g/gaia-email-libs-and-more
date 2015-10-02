@@ -341,11 +341,12 @@ MailUniverse.prototype = {
       toc = new FolderConversationsTOC({
         db: this.db,
         folderId,
-        dataOverlayManager: this.dataOverlayManager
+        dataOverlayManager: this.dataOverlayManager,
+        onForgotten: () => {
+          this._folderConvsTOCs.delete(folderId);
+        }
       });
       this._folderConvsTOCs.set(folderId, toc);
-      // TODO: have some means of the TOC to tell us to forget about it when
-      // it gets released.
     }
     return ctx.acquire(toc);
   },
@@ -358,11 +359,12 @@ MailUniverse.prototype = {
       toc = new ConversationTOC({
         db: this.db,
         conversationId,
-        dataOverlayManager: this.dataOverlayManager
+        dataOverlayManager: this.dataOverlayManager,
+        onForgotten: () => {
+          this._conversationsTOCs.delete(conversationId);
+        }
       });
       this._conversationTOCs.set(conversationId, toc);
-      // TODO: have some means of the TOC to tell us to forget about it when
-      // it gets released.
     }
     return ctx.acquire(toc);
   },
