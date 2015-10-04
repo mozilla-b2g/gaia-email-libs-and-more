@@ -1561,6 +1561,7 @@ MailDB.prototype = evt.mix({
           } else {
             store.delete(folderId);
           }
+          this.emit(`fldr!${folderId}!change`, folderId, folderInfo);
           this.emit(`acct!${accountId}!folders!tocChange`,
                     folderId, folderInfo, false);
         }
@@ -1580,6 +1581,7 @@ MailDB.prototype = evt.mix({
             this._processAccountDeletion(trans, accountId);
           }
 
+          this.emit(`acct!${accountId}!change`, accountId, accountDef);
           this.emit('accounts!tocChange', accountId, accountDef, false);
         }
       }

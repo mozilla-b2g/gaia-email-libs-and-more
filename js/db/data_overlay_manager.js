@@ -53,6 +53,24 @@ const logic = require('logic');
  * enhancement cases where on-demand-annotation logic could do raindrop-type
  * things like looking up the current state of Bugzilla bugs to annotate them
  * onto the message / conversation state, complete with clever caching.
+ *
+ * ## On overlay namespaces and efficient overlay resolution ##
+ *
+ * The identifiers that we use to name things are thus far hierarchical with the
+ * account id as the root prefix in all current cases.  Our overlay providers
+ * are complex tasks which are fundamentally bound to their account.  This means
+ * that for a given id, we can know the correct provider without having to let
+ * every provider in that namespace have a chance.  This means we could do
+ * something more clever than the list of provider functions per provider name.
+ * But we don't, not yet.
+ *
+ * From the perspective of the TOC's and list proxies, however, there is only
+ * a single namespace per type.  This makes sense since with unified folders and
+ * such, the TOC's and proxies will have objects from different accounts in a
+ * single collection.  This means that we can't do something like tuple the
+ * namespaces so there is one per account id.
+ *
+ *
  */
 function DataOverlayManager() {
   evt.Emitter.call(this);
@@ -72,7 +90,12 @@ DataOverlayManager.prototype = evt.mix({
     if (!providersForNamespace) {
       logic(this, 'badNamespace', { namespace });
     }
-    providersForNamespace.set(name, func);
+    let funcs = providersForNamespace.get(name);
+    if (!funcs) {
+      funcs = [];
+      providersForNamespace.set(name, funcs);
+    }
+    funcs.push(func);
   },
 
   /**
@@ -92,10 +115,15 @@ DataOverlayManager.prototype = evt.mix({
 
   _resolveOverlays: function(providersForNamespace, itemId) {
     let overlays = {};
-    for (let [name, func] of providersForNamespace) {
-      let contrib = func(itemId);
-      if (contrib !== undefined) {
-        overlays[name] = contrib;
+    for (let [name, funcs] of providersForNamespace) {
+      // The first func to return something short-circuits our search.  Each id
+      // is owned by at most one overlay for its name.
+      for (let func of funcs) {
+        let contrib = func(itemId);
+        if (contrib !== undefined) {
+          overlays[name] = contrib;
+          break;
+        }
       }
     }
     return overlays;

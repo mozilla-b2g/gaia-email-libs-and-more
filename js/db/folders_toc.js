@@ -293,10 +293,25 @@ FoldersTOC.prototype = evt.mix({
    * account engine details, and in the future, maybe other details too.
    */
   folderInfoToWireRep: function(folder) {
+    let mixFromAccount;
+    // If this account syncs on a per-account basis, spread the sync information
+    // that sync_refresh stashed on the account.
+    if (this.engineFolderMeta.syncGranularity === 'account' &&
+        this.accountDef.syncInfo) {
+      let syncInfo = this.accountDef.syncInfo;
+      mixFromAccount = {
+        lastSuccessfulSyncAt: syncInfo.lastSuccessfulSyncAt,
+        lastAttemptedSyncAt: syncInfo.lastAttemptedSyncAt,
+        failedSyncsSinceLastSuccessfulSync:
+          syncInfo.failedSyncsSinceLastSuccessfulSync
+      };
+    }
+
     return Object.assign(
       {},
       folder,
-      this.engineFolderMeta
+      this.engineFolderMeta,
+      mixFromAccount
     );
   }
 });

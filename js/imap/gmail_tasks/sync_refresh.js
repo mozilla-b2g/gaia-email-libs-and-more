@@ -6,6 +6,8 @@ const logic = require('logic');
 
 const { shallowClone } = require('../../util');
 
+const { NOW } = require('../../date');
+
 const TaskDefiner = require('../../task_infra/task_definer');
 
 const GmailLabelMapper = require('../gmail/gmail_label_mapper');
@@ -139,6 +141,8 @@ return TaskDefiner.defineAtMostOnceTask([
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
+      let syncDate = NOW();
+
       logic(ctx, 'syncStart', { modseq: syncState.modseq });
       let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
         allMailFolderInfo,
@@ -262,6 +266,19 @@ return TaskDefiner.defineAtMostOnceTask([
         },
         newData: {
           tasks: syncState.tasksToSchedule
+        },
+        atomicClobbers: {
+          accounts: new Map([
+            [
+              req.accountId,
+              {
+                syncInfo: {
+                  lastSuccessfulSyncAt: syncDate,
+                  lastAttemptedSyncAt: syncDate,
+                  failedSyncsSinceLastSuccessfulSync: 0
+                }
+              }
+            ]])
         },
         announceUpdatedOverlayData: [
           ['accounts', req.accountId],
