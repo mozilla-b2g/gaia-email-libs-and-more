@@ -1,47 +1,97 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const { shallowClone } = require('../../util');
 
-let GmailLabelMapper = require('../gmail/gmail_label_mapper');
-let SyncStateHelper = require('../gmail/sync_state_helper');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let imapchew = require('../imapchew');
-let parseImapDateTime = imapchew.parseImapDateTime;
+const GmailLabelMapper = require('../gmail/gmail_label_mapper');
+const SyncStateHelper = require('../gmail/sync_state_helper');
 
-let a64 = require('../../a64');
-let parseGmailConvId = a64.parseUI64;
-let parseGmailMsgId = a64.parseUI64;
+const imapchew = require('../imapchew');
+const parseImapDateTime = imapchew.parseImapDateTime;
 
+const a64 = require('../../a64');
+const parseGmailConvId = a64.parseUI64;
+const parseGmailMsgId = a64.parseUI64;
+
+const { accountIdFromFolderId } = require('../../id_conversions');
 
 /**
  * This is the steady-state sync task that drives all of our gmail sync.
  */
-return TaskDefiner.defineSimpleTask([
+return TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
-    // The folderId is an optional focal folder of interest.  This matters for
-    // the base-case where we've never synchronized the folder intentionally,
-    // and so a sync_grow is the appropriate course of action.
-    args: ['accountId', 'folderId'],
+    binByArg: 'accountId',
 
-    exclusiveResources: function(args) {
-      return [
-        // Only one of us/sync_grow is allowed to be active at a time.
-        `sync:${args.accountId}`
-      ];
+    helped_overlay_accounts: function(accountId, marker, inProgress) {
+      if (!marker) {
+        return null;
+      } else if (inProgress) {
+        return 'active';
+      } else {
+        return 'pending';
+      }
     },
 
-    priorityTags: function(args) {
-      return [
-        `view:folder:${args.folderId}`
+    /**
+     * We will match folders that belong to our account, allowing us to provide
+     * overlay data for folders even though we are account-centric.
+     * Our overlay push happens indirectly by us announcing on
+     * 'accountCascadeToFolders' which causes the folders_toc to generate the
+     * overlay pushes for all impacted folders.
+     */
+    helped_prefix_overlay_folders: [
+      accountIdFromFolderId,
+      function(folderId, accountId, marker, inProgress) {
+        if (!marker) {
+          return null;
+        } else if (inProgress) {
+          return 'active';
+        } else {
+          return 'pending';
+        }
+      }
+    ],
+
+    /**
+     * In our planning phase we discard nonsensical requests to refresh
+     * local-only folders.
+     */
+    helped_plan: function(ctx, rawTask) {
+      // - Plan!
+      let plannedTask = shallowClone(rawTask);
+      plannedTask.exclusiveResources = [
+        `sync:${rawTask.accountId}`
       ];
+      // Let our triggering folder's viewing give us a priority boost, Although
+      // perhaps this should just be account granularity?
+      plannedTask.priorityTags = [
+        `view:folder:${rawTask.folderId}`
+      ];
+
+      return Promise.resolve({
+        taskState: plannedTask,
+        announceUpdatedOverlayData: [
+          ['accounts', rawTask.accountId],
+          // ask the account-specific folders_toc for help generating overlay
+          // push notifications so we don't have to.
+          ['accountCascadeToFolders', rawTask.accountId]
+        ]
+      });
     },
 
-    execute: co.wrap(function*(ctx, req) {
+    helped_execute: co.wrap(function*(ctx, req) {
+      // Our overlay logic will report us as active already, so send the update
+      // to avoid inconsistencies.  (Alternately, we could mutate the marker
+      // with non-persistent changes.)
+      ctx.announceUpdatedOverlayData('accounts', req.accountId);
+      ctx.announceUpdatedOverlayData('accountCascadeToFolders', req.accountId);
+
       // -- Exclusively acquire the sync state for the account
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
@@ -50,7 +100,7 @@ return TaskDefiner.defineSimpleTask([
 
       // -- Check to see if we need to spin-off a sync_grow instead
       if (!rawSyncState) {
-        yield ctx.finishTask({
+        return {
           // we ourselves are done
           taskState: null,
           newData: {
@@ -58,14 +108,11 @@ return TaskDefiner.defineSimpleTask([
               {
                 type: 'sync_grow',
                 accountId: req.accountId,
-                // This is reliably the inbox, but this is probably not the
-                // right way to do this...
-                folderId: req.accountId + '.0'
+                folderId: req.folderId
               }
             ]
           }
-        });
-        return;
+        };
       }
       let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,
                                           'refresh');
@@ -209,14 +256,20 @@ return TaskDefiner.defineSimpleTask([
       syncState.finalizePendingRemovals();
       logic(ctx, 'syncEnd', { modseq: syncState.modseq });
 
-      yield ctx.finishTask({
+      return {
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
         },
         newData: {
           tasks: syncState.tasksToSchedule
-        }
-      });
+        },
+        announceUpdatedOverlayData: [
+          ['accounts', req.accountId],
+          // ask the account-specific folders_toc for help generating overlay
+          // push notifications so we don't have to.
+          ['accountCascadeToFolders', req.accountId]
+        ]
+      };
     })
   }
 ]);

@@ -1,18 +1,18 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let { shallowClone } = require('../../util');
+const co = require('co');
+const { shallowClone } = require('../../util');
 
-let { NOW } = require('../../date');
+const { NOW } = require('../../date');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
+const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 
 
-let imapchew = require('../imapchew');
-let parseImapDateTime = imapchew.parseImapDateTime;
+const imapchew = require('../imapchew');
+const parseImapDateTime = imapchew.parseImapDateTime;
 
 
 /**
@@ -21,7 +21,6 @@ let parseImapDateTime = imapchew.parseImapDateTime;
 return TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
-
     binByArg: 'folderId',
 
     helped_overlay_folders: function(folderId, marker, inProgress) {

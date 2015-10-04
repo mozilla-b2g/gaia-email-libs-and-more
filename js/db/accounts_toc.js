@@ -1,8 +1,10 @@
 define(function(require) {
 'use strict';
 
-let evt = require('evt');
-let logic = require('logic');
+const evt = require('evt');
+const logic = require('logic');
+
+const { engineFrontEndAccountMeta } = require('../engine_glue');
 
 const { bsearchForInsert } = require('../util');
 
@@ -98,45 +100,52 @@ AccountsTOC.prototype = evt.mix({
   },
 
   accountDefToWireRep: function(accountDef) {
-    return {
-      id: accountDef.id,
-      name: accountDef.name,
-      type: accountDef.type,
-      engine: accountDef.engine,
+    return Object.assign(
+      // NB: This structure is basically verbatim from v1.x to avoid
+      // gratuitous change, but it could make sense to make varying changes.
+      {
+        id: accountDef.id,
+        name: accountDef.name,
+        type: accountDef.type,
+        engine: accountDef.engine,
 
-      defaultPriority: accountDef.defaultPriority,
+        defaultPriority: accountDef.defaultPriority,
 
-      enabled: true, // XXX overlay mechanism or universe consultation?
-      problems: [], // XXX ditto
+        enabled: true, // XXX overlay mechanism or universe consultation?
+        problems: [], // XXX ditto
 
-      syncRange: accountDef.syncRange,
-      syncInterval: accountDef.syncInterval,
-      notifyOnNew: accountDef.notifyOnNew,
-      playSoundOnSend: accountDef.playSoundOnSend,
+        syncRange: accountDef.syncRange,
+        syncInterval: accountDef.syncInterval,
+        notifyOnNew: accountDef.notifyOnNew,
+        playSoundOnSend: accountDef.playSoundOnSend,
 
-      identities: accountDef.identities,
+        identities: accountDef.identities,
 
-      credentials: {
-        username: accountDef.credentials.username,
-        outgoingUsername: accountDef.credentials.outgoingUsername,
-        // no need to send the password to the UI.
-        // send all the oauth2 stuff we've got, though.
-        oauth2: accountDef.credentials.oauth2
-      },
-
-      servers: [
-        {
-          type: accountDef.receiveType,
-          connInfo: accountDef.receiveConnInfo,
-          activeConns: 0, // XXX overlay info but we have never used this
+        credentials: {
+          username: accountDef.credentials.username,
+          outgoingUsername: accountDef.credentials.outgoingUsername,
+          // no need to send the password to the UI.
+          // send all the oauth2 stuff we've got, though.
+          oauth2: accountDef.credentials.oauth2
         },
-        {
-          type: accountDef.sendType,
-          connInfo: accountDef.sendConnInfo,
-          activeConns: 0, // XXX overlay info but we have never used this
-        }
-      ],
-    };
+
+        servers: [
+          {
+            type: accountDef.receiveType,
+            connInfo: accountDef.receiveConnInfo,
+            activeConns: 0, // XXX overlay info but we have never used this
+          },
+          {
+            type: accountDef.sendType,
+            connInfo: accountDef.sendConnInfo,
+            activeConns: 0, // XXX overlay info but we have never used this
+          }
+        ],
+      },
+      // Information about the engine is exposed from here.  This is what gives
+      // us: engineFacts
+      engineFrontEndAccountMeta.get(accountDef.engine)
+    );
   },
 
 });

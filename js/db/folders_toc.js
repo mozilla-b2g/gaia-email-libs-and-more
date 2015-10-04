@@ -9,6 +9,8 @@ const { bsearchForInsert } = require('../util');
 const { encodeInt: encodeA64Int } = require('../a64');
 const { decodeSpecificFolderIdFromFolderId } = require('../id_conversions');
 
+const { engineFrontEndFolderMeta } = require('../engine_glue');
+
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
   inbox: 'c',
@@ -48,11 +50,15 @@ function strcmp(a, b) {
  * ordered things by our crazy sort priority.  Now we use the sort priority here
  * in the back-end and expose that to the front-end too.
  */
-function FoldersTOC(db, accountId, folders) {
+function FoldersTOC({ db, accountDef, folders, dataOverlayManager }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'FoldersTOC');
 
-  this.accountId = accountId;
+  this.accountDef = accountDef;
+  this.engineFolderMeta = engineFrontEndFolderMeta.get(accountDef.engine);
+  this.accountId = accountDef.id;
+  this._dataOverlayManager = dataOverlayManager;
+
   /**
    * Canonical folder state representation.  This is what goes in the database.
    * @type {Map<FolderId, FolderInfo>}
@@ -86,10 +92,15 @@ function FoldersTOC(db, accountId, folders) {
   // See `issueFolderId` for the sordid details.
   this._nextFolderNum = nextFolderNum;
 
-  // TODO: on account deletion we should be removing this listener, but this
+  // TODO: on account deletion we should be removing these listeners, but this
   // is a relatively harmless leak given that account creation and deletion is
   // a relatively rare operation.
-  db.on(`acct!${accountId}!folders!tocChange`, this._onTOCChange.bind(this));
+  db.on(`acct!${accountDef.id}!change`, this._onAccountChange.bind(this));
+  db.on(
+    `acct!${accountDef.id}!folders!tocChange`, this._onTOCChange.bind(this));
+
+  dataOverlayManager.on(
+    'accountCascadeToFolders', this._onAccountOverlayCascade.bind(this));
 }
 FoldersTOC.prototype = evt.mix({
   type: 'FoldersTOC',
@@ -179,6 +190,47 @@ FoldersTOC.prototype = evt.mix({
            folderInfo.name.toLocaleLowerCase();
   },
 
+  /**
+   * Some complex tasks may do things at an account granularity but which should
+   * (potentially) be reported in the overlays of all folders.  In the interest
+   * of simplifying the lives of those tasks
+   */
+  _onAccountOverlayCascade: function(accountId) {
+    // This event is an unfiltered firehose; we have to filter down to our id.
+    if (accountId === this.accountId) {
+      for (let i = 0; i < this.items.length; i++) {
+        let folder = this.items[i];
+        this._dataOverlayManager.announceUpdatedOverlayData(
+          this.overlayNamespace, folder.id);
+      }
+    }
+  },
+
+  /**
+   * Keep up-to-date with account changes.  Note that while the accountDef
+   * reference itself should never change (accountDefs are defined to be always
+   * in-memory, etc.), we do need to be alerted when values change since we
+   * propagate data to the folders.
+   */
+  _onAccountChange: function(/* accountId, accountDef */) {
+    // We are also assuming the engine and engineFolderMeta can't change at
+    // runtime without retracting and re-adding the account.  This is an
+    // invariant, though.
+    this._fakeFolderDataChanges();
+  },
+
+  /**
+   * Pretend the selected folders changed (data-wise, not overlay-wise).
+   */
+  _fakeFolderDataChanges: function(filterFunc) {
+    for (let i = 0; i < this.items.length; i++) {
+      let folder = this.items[i];
+      if (!filterFunc || filterFunc(folder)) {
+        this.emit('change', this.folderInfoToWireRep(folder), i);
+      }
+    }
+  },
+
   _onTOCChange: function(folderId, folderInfo, isNew) {
     if (isNew) {
       // - add
@@ -186,7 +238,10 @@ FoldersTOC.prototype = evt.mix({
     } else if (folderInfo) {
       // - change
       // object identity ensures folderInfo is already present.
-      this.emit('change', folderInfo, this.items.indexOf(folderInfo));
+      this.emit(
+        'change',
+        this.folderInfoToWireRep(folderInfo),
+        this.items.indexOf(folderInfo));
     } else {
       // - remove
       this._removeFolderById(folderId);
@@ -202,7 +257,7 @@ FoldersTOC.prototype = evt.mix({
     this.folderSortStrings.splice(idx, 0, sortString);
     this.foldersById.set(folderInfo.id, folderInfo);
 
-    this.emit('add', folderInfo, idx);
+    this.emit('add', this.folderInfoToWireRep(folderInfo), idx);
   },
 
   _removeFolderById: function(id) {
@@ -232,6 +287,18 @@ FoldersTOC.prototype = evt.mix({
   generatePersistenceInfo: function() {
     return this._foldersDbState;
   },
+
+  /**
+   * Generate the wire rep for a folder *belonging to this account*, mixing in
+   * account engine details, and in the future, maybe other details too.
+   */
+  folderInfoToWireRep: function(folder) {
+    return Object.assign(
+      {},
+      folder,
+      this.engineFolderMeta
+    );
+  }
 });
 
 return FoldersTOC;

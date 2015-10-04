@@ -134,7 +134,7 @@ WindowedListProxy.prototype = {
       if (this.toc.heightAware) {
         this.mode = req.mode;
         // In this case we want to anchor on the first visible item, so we take
-        // the offset and add the si
+        // the offset and add the "before" padding.
         let focalOffset = req.offset + req.before;
         let { orderingKey, offset } = this.toc.getInfoForOffset(focalOffset);
         this.focusKey = orderingKey;

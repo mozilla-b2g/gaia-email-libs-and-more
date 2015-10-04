@@ -73,6 +73,8 @@ function MailAccount(api, wireRep, overlays, acctsSlice) {
   if (acctsSlice && acctsSlice._autoViewFolders) {
     this.folders = api.viewFolders('account', this.id);
   }
+
+  this.__updateOverlays(overlays, true);
 }
 MailAccount.prototype = evt.mix({
   toString: function() {
@@ -87,13 +89,13 @@ MailAccount.prototype = evt.mix({
   },
 
   __update: function(wireRep) {
+    this._wireRep = wireRep;
     this.enabled = wireRep.enabled;
     this.problems = wireRep.problems;
     this.syncRange = wireRep.syncRange;
     this.syncInterval = wireRep.syncInterval;
     this.notifyOnNew = wireRep.notifyOnNew;
     this.playSoundOnSend = wireRep.playSoundOnSend;
-    this._wireRep.defaultPriority = wireRep.defaultPriority;
 
     for (var i = 0; i < wireRep.identities.length; i++) {
       if (this.identities[i]) {
@@ -105,8 +107,22 @@ MailAccount.prototype = evt.mix({
     }
   },
 
-  __updateOverlays: function(overlays) {
-
+  __updateOverlays: function(overlays, firstTime) {
+    let newSyncStatus = overlays.sync_refresh ? overlays.sync_refresh : null;
+    // - Sync status update propagation for account-granularity syncers.
+    if (!firstTime && this._wireRep.engineFacts.syncGranularity === 'account') {
+      if (this.syncStatus !== newSyncStatus) {
+        let folders = this.folders.items;
+        for (let i = 0; i < folders.length; i++) {
+          let folder = folders[i];
+          folder.syncStatus = newSyncStatus;
+          folder.emit(
+            'change', folder, i, /* no data change */ false,
+            /* yes overlay change */ true);
+        }
+      }
+    }
+    this.syncStatus = newSyncStatus;
   },
 
   release: function() {

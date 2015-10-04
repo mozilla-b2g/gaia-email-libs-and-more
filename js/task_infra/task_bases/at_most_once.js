@@ -15,6 +15,20 @@ const makeWrappedOverlayFunc = function(helpedOverlayFunc) {
   };
 };
 
+const makeWrappedPrefixOverlayFunc = function([extractor, helpedOverlayFunc]) {
+  return function(persistentState, memoryState, fullId) {
+    // use the provided extractor to get the id for the bin.
+    let binId = extractor(fullId);
+    return helpedOverlayFunc.call(
+      this,
+      fullId,
+      binId,
+      persistentState.binToMarker.get(binId),
+      memoryState.inProgressBins.has(binId));
+  };
+};
+
+
 /**
  * See `TaskDefiner.defineAtMostOnceTask` for a consumer view and high-level
  * overview.  We are implementation details.
@@ -39,6 +53,14 @@ return {
 
         this['overlay_' + overlayType] =
           makeWrappedOverlayFunc(mixedSource[key]);
+      }
+
+      let prefixedOverlayMatch = /^helped_prefix_overlay_(.+)$/.exec(key);
+      if (prefixedOverlayMatch) {
+        let overlayType = prefixedOverlayMatch[1];
+
+        this['overlay_' + overlayType] =
+          makeWrappedPrefixOverlayFunc(mixedSource[key]);
       }
     }
   },

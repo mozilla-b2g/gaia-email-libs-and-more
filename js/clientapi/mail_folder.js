@@ -105,6 +105,9 @@ MailFolder.prototype = evt.mix({
       default:
         this.isValidMoveTarget = true;
     }
+
+    // -- Things mixed-in by the folders_toc from engine meta
+    this.syncGranularity = wireRep.syncGranularity;
   },
 
   __updateOverlays: function(overlays) {

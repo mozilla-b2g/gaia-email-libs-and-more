@@ -270,7 +270,15 @@ WindowedListView.prototype = evt.mix({
   /**
    * Given a quantized-height-supporting back-end where every item has an
    * integer height associated with it that creates an arbitrary coordinate
-   * space, seek using that coordinate space.
+   * space, seek using that coordinate space, latching on the first visible
+   * item.
+   *
+   * IMPORTANT NOTE!  Latching on the item is usually not what you want if you
+   * are at the top of the list and you want to see new items as they come in.
+   * AKA, if you are seeking to offset 0, you probably want to use `seekToTop`.
+   * I'm a bit conflicted about whether we should just be baking this mode of
+   * operation into this or support flags/etc. to help you do this.  But for
+   * now it's on you.
    *
    * This mode of seeking assumes a virtual list widget with some concept of
    * the visible region and a buffer before it and after it.

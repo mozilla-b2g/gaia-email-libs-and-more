@@ -840,7 +840,7 @@ MailAPI.prototype = evt.mix({
    *   }
    * ]
    */
-  viewFolders: function ma_viewFolders(mode, accountId) {
+  viewFolders: function(mode, accountId) {
     var handle = this._nextHandle++,
         view = new FoldersListView(this, handle);
 
