@@ -88,7 +88,7 @@ TaskRegistry.prototype = {
    * simplifications we've made like this.  We would implement all of that at
    * the same time.
    */
-  _registerComplexTaskImplWithDataOverlayManager: function(meta) {
+  _registerComplexTaskImplWithDataOverlayManager: function(accountId, meta) {
     let taskImpl = meta.impl;
 
     // (Tasks are strictly mix-in based and do not use the prototype chain.
@@ -96,6 +96,13 @@ TaskRegistry.prototype = {
     for (let key of Object.keys(taskImpl)) {
       let overlayMatch = /^overlay_(.+)$/.exec(key);
       if (overlayMatch) {
+        logic(
+          this, 'registerOverlayProvider',
+          {
+            accountId,
+            taskName: taskImpl.name,
+            overlayType: overlayMatch[1]
+          });
         this._dataOverlayManager.registerProvider(
           overlayMatch[1],
           taskImpl.name,
@@ -164,7 +171,7 @@ TaskRegistry.prototype = {
             accountMarkers.push(...markers);
           }
 
-          this._registerComplexTaskImplWithDataOverlayManager(meta);
+          this._registerComplexTaskImplWithDataOverlayManager(accountId, meta);
         };
         if (maybePromise.then) {
           pendingPromises.push(maybePromise.then(saveOffMemoryState));

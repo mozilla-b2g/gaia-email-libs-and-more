@@ -14,10 +14,7 @@ const { POP3_MAX_MESSAGES_PER_SYNC } = require('../../syncbase');
  */
 return TaskDefiner.defineSimpleTask([
   {
-    name: 'sync_refresh',
-    // folderId-wise, there's basically only the inbox, but we do potentially
-    // want this to ignore requests to sync the localdrafts folder, etc.
-    args: ['accountId', 'folderId'],
+    name: 'sync_grow',
 
     exclusiveResources: function(args) {
       return [

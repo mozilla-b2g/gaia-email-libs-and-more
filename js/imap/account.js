@@ -116,6 +116,10 @@ var properties = {
     return '[ImapAccount: ' + this.id + ']';
   },
 
+  get capability() {
+    return this._engineData.capability;
+  },
+
   //////////////////////////////////////////////////////////////////////////////
   // Server type indicators for quirks and heuristics like sent mail
 
@@ -128,7 +132,7 @@ var properties = {
    * https://developers.google.com/gmail/imap_extensions
    */
   get isGmail() {
-    return this.meta.capability.indexOf('X-GM-EXT-1') !== -1;
+    return this.capability.indexOf('X-GM-EXT-1') !== -1;
   },
 
   /**
@@ -138,7 +142,7 @@ var properties = {
    * X-CM-EXT-1 capability.
    */
   get isCoreMailServer() {
-    return this.meta.capability.indexOf('X-CM-EXT-1') !== -1;
+    return this.capability.indexOf('X-CM-EXT-1') !== -1;
   },
 
   /**

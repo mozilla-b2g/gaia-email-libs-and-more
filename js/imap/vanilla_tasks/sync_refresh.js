@@ -10,10 +10,8 @@ const TaskDefiner = require('../../task_infra/task_definer');
 
 const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 
-
 const imapchew = require('../imapchew');
 const parseImapDateTime = imapchew.parseImapDateTime;
-
 
 /**
  * Steady state vanilla IMAP folder sync.

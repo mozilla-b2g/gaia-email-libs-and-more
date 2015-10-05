@@ -35,20 +35,19 @@ return TaskDefiner.defineSimpleTask([
       },
     ],
 
-    syncFolders: function*(ctx, req) {
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+    syncFolders: function*(ctx, account) {
       let foldersTOC = account.foldersTOC;
       let conn = yield account.ensureConnection();
       let newFolders = [];
       let modifiedFolders = new Map();
 
       let fromDb = yield ctx.beginMutate({
-        syncStates: new Map([[req.accountId, null]])
+        syncStates: new Map([[account.id, null]])
       });
 
-      let rawSyncState = fromDb.syncStates.get(req.accountId);
+      let rawSyncState = fromDb.syncStates.get(account.id);
       let syncState = new AccountSyncStateHelper(
-        ctx, rawSyncState, req.accountId);
+        ctx, rawSyncState, account.id);
 
       let emitter = new evt.Emitter();
       let deferredFolders = [];
@@ -114,7 +113,7 @@ return TaskDefiner.defineSimpleTask([
       return {
         newFolders,
         modifiedFolders,
-        modifiedSyncStates: new Map([[req.accountId, syncState.rawSyncState]])
+        modifiedSyncStates: new Map([[account.id, syncState.rawSyncState]])
       };
     }
   }

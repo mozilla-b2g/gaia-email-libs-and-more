@@ -120,7 +120,9 @@ DataOverlayManager.prototype = evt.mix({
       // is owned by at most one overlay for its name.
       for (let func of funcs) {
         let contrib = func(itemId);
-        if (contrib !== undefined) {
+        // undefined and null also don't merit being relayed or stopping our
+        // search.
+        if (contrib != null) {
           overlays[name] = contrib;
           break;
         }

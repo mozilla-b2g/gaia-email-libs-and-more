@@ -5,9 +5,10 @@ const co = require('co');
 const evt = require('evt');
 const logic = require('logic');
 
-const TaskDefiner = require('../../task_infra/task_definer');
-
 const { shallowClone } = require('../../util');
+const { NOW } = require('../../date');
+
+const TaskDefiner = require('../../task_infra/task_definer');
 
 const FolderSyncStateHelper = require('../folder_sync_state_helper');
 
@@ -27,10 +28,20 @@ const { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } = require('../../syncbase');
  * Sync a folder for the first time and steady-state.  (Compare with our IMAP
  * implementations that have special "sync_grow" tasks.)
  */
-return TaskDefiner.defineSimpleTask([
+return TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
-    args: ['accountId', 'folderId'],
+    binByArg: 'folderId',
+
+    helped_overlay_folders: function(folderId, marker, inProgress) {
+      if (!marker) {
+        return null;
+      } else if (inProgress) {
+        return 'active';
+      } else {
+        return 'pending';
+      }
+    },
 
     /**
      * In our planning phase we discard nonsensical requests to refresh
@@ -41,7 +52,7 @@ return TaskDefiner.defineSimpleTask([
      * line right now between whether reuse would be better; keep it in mind as
      * things change.
      */
-    plan: co.wrap(function*(ctx, rawTask) {
+    helped_plan: co.wrap(function*(ctx, rawTask) {
       // Get the folder
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
@@ -66,12 +77,18 @@ return TaskDefiner.defineSimpleTask([
         ];
       }
 
-      yield ctx.finishTask({
-        taskState: plannedTask
-      });
+      return {
+        taskState: plannedTask,
+        announceUpdatedOverlayData: [['folders', rawTask.folderId]]
+      };
     }),
 
-    execute: co.wrap(function*(ctx, req) {
+    helped_execute: co.wrap(function*(ctx, req) {
+      // Our overlay logic will report us as active already, so send the update
+      // to avoid inconsistencies.  (Alternately, we could mutate the marker
+      // with non-persistent changes.)
+      ctx.announceUpdatedOverlayData('folders', req.folderId);
+
       // -- Exclusively acquire the sync state for the folder
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
@@ -116,12 +133,11 @@ return TaskDefiner.defineSimpleTask([
         syncState.messageDeleted(serverMessageId);
       });
 
-      //
-
       // It's possible for our syncKey to be invalid, in which case we'll need
       // to run the logic a second time (fetching a syncKey and re-enumerating)
       // so use a loop that errs on the side of not looping.
       let syncKeyTriesAllowed = 1;
+      let syncDate;
       while(syncKeyTriesAllowed--) {
         // - Infer the filter type, if needed.
         // XXX allow the explicit account-level override for filter types.
@@ -152,6 +168,7 @@ return TaskDefiner.defineSimpleTask([
         }
 
         // - Try and sync
+        syncDate = NOW();
         let { invalidSyncKey, syncKey, moreToSync } =
           yield* enumerateFolderChanges(
             conn,
@@ -181,9 +198,8 @@ return TaskDefiner.defineSimpleTask([
         });
         syncState.generateSyncConvTasks();
       }
-      // XXX lastSyncedAt / lastFolderSyncAt needs to get updated.
 
-      yield ctx.finishTask({
+      return {
         mutations: {
           syncStates: new Map([[req.folderId, syncState.rawSyncState]]),
           umidNames: syncState.umidNameWrites,
@@ -193,8 +209,20 @@ return TaskDefiner.defineSimpleTask([
           conversations: newConversations,
           messages: newMessages,
           tasks: syncState.tasksToSchedule
-        }
-      });
+        },
+        atomicClobbers: {
+          folders: new Map([
+            [
+              req.folderId,
+              {
+                lastSuccessfulSyncAt: syncDate,
+                lastAttemptedSyncAt: syncDate,
+                failedSyncsSinceLastSuccessfulSync: 0
+              }
+            ]])
+        },
+        announceUpdatedOverlayData: [['folders', req.folderId]]
+      };
     })
   }
 ]);

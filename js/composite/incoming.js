@@ -32,7 +32,7 @@ function CompositeIncomingAccount(
   this._alive = true;
   this._credentials = credentials;
   this._connInfo = connInfo;
-  this._engineDetails = this.accountDef.engineDetails;
+  this._engineData = this.accountDef.engineData;
   this._db = dbConn;
 
   this.foldersTOC = foldersTOC;

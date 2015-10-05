@@ -1,37 +1,58 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
+const co = require('co');
+const { shallowClone } = require('../../util');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const { NOW } = require('../../date');
 
-let SyncStateHelper = require('../sync_state_helper');
+const TaskDefiner = require('../../task_infra/task_definer');
+
+const SyncStateHelper = require('../sync_state_helper');
 
 const { POP3_MAX_MESSAGES_PER_SYNC } = require('../../syncbase');
 
-/**
- * Steady state vanilla IMAP folder sync.
- */
-return TaskDefiner.defineSimpleTask([
+return TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
-    // folderId-wise, there's basically only the inbox, but we do potentially
-    // want this to ignore requests to sync the localdrafts folder, etc.
-    args: ['accountId', 'folderId'],
+    binByArg: 'folderId',
 
-    exclusiveResources: function(args) {
-      return [
-        `sync:${args.accountId}`
-      ];
+    helped_overlay_folders: function(folderId, marker, inProgress) {
+      if (!marker) {
+        return null;
+      } else if (inProgress) {
+        return 'active';
+      } else {
+        return 'pending';
+      }
     },
 
-    priorityTags: function(args) {
-      return [
-        `view:folder:${args.folderId}`
+    /**
+     * In our planning phase we discard nonsensical requests to refresh
+     * local-only folders.
+     */
+    helped_plan: function(ctx, rawTask) {
+      // - Plan!
+      let plannedTask = shallowClone(rawTask);
+      plannedTask.exclusiveResources = [
+        `sync:${rawTask.folderId}`
       ];
+      plannedTask.priorityTags = [
+        `view:folder:${rawTask.folderId}`
+      ];
+
+      return Promise.resolve({
+        taskState: plannedTask,
+        announceUpdatedOverlayData: [['folders', rawTask.folderId]]
+      });
     },
 
-    execute: co.wrap(function*(ctx, req) {
+    helped_execute: co.wrap(function*(ctx, req) {
+      // Our overlay logic will report us as active already, so send the update
+      // to avoid inconsistencies.  (Alternately, we could mutate the marker
+      // with non-persistent changes.)
+      ctx.announceUpdatedOverlayData('folders', req.folderId);
+
       // -- Exclusively acquire the sync state for the folder
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
@@ -42,6 +63,7 @@ return TaskDefiner.defineSimpleTask([
         POP3_MAX_MESSAGES_PER_SYNC);
 
       // -- Establish the connection
+      let syncDate = NOW();
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let popAccount = account.popAccount;
 
@@ -55,7 +77,7 @@ return TaskDefiner.defineSimpleTask([
 
       syncState.deltaCheckUidls(allMessages);
 
-      yield ctx.finishTask({
+      return {
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
           umidNames: syncState.umidNameWrites,
@@ -63,8 +85,20 @@ return TaskDefiner.defineSimpleTask([
         },
         newData: {
           tasks: syncState.tasksToSchedule
-        }
-      });
+        },
+        atomicClobbers: {
+          folders: new Map([
+            [
+              req.folderId,
+              {
+                lastSuccessfulSyncAt: syncDate,
+                lastAttemptedSyncAt: syncDate,
+                failedSyncsSinceLastSuccessfulSync: 0
+              }
+            ]])
+        },
+        announceUpdatedOverlayData: [['folders', req.folderId]]
+      };
     })
   }
 ]);

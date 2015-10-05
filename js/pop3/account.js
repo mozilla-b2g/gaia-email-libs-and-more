@@ -154,7 +154,7 @@ var properties = {
         port: this._connInfo.port,
         crypto: this._connInfo.crypto,
 
-        preferredAuthMethod: this._engineDetails.preferredAuthMethod,
+        preferredAuthMethod: this._engineData.preferredAuthMethod,
 
         username: this._credentials.username,
         password: this._credentials.password,
@@ -204,8 +204,6 @@ var properties = {
    * Shut down the account and close the connection.
    */
   shutdown: function(callback) {
-    CompositeIncomingAccount.prototype.shutdownFolders.call(this);
-
     this._backoffEndpoint.shutdown();
 
     if (this._conn && this._conn.close) {

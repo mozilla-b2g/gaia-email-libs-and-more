@@ -51,10 +51,16 @@ function AccountManager({ db, universe, taskRegistry }) {
   this.universe = universe;
   this.taskRegistry = taskRegistry;
 
+  /**
+   * Maps account id's to their accountDef instances from the moment we hear
+   * about the account.  Necessary since we only tell the accountsTOC about
+   * the account once things are sufficiently loaded for the rest of the system
+   * to know about the account.
+   */
   this._immediateAccountDefsById = new Map();
   this.accountsTOC = new AccountsTOC();
 
-  // prereqify maps.
+  // prereqify maps. (See the helper function above and its usages below.)
   this._taskTypeLoads = new Map();
   this._accountFoldersTOCLoads = new Map();
   this._accountLoads = new Map();
@@ -102,7 +108,6 @@ AccountManager.prototype = {
     let waitFor = [];
 
     for (let accountDef of accountDefs) {
-      this._immediateAccountDefsById.set(accountDef.id, accountDef);
       waitFor.push(this._accountAdded(accountDef));
     }
     return Promise.all(waitFor);
@@ -136,7 +141,7 @@ AccountManager.prototype = {
       // The FoldersTOC wants this so it can mix in per-account data to the
       // folders so they can stand alone without needing to have references and
       // weird cascades in the front-end.
-      let accountDef = this._immediateAccountDefsById.get(accountId);
+      let accountDef = this.getAccountDefById(accountId);
       let foldersTOC = new FoldersTOC({
         db: this.db,
         accountDef,
@@ -151,7 +156,7 @@ AccountManager.prototype = {
   /**
    * Ensure the given account has been loaded.
    */
-  _ensureAccount: prereqify('_accountLoads', function (accountId) {
+  _ensureAccount: prereqify('_accountLoads', function(accountId) {
     return this._ensureAccountFoldersTOC(accountId).then((foldersTOC) => {
       return new Promise((resolve) => {
         let accountDef = this.getAccountDefById(accountId);
@@ -197,11 +202,11 @@ AccountManager.prototype = {
   },
 
   /**
-   * Return the AccountDef for the given AccountId.  This is only safe to call
-   * after the universe has fully loaded.
+   * Return the AccountDef for the given AccountId.  This will return accounts
+   * we have not acknowledged the existence of to the AccountsTOC yet.
    */
   getAccountDefById: function(accountId) {
-    return this.accountsTOC.accountDefsById.get(accountId);
+    return this._immediateAccountDefsById.get(accountId);
   },
 
   /**

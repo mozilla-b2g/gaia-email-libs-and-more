@@ -50,14 +50,14 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
     if (isImap) {
       engineFields = {
         engine: receiveResults.engine,
-        engineDetails: {
+        engineData: {
           capability: protoConn.capability
         }
       };
     } else {
       engineFields = {
         engine: 'pop3',
-        engineDetails: {
+        engineData: {
           preferredAuthMethod: protoConn.authMethod
         }
       };
