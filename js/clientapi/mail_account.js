@@ -74,7 +74,7 @@ function MailAccount(api, wireRep, overlays, acctsSlice) {
     this.folders = api.viewFolders('account', this.id);
   }
 
-  this.__updateOverlays(overlays, true);
+  this.__updateOverlays(overlays);
 }
 MailAccount.prototype = evt.mix({
   toString: function() {
@@ -107,22 +107,8 @@ MailAccount.prototype = evt.mix({
     }
   },
 
-  __updateOverlays: function(overlays, firstTime) {
-    let newSyncStatus = overlays.sync_refresh ? overlays.sync_refresh : null;
-    // - Sync status update propagation for account-granularity syncers.
-    if (!firstTime && this._wireRep.engineFacts.syncGranularity === 'account') {
-      if (this.syncStatus !== newSyncStatus) {
-        let folders = this.folders.items;
-        for (let i = 0; i < folders.length; i++) {
-          let folder = folders[i];
-          folder.syncStatus = newSyncStatus;
-          folder.emit(
-            'change', folder, i, /* no data change */ false,
-            /* yes overlay change */ true);
-        }
-      }
-    }
-    this.syncStatus = newSyncStatus;
+  __updateOverlays: function(overlays) {
+    this.syncStatus = overlays.sync_refresh ? overlays.sync_refresh : null;
   },
 
   release: function() {
