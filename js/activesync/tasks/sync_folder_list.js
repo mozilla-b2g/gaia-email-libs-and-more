@@ -14,7 +14,7 @@ const enumerateHierarchyChanges = require('../smotocol/enum_hierarchy_changes');
  * for the infrastructure (that wants to move someplace less IMAPpy.)
  */
 return TaskDefiner.defineSimpleTask([
-  require('../../imap/vanilla_tasks/mix_sync_folder_list'),
+  require('../../task_mixins/mix_sync_folder_list'),
   {
     essentialOfflineFolders: [
       // Although the inbox is an online folder, we aren't daring enough to

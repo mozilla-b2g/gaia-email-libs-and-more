@@ -8,7 +8,7 @@ let TaskDefiner = require('../../task_infra/task_definer');
  * other sync logic.
  */
 return TaskDefiner.defineSimpleTask([
-  require('./mix_sync_conv'),
+  require('../../task_mixins/mix_sync_conv'),
   {
     name: 'sync_conv',
 

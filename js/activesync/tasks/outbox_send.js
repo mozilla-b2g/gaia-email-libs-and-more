@@ -14,7 +14,7 @@ const sendMail12x = require('../smotocol/send_mail_12x');
  *   easy/free and we use the default saveSentMessage implementation.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../tasks/mix_outbox_send'),
+  require('../../task_mixins/mix_outbox_send'),
   {
     shouldIncludeBcc: function(/* account */) {
       // ActiveSync auto-appends.

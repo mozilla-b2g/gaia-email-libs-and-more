@@ -7,7 +7,7 @@ const TaskDefiner = require('../../task_infra/task_definer');
  * Create the POP3 offline-only folders.
  */
 return TaskDefiner.defineSimpleTask([
-  require('../../imap/vanilla_tasks/mix_sync_folder_list'),
+  require('../../task_mixins/mix_sync_folder_list'),
   {
     essentialOfflineFolders: [
       // Note that versus IMAP, our inbox is offline.

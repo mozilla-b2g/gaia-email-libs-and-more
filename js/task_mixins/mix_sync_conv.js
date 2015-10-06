@@ -3,7 +3,7 @@ define(function(require) {
 
 const co = require('co');
 
-const churnConversation = require('../../churn_drivers/conv_churn_driver');
+const churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
  * Planning-only task mix-in that applies modifications to a conversation based

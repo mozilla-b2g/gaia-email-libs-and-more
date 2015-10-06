@@ -8,7 +8,7 @@ let { prioritizeNewer } = require('../../date_priority_adjuster');
 let TaskDefiner = require('../../task_infra/task_definer');
 
 let { resolveConversationTaskHelper } =
-  require('../../tasks/mix_conv_resolver');
+  require('../../task_mixins/conv_resolver');
 
 let { chewMessageStructure } = require('../imapchew');
 

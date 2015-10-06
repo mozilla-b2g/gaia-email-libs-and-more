@@ -12,7 +12,7 @@ const TaskDefiner = require('../../task_infra/task_definer');
  * them around.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../tasks/mix_outbox_send'),
+  require('../../task_mixins/mix_outbox_send'),
   {
     shouldIncludeBcc: function(/*account*/) {
       // Never trust the SMTP server to not screw up since by definition a POP3

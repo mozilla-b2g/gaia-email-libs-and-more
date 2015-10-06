@@ -16,7 +16,7 @@ const TaskDefiner = require('../../task_infra/task_definer');
  * move to JMAP soon.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../tasks/mix_outbox_send'),
+  require('../../task_mixins/mix_outbox_send'),
   {
     shouldIncludeBcc: function(account) {
       // If the SMTP send automatically saves the message in the sent folder,
