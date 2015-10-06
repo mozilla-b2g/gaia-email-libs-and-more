@@ -40,7 +40,7 @@ const DESIRED_TEXT_SNIPPET_BYTES = 512;
  *   a different engine, but it's certainly frustrating.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../imap/vanilla_tasks/mix_sync_body'),
+  require('../../task_mixins/mix_sync_body'),
   {
     execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
@@ -201,5 +201,4 @@ return TaskDefiner.defineComplexTask([
     })
   }
 ]);
-
 });

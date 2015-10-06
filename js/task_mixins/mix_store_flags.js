@@ -4,10 +4,10 @@ define(function(require) {
 let co = require('co');
 
 let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
-  require('../../delta_algebra');
-let { selectMessages } = require('../../message_selector');
+  require('../delta_algebra');
+let { selectMessages } = require('../message_selector');
 
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
+let churnConversation = require('../churn_drivers/conv_churn_driver');
 
 /**
  * Not-particularly-clever flag-storing complex task.  All requests/local

@@ -12,7 +12,7 @@ let TaskDefiner = require('../../task_infra/task_definer');
  * @see MixStoreFlagsMixin
  */
 return TaskDefiner.defineComplexTask([
-  require('../../imap/vanilla_tasks/mix_store_flags'),
+  require('../../task_mixins/mix_store_flags'),
   {
     name: 'store_flags',
 

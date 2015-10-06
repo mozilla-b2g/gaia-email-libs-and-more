@@ -31,7 +31,7 @@ const churnConversation = require('../../churn_drivers/conv_churn_driver');
  * end up downloading the entirety of the message, which could be bad.
  */
 return TaskDefiner.defineComplexTask([
-  require('../../imap/vanilla_tasks/mix_sync_body'),
+  require('../../task_mixins/mix_sync_body'),
   {
     execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);

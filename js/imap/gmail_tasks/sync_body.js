@@ -6,7 +6,8 @@ let { numericUidFromMessageId } = require('../../id_conversions');
 let TaskDefiner = require('../../task_infra/task_definer');
 
 return TaskDefiner.defineComplexTask([
-  require('../vanilla_tasks/mix_sync_body'),
+  require('../../task_mixins/mix_sync_body'),
+  require('../task_mixins/imap_mix_sync_body'),
   {
     prepForMessages: function(ctx, account/*, messages*/) {
       // For the gmail case we don't have any meaningful prep to do.

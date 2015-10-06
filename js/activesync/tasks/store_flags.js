@@ -13,7 +13,7 @@ const modifyFolderMessages = require('../smotocol/modify_folder_messages');
  * @see MixStoreFlagsMixin
  */
 return TaskDefiner.defineComplexTask([
-  require('../../imap/vanilla_tasks/mix_store_flags'),
+  require('../../task_mixins/mix_store_flags'),
   {
     name: 'store_flags',
 

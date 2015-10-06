@@ -9,7 +9,7 @@ let TaskDefiner = require('../../task_infra/task_definer');
  * @see MixStoreFlagsMixin
  */
 return TaskDefiner.defineComplexTask([
-  require('./mix_store_flags'),
+  require('../../task_mixins/mix_store_flags'),
   {
     name: 'store_flags',
     // We don't care about the fetch return, so don't bother.
