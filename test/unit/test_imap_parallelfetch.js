@@ -3,28 +3,21 @@
  * loss variant for downloadBodies is in test_imap_errors.js.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/messageGenerator', './resources/fault_injecting_socket',
-        'exports'],
-       function($tc, $th_imap, $msggen, $fawlty, exports) {
+define(function(require) {
 
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $msggen = require('./resources/messageGenerator');
+var $fawlty = require('./resources/fault_injecting_socket')
 var FawltySocketFactory = $fawlty.FawltySocketFactory;
-
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_parallelfetch' },
-  null,
-  [$th_imap.TESTHELPER],
-  ['app']
-);
 
 /**
  * This case is to verify the ordering and content of the initial sync messages.
  * This does _not_ cover database persistence (which is handled in other test
  * cases).
  */
-TD.commonCase('fetch N body snippets at once', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+return new LegacyGelamTest('fetch N body snippets at once', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: true });
 
@@ -170,8 +163,8 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
   T.action('recieve fetches in random order', eSnippet, eBody, function() {
     // The order is defined to be random, and by golly, it sure comes out
     // random!
-    eSnippet.expectUseSetMatching();
-    eBody.expectUseSetMatching();
+    eSnippet.useSetMatching();
+    eBody.useSetMatching();
 
     folderView.slice.items.forEach(function(header) {
       var serverMsg = testFolder.findServerMessage(header.guid);
@@ -182,14 +175,14 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
         throw new Error('no server content for guid: ' + header.guid);
       var snippet = snippetBodyRepContent.slice(0, 20);
 
-      eSnippet.expect_namedValue(header.id, {
+      eSnippet.expect('snippet', {
         id: header.id,
         name: msgDef.name,
         // snippets are usually trimmed
         approxSnippet: snippet.trim()
       });
 
-      eBody.expect_namedValue(header.id, {
+      eBody.expect('bodyReps', {
         id: header.id,
         contents: msgDef.expectedContents,
         isDownloaded: true
@@ -207,8 +200,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
           gotSnippet = true;
           header.getBody({ withBodyReps: true }, function(body) {
             if (!body) {
-              // ???!
-              eBody.namedValue('missing body for header', header.id);
+              eBody.log('missing body for header', header.id);
               return;
             }
 
@@ -217,7 +209,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
                       item.content[1] : item.content).trim();
             });
 
-            eBody.namedValue(header.id, {
+            eBody.log('bodyReps', {
               id: header.id,
               contents: contents,
               isDownloaded: body.bodyReps[0].isDownloaded
@@ -226,7 +218,7 @@ TD.commonCase('fetch N body snippets at once', function(T, RT) {
             body.die();
           });
 
-          eSnippet.namedValue(header.id, {
+          eSnippet.log('snippet', {
             id: header.id,
             name: msgDef.name,
             approxSnippet: header.snippet.slice(0, 20).trim()

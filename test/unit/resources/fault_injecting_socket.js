@@ -1,11 +1,11 @@
 define(
   [
-    'slog',
+    'logic',
     'tcp-socket',
     'exports'
   ],
   function(
-    slog,
+    logic,
     tcpSocket,
     exports
   ) {
@@ -26,7 +26,12 @@ var lastMockId = 1;
  * Please see the inline switch() case comments for details / docs:
  */
 function FawltySocket(host, port, options, cmdDict) {
-  slog.log('FawltySocket()', {host: host, port: port });
+  logic.defineScope(this, 'FawltySocket', {
+    host: host,
+    port: port
+  });
+
+  logic(this, 'FawltySocket()');
   this._sock = null;
   this._mockId = lastMockId++;
 
@@ -40,7 +45,7 @@ function FawltySocket(host, port, options, cmdDict) {
     this.doOnSendText(cmdDict.onSend);
   if (cmdDict && cmdDict.pre) {
     var precmd = cmdDict.pre;
-    slog.log('FawltySocket.precommand', { cmd: precmd.cmd || precmd });
+    logic(this, 'FawltySocket.precommand', { cmd: precmd.cmd || precmd });
     switch (precmd.cmd || precmd) {
       case 'no-dns-entry':
         // This currently manifests as a Connection refused error.  Test by using
@@ -71,12 +76,12 @@ function FawltySocket(host, port, options, cmdDict) {
         // a connection.
         this._queueEvent('open');
         if (precmd.data) {
-          slog.log('FawltySocket.fakeReceive', { data: precmd.data });
+          logic(this, 'FawltySocket.fakeReceive', { data: precmd.data });
           this._queueEvent('data',
                            new TextEncoder('utf-8').encode(precmd.data));
         }
         else {
-          slog.log('FawltySocket.fakeReceive', { data: null });
+          logic(this, 'FawltySocket.fakeReceive', { data: null });
         }
         return;
 
@@ -101,7 +106,7 @@ function FawltySocket(host, port, options, cmdDict) {
   // anything we send over the wire will be utf-8
   this._utf8Decoder = new TextDecoder('UTF-8');
 
-  slog.log('FawltySocket.createRealSocket', { host: host, port: port });
+  logic(this, 'FawltySocket.createRealSocket');
   this._sock = realTcpSocketOpen(host, port, {
     useSecureTransport: options.useSecureTransport
   });
@@ -205,7 +210,7 @@ FawltySocket.prototype = {
       var action = actions[i];
       if (typeof(action) === 'string')
         action = { cmd: action };
-      slog.log('FawltySocket.doNow', { cmd: action.cmd });
+      logic(this, 'FawltySocket.doNow', { cmd: action.cmd });
       switch (action.cmd) {
         case 'instant-close':
           // Emit a close event locally in the next turn of the event loop, and
@@ -226,7 +231,7 @@ FawltySocket.prototype = {
           FawltySocketFactory.__deadSocket(this);
           break;
         case 'fake-receive':
-          slog.log('FawltySocket.fakeReceive', { data: action.data });
+          logic(this, 'FawltySocket.fakeReceive', { data: action.data });
           var encoder = new TextEncoder('utf-8');
           this._queueEvent('data', encoder.encode(action.data));
           break;
@@ -257,7 +262,7 @@ FawltySocket.prototype = {
     if (!this._sock) {
       return;
     }
-    slog.log('FawltySocket.userCodeCalledClose', {});
+    logic(this, 'FawltySocket.userCodeCalledClose');
     this.emit('close');
     var sock = this._sock;
     this._sock = null;
@@ -279,7 +284,7 @@ FawltySocket.prototype = {
       if (firstWatch.match === true ||
           firstWatch.match.test(sendText)) {
         this._sendWatches.shift();
-        slog.log('FawltySocket.matchSend', { text: sendText });
+        logic(this, 'FawltySocket.matchSend', { text: sendText });
         this.doNow(firstWatch.actions);
         return true;
       }
@@ -292,7 +297,7 @@ FawltySocket.prototype = {
 
     if (!this._sock) {
       sendText = new TextDecoder('utf-8').decode(data);
-      slog.log('FawltySocket.ignoringSendNoSockNoWatch', { text: sendText });
+      logic(this, 'FawltySocket.ignoringSendNoSockNoWatch', { text: sendText });
       return null;
     }
 

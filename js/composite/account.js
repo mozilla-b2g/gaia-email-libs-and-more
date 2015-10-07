@@ -5,19 +5,16 @@
 define(
   [
     'logic',
-    'rdcommon/log',
     '../accountcommon',
     '../a64',
     '../accountmixins',
     '../imap/account',
     '../pop3/account',
     '../smtp/account',
-    '../allback',
-    'exports'
+    '../allback'
   ],
   function(
     logic,
-    $log,
     $accountcommon,
     $a64,
     $acctmixins,
@@ -45,6 +42,7 @@ function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
+  logic.defineScope(this, 'Account', { accountId: this.id });
 
   // Currently we don't persist the disabled state of an account because it's
   // easier for the UI to be edge-triggered right now and ensure that the

@@ -1,19 +1,16 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'syncbase', 'exports'],
-       function($tc, $th_imap, $sync, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_imap_stale_connections' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 
 /**
  * Test that we properly kill connections which haven't received any
  * data after STALE_CONNECTION_TIMEOUT_MS milliseconds.
  */
-TD.commonCase('stale connections', function(T, RT) {
+return new LegacyGelamTest('stale connections', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A', { universe: testUniverse }),
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A', { universe: testUniverse }),
       eSync = T.lazyLogger('sync');
 
   // NB: The KILL_CONNECTIONS_WHEN_JOBLESS setting won't affect this
@@ -43,19 +40,19 @@ TD.commonCase('stale connections', function(T, RT) {
     var origSendMessage = socket._sendMessage.bind(socket);
     socket._sendMessage = function(evt, args) {
       if (evt !== 'write') {
-        eSync.namedValue('sending event', evt);
+        eSync.log('sending event', evt);
         socket._sendMessage = origSendMessage;
       }
       origSendMessage(evt, args);
     };
 
-    eSync.expect_namedValue('sending event', 'close');
-    eSync.expect_namedValue('closed', true);
-    testAccount.eImapAccount.expect_deadConnection();
+    eSync.expect('sending event',  'close');
+    eSync.expect('closed',  true);
+    testAccount.eImapAccount.expect('deadConnection');
 
     var onclose = conn.onclose;
     conn.onclose = function() {
-      eSync.namedValue('closed', true);
+      eSync.log('closed', true);
       onclose && onclose.apply(conn, arguments);
     };
 

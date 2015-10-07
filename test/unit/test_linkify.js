@@ -4,11 +4,9 @@
  * messages through the server and can even do everything synchronously.
  */
 
-define(['rdcommon/testcontext', './resources/th_main', 'exports'],
-       function($tc, $th_imap, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_linkify' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 /**
  * Standalone linkification test-cases to check our parsing logic and any
@@ -326,24 +324,26 @@ FakeDoc.prototype = {
   }
 };
 
-TD.commonCase('linkify plaintext', function(T, RT) {
+return [
+
+new LegacyGelamTest('linkify plaintext', function(T, RT) {
   // We need a universe to get a MailAPI
-  var testUniverse = T.actor('testUniverse', 'U'),
+  var testUniverse = T.actor('TestUniverse', 'U'),
       eLazy = T.lazyLogger('linkCheck');
 
   function expectUrl(tcase) {
-    eLazy.expect_namedValue('text', tcase.text);
-    eLazy.expect_namedValue('ext-href', tcase.url);
+    eLazy.expect('text',  tcase.text);
+    eLazy.expect('ext-href',  tcase.url);
   }
   function expectText(str) {
-    eLazy.expect_namedValue('non-link', str);
+    eLazy.expect('non-link',  str);
   }
   function reportUrls(nodes) {
     for (var iNode = 0; iNode < nodes.length; iNode++) {
       var node = nodes[iNode];
       if (node.nodeName === 'A') {
-        eLazy.namedValue('text', node.textContent);
-        eLazy.namedValue('ext-href', node.getAttribute('ext-href'));
+        eLazy.log('text', node.textContent);
+        eLazy.log('ext-href', node.getAttribute('ext-href'));
       }
     }
   }
@@ -351,11 +351,11 @@ TD.commonCase('linkify plaintext', function(T, RT) {
     for (var iNode = 0; iNode < nodes.length; iNode++) {
       var node = nodes[iNode];
       if (node.nodeName === 'A') {
-        eLazy.namedValue('text', node.textContent);
-        eLazy.namedValue('ext-href', node.getAttribute('ext-href'));
+        eLazy.log('text', node.textContent);
+        eLazy.log('ext-href', node.getAttribute('ext-href'));
       }
       else if (node.nodeName === '#text') {
-        eLazy.namedValue('non-link', node.nodeValue);
+        eLazy.log('non-link', node.nodeValue);
       }
     }
   }
@@ -808,25 +808,25 @@ TD.commonCase('linkify plaintext', function(T, RT) {
       reportUrls(nodes);
     }).timeoutMS = 1; // (tests are synchronous)
   });
-});
+}),
 
 /**
  * We know that HTML linkification largely reuses the plaintext linkification,
  * so it's just up to us to make sure that we don't mess up existing 'A' tags.
  */
-TD.commonCase('linkify HTML', function(T, RT) {
+new LegacyGelamTest('linkify HTML', function(T, RT) {
   // We need a universe to get a MailAPI
-  var testUniverse = T.actor('testUniverse', 'U', { restored: true }),
+  var testUniverse = T.actor('TestUniverse', 'U', { restored: true }),
       eLazy = T.lazyLogger('linkCheck');
 
   function traverseAndLogExpectations(enodes) {
     for (var i = 0; i < enodes.length; i++) {
       var enode = enodes[i];
-      eLazy.namedValue('name', enode.name);
+      eLazy.log('name', enode.name);
       if (enode.value)
-        eLazy.namedValue('value', enode.value);
+        eLazy.log('value', enode.value);
       if (enode.url)
-        eLazy.namedValue('url', enode.url);
+        eLazy.log('url', enode.url);
       if (enode.children)
         traverseAndLogExpectations(enode.children);
     }
@@ -835,13 +835,13 @@ TD.commonCase('linkify HTML', function(T, RT) {
   function traverseAndLogNodes(nodes) {
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i];
-      eLazy.namedValue('name', node.nodeName);
+      eLazy.log('name', node.nodeName);
       if (node.nodeValue)
-        eLazy.namedValue('value', node.nodeValue);
+        eLazy.log('value', node.nodeValue);
       if (node.nodeName === '#text')
         continue;
       if (node.hasAttribute('ext-href'))
-        eLazy.namedValue('url', node.getAttribute('ext-href'));
+        eLazy.log('url', node.getAttribute('ext-href'));
       if (node.childNodes)
         traverseAndLogNodes(node.childNodes);
     }
@@ -899,5 +899,8 @@ TD.commonCase('linkify HTML', function(T, RT) {
     testUniverse.MailAPI.utils.linkifyHTML(doc);
     traverseAndLogNodes(doc.body.childNodes);
   });
-});
+})
+
+];
+
 }); // end define

@@ -158,6 +158,682 @@ ActiveSyncFolderConn.prototype = {
   },
 
   /**
+==== BASE ====
+   * Get the initial sync key for the folder so we can start getting data. We
+   * assume we have already negotiated a connection in the caller.
+   *
+   * @param {string} filterType The filter type for our synchronization
+   * @param {function} callback A callback to be run when the operation finishes
+   */
+  _getSyncKey: lazyConnection(1, function asfc__getSyncKey(filterType,
+                                                           callback) {
+    var folderConn = this;
+    var account = this._account;
+    var as = $AirSync.Tags;
+
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(as.Sync)
+       .stag(as.Collections)
+         .stag(as.Collection)
+
+    if (account.conn.currentVersion.lt('12.1'))
+          w.tag(as.Class, 'Email');
+
+          w.tag(as.SyncKey, '0')
+           .tag(as.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.FilterType, filterType)
+           .etag()
+         .etag()
+       .etag()
+     .etag();
+
+    account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        console.error(aError);
+        account._reportErrorIfNecessary(aError);
+        callback('unknown');
+        return;
+      }
+
+      // Reset the SyncKey, just in case we don't see a sync key in the
+      // response.
+      folderConn.syncKey = '0';
+
+      var e = new $wbxml.EventParser();
+      e.addEventListener([as.Sync, as.Collections, as.Collection, as.SyncKey],
+                         function(node) {
+        folderConn.syncKey = node.children[0].textContent;
+      });
+
+      e.onerror = function() {}; // Ignore errors.
+      e.run(aResponse);
+
+      if (folderConn.syncKey === '0') {
+        // We should never actually hit this, since it would mean that the
+        // server is refusing to give us a sync key. On the off chance that we
+        // do hit it, just bail.
+        console.error('Unable to get sync key for folder');
+        callback('unknown');
+      }
+      else {
+        callback();
+      }
+    });
+  }),
+
+  /**
+   * Get an estimate of the number of messages to be synced.  We assume we have
+   * already negotiated a connection in the caller.
+   *
+   * @param {string} filterType The filter type for our estimate
+   * @param {function} callback A callback to be run when the operation finishes
+   */
+  _getItemEstimate: lazyConnection(1, function asfc__getItemEstimate(filterType,
+                                                                     callback) {
+    var ie = $ItemEstimate.Tags;
+    var as = $AirSync.Tags;
+
+    var account = this._account;
+
+    var w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+    w.stag(ie.GetItemEstimate)
+       .stag(ie.Collections)
+         .stag(ie.Collection);
+
+    if (this._account.conn.currentVersion.gte('14.0')) {
+          w.tag(as.SyncKey, this.syncKey)
+           .tag(ie.CollectionId, this.serverId)
+           .stag(as.Options)
+             .tag(as.FilterType, filterType)
+           .etag();
+    }
+    else if (this._account.conn.currentVersion.gte('12.0')) {
+          w.tag(ie.CollectionId, this.serverId)
+           .tag(as.FilterType, filterType)
+           .tag(as.SyncKey, this.syncKey);
+    }
+    else {
+          w.tag(ie.Class, 'Email')
+           .tag(as.SyncKey, this.syncKey)
+           .tag(ie.CollectionId, this.serverId)
+           .tag(as.FilterType, filterType);
+    }
+
+        w.etag(ie.Collection)
+       .etag(ie.Collections)
+     .etag(ie.GetItemEstimate);
+
+    account.conn.postCommand(w, function(aError, aResponse) {
+      if (aError) {
+        console.error(aError);
+        account._reportErrorIfNecessary(aError);
+        callback('unknown');
+        return;
+      }
+
+      var e = new $wbxml.EventParser();
+      var base = [ie.GetItemEstimate, ie.Response];
+
+      var status, estimate;
+      e.addEventListener(base.concat(ie.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+      e.addEventListener(base.concat(ie.Collection, ie.Estimate),
+                         function(node) {
+        estimate = parseInt(node.children[0].textContent, 10);
+      });
+
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing GetItemEstimate response', ex, '\n',
+                      ex.stack);
+        callback('unknown');
+        return;
+      }
+
+      if (status !== $ItemEstimate.Enums.Status.Success) {
+        console.error('Error getting item estimate:', status);
+        callback('unknown');
+      }
+      else {
+        callback(null, estimate);
+      }
+    });
+  }),
+
+  /**
+   * Infer the filter type for this folder to get a sane number of messages.
+   *
+   * @param {function} callback A callback to be run when the operation
+   *  finishes, taking two arguments: an error (if any), and the filter type we
+   *  picked
+   */
+  _inferFilterType: lazyConnection(0, function asfc__inferFilterType(callback) {
+    var folderConn = this;
+    var Type = $AirSync.Enums.FilterType;
+
+    var getEstimate = function(filterType, onSuccess) {
+      folderConn._getSyncKey(filterType, function(error) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+
+        folderConn._getItemEstimate(filterType, function(error, estimate) {
+          if (error) {
+            // If we couldn't get an estimate, just tell the main callback that
+            // we want three days back.
+            callback(null, Type.ThreeDaysBack);
+            return;
+          }
+
+          onSuccess(estimate);
+        });
+      });
+    };
+
+    getEstimate(Type.TwoWeeksBack, function(estimate) {
+      var messagesPerDay = estimate / 14; // Two weeks. Twoooo weeeeeeks.
+      var filterType;
+
+      if (estimate < 0)
+        filterType = Type.ThreeDaysBack;
+      else if (messagesPerDay >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneDayBack;
+      else if (messagesPerDay * 3 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.ThreeDaysBack;
+      else if (messagesPerDay * 7 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneWeekBack;
+      else if (messagesPerDay * 14 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.TwoWeeksBack;
+      else if (messagesPerDay * 30 >= DESIRED_MESSAGE_COUNT)
+        filterType = Type.OneMonthBack;
+      else {
+        getEstimate(Type.NoFilter, function(estimate) {
+          var filterType;
+          if (estimate > DESIRED_MESSAGE_COUNT) {
+            filterType = Type.OneMonthBack;
+            // Reset the sync key since we're changing filter types. This avoids
+            // a round-trip where we'd normally get a zero syncKey from the
+            // server.
+            folderConn.syncKey = '0';
+          }
+          else {
+            filterType = Type.NoFilter;
+          }
+          folderConn._LOG.inferFilterType(filterType);
+          callback(null, filterType);
+        });
+        return;
+      }
+
+      if (filterType !== Type.TwoWeeksBack) {
+        // Reset the sync key since we're changing filter types. This avoids a
+        // round-trip where we'd normally get a zero syncKey from the server.
+        folderConn.syncKey = '0';
+      }
+      folderConn._LOG.inferFilterType(filterType);
+      callback(null, filterType);
+    });
+  }),
+
+  /**
+   * Sync the folder with the server and enumerate all the changes since the
+   * last sync.
+   *
+   * @param {function} callback A function to be called when the operation has
+   *   completed, taking three arguments: |added|, |changed|, and |deleted|
+   * @param {function} progress A function to be called as the operation
+   *   progresses that takes a number in the range [0.0, 1.0] to express
+   *   progress.
+   */
+  _enumerateFolderChanges: lazyConnection(0,
+    function asfc__enumerateFolderChanges(callback, progress) {
+    var folderConn = this, storage = this._storage;
+
+    if (!this.filterType) {
+      this._inferFilterType(function(error, filterType) {
+        if (error) {
+          callback('unknown');
+          return;
+        }
+        console.log('We want a filter of', FILTER_TYPE_TO_STRING[filterType]);
+        folderConn.folderMeta.filterType = filterType;
+        folderConn._enumerateFolderChanges(callback, progress);
+      });
+      return;
+    }
+    if (this.syncKey === '0') {
+      this._getSyncKey(this.filterType, function(error) {
+        if (error) {
+          callback('aborted');
+          return;
+        }
+        folderConn._enumerateFolderChanges(callback, progress);
+      });
+      return;
+    }
+
+    var as = $AirSync.Tags;
+    var asEnum = $AirSync.Enums;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
+
+    var w;
+
+    // If the last sync was ours and we got an empty response back, we can send
+    // an empty request to repeat our request. This saves a little bandwidth.
+    if (this._account._syncsInProgress++ === 0 &&
+        this._account._lastSyncKey === this.syncKey &&
+        this._account._lastSyncFilterType === this.filterType &&
+        this._account._lastSyncResponseWasEmpty) {
+      w = as.Sync;
+    }
+    else {
+      w = new $wbxml.Writer('1.3', 1, 'UTF-8');
+      w.stag(as.Sync)
+         .stag(as.Collections)
+           .stag(as.Collection);
+
+      if (this._account.conn.currentVersion.lt('12.1'))
+            w.tag(as.Class, 'Email');
+
+            w.tag(as.SyncKey, this.syncKey)
+             .tag(as.CollectionId, this.serverId)
+             .tag(as.GetChanges)
+             .stag(as.Options)
+               .tag(as.FilterType, this.filterType)
+
+      // Older versions of ActiveSync give us the body by default. Ensure they
+      // omit it.
+      if (this._account.conn.currentVersion.lte('12.0')) {
+              w.tag(as.MIMESupport, asEnum.MIMESupport.Never)
+               .tag(as.Truncation, asEnum.MIMETruncation.TruncateAll);
+      }
+
+            w.etag()
+           .etag()
+         .etag()
+       .etag();
+    }
+
+    this._account.conn.postCommand(w, function(aError, aResponse) {
+      var added   = [];
+      var changed = [];
+      var deleted = [];
+      var status;
+      var moreAvailable = false;
+
+      folderConn._account._syncsInProgress--;
+
+      if (aError) {
+        console.error('Error syncing folder:', aError);
+        folderConn._account._reportErrorIfNecessary(aError);
+        callback('aborted');
+        return;
+      }
+
+      folderConn._account._lastSyncKey = folderConn.syncKey;
+      folderConn._account._lastSyncFilterType = folderConn.filterType;
+
+      if (!aResponse) {
+        console.log('Sync completed with empty response');
+        folderConn._account._lastSyncResponseWasEmpty = true;
+        callback(null, added, changed, deleted);
+        return;
+      }
+
+      folderConn._account._lastSyncResponseWasEmpty = false;
+      var e = new $wbxml.EventParser();
+      var base = [as.Sync, as.Collections, as.Collection];
+
+      e.addEventListener(base.concat(as.SyncKey), function(node) {
+        folderConn.syncKey = node.children[0].textContent;
+      });
+
+      e.addEventListener(base.concat(as.Status), function(node) {
+        status = node.children[0].textContent;
+      });
+
+      e.addEventListener(base.concat(as.MoreAvailable), function(node) {
+        moreAvailable = true;
+      });
+
+      e.addEventListener(base.concat(as.Commands, [[as.Add, as.Change]]),
+                         function(node) {
+        var id, guid, msg;
+
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
+          switch (child.tag) {
+          case as.ServerId:
+            guid = child.children[0].textContent;
+            break;
+          case as.ApplicationData:
+            try {
+              msg = folderConn._parseMessage(child, node.tag === as.Add,
+                                             storage);
+            }
+            catch (ex) {
+              // If we get an error, just log it and skip this message.
+              console.error('Failed to parse a message:', ex, '\n', ex.stack);
+              return;
+            }
+            break;
+          }
+        }
+
+        msg.header.srvid = guid;
+
+        var collection = node.tag === as.Add ? added : changed;
+        collection.push(msg);
+      });
+
+      e.addEventListener(base.concat(as.Commands, [[as.Delete, as.SoftDelete]]),
+                         function(node) {
+        var guid;
+
+        for (var iter in Iterator(node.children)) {
+          var child = iter[1];
+          switch (child.tag) {
+          case as.ServerId:
+            guid = child.children[0].textContent;
+            break;
+          }
+        }
+
+        deleted.push(guid);
+      });
+
+      try {
+        e.run(aResponse);
+      }
+      catch (ex) {
+        console.error('Error parsing Sync response:', ex, '\n', ex.stack);
+        callback('unknown');
+        return;
+      }
+
+      if (status === asEnum.Status.Success) {
+        console.log('Sync completed: added ' + added.length + ', changed ' +
+                    changed.length + ', deleted ' + deleted.length);
+        callback(null, added, changed, deleted, moreAvailable);
+        if (moreAvailable)
+          folderConn._enumerateFolderChanges(callback, progress);
+      }
+      else if (status === asEnum.Status.InvalidSyncKey) {
+        console.warn('ActiveSync had a bad sync key');
+        callback('badkey');
+      }
+      else {
+        console.error('Something went wrong during ActiveSync syncing and we ' +
+                      'got a status of ' + status);
+        callback('unknown');
+      }
+    }, null, null,
+    function progressData(bytesSoFar, totalBytes) {
+      // We get the XHR progress status and convert it into progress in the
+      // range [0.10, 0.80].  The remaining 20% is processing the specific
+      // messages, but we don't bother to generate notifications since that
+      // is done synchronously.
+      if (!totalBytes)
+        totalBytes = Math.max(1000000, bytesSoFar);
+      progress(0.1 + 0.7 * bytesSoFar / totalBytes);
+    });
+  }, 'aborted'),
+
+  /**
+   * Parse the DOM of an individual message to build header and body objects for
+   * it.
+   * ASSUMES activesync code has already been lazy-loaded.
+   *
+   * @param {WBXML.Element} node The fully-parsed node describing the message
+   * @param {boolean} isAdded True if this is a new message, false if it's a
+   *   changed one
+   * @return {object} An object containing the header and body for the message
+   */
+  _parseMessage: function asfc__parseMessage(node, isAdded, storage) {
+    var em = $Email.Tags;
+    var asb = $AirSyncBase.Tags;
+    var asbEnum = $AirSyncBase.Enums;
+
+    var header, body, flagHeader;
+
+    if (isAdded) {
+      var newId = storage._issueNewHeaderId();
+      // note: these will be passed through mailRep.make* later
+      header = {
+        id: newId,
+        // This will be fixed up afterwards for control flow paranoia.
+        srvid: null,
+        suid: storage.folderId + '/' + newId,
+        // ActiveSync does not/cannot tell us the Message-ID header unless we
+        // fetch the entire MIME body
+        guid: '',
+        author: null,
+        to: null,
+        cc: null,
+        bcc: null,
+        replyTo: null,
+        date: null,
+        flags: [],
+        hasAttachments: false,
+        subject: null,
+        snippet: null
+      };
+
+      body = {
+        date: null,
+        size: 0,
+        attachments: [],
+        relatedParts: [],
+        references: null,
+        bodyReps: null
+      };
+
+      flagHeader = function(flag, state) {
+        if (state)
+          header.flags.push(flag);
+      }
+    }
+    else {
+      header = {
+        flags: [],
+        mergeInto: function(o) {
+          // Merge flags
+          for (var iter in Iterator(this.flags)) {
+            var flagstate = iter[1];
+            if (flagstate[1]) {
+              o.flags.push(flagstate[0]);
+            }
+            else {
+              var index = o.flags.indexOf(flagstate[0]);
+              if (index !== -1)
+                o.flags.splice(index, 1);
+            }
+          }
+
+          // Merge everything else
+          var skip = ['mergeInto', 'suid', 'srvid', 'guid', 'id', 'flags'];
+          for (var iter in Iterator(this)) {
+            var key = iter[0], value = iter[1];
+            if (skip.indexOf(key) !== -1)
+              continue;
+
+            o[key] = value;
+          }
+        },
+      };
+
+      body = {
+        mergeInto: function(o) {
+          for (var iter in Iterator(this)) {
+            var key = iter[0], value = iter[1];
+            if (key === 'mergeInto') continue;
+            o[key] = value;
+          }
+        },
+      };
+
+      flagHeader = function(flag, state) {
+        header.flags.push([flag, state]);
+      }
+    }
+
+    var bodyType, bodySize;
+
+    for (var iter in Iterator(node.children)) {
+      var child = iter[1];
+      var childText = child.children.length ? child.children[0].textContent :
+                                              null;
+
+      switch (child.tag) {
+      case em.Subject:
+        header.subject = childText;
+        break;
+      case em.From:
+        header.author = parseAddresses(childText)[0] || null;
+        break;
+      case em.To:
+        header.to = parseAddresses(childText);
+        break;
+      case em.Cc:
+        header.cc = parseAddresses(childText);
+        break;
+      case em.ReplyTo:
+        header.replyTo = parseAddresses(childText);
+        break;
+      case em.DateReceived:
+        body.date = header.date = new Date(childText).valueOf();
+        break;
+      case em.Read:
+        flagHeader('\\Seen', childText === '1');
+        break;
+      case em.Flag:
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
+          if (grandchild.tag === em.Status)
+            flagHeader('\\Flagged', grandchild.children[0].textContent !== '0');
+        }
+        break;
+      case asb.Body: // ActiveSync 12.0+
+        for (var iter2 in Iterator(child.children)) {
+          var grandchild = iter2[1];
+          switch (grandchild.tag) {
+          case asb.Type:
+            var type = grandchild.children[0].textContent;
+            if (type === asbEnum.Type.HTML)
+              bodyType = 'html';
+            else {
+              // I've seen a handful of extra-weird messages with body types
+              // that aren't plain or html. Let's assume they're plain, though.
+              if (type !== asbEnum.Type.PlainText)
+                console.warn('A message had a strange body type:', type)
+              bodyType = 'plain';
+            }
+            break;
+          case asb.EstimatedDataSize:
+            bodySize = grandchild.children[0].textContent;
+            break;
+          }
+        }
+        break;
+      case em.BodySize: // pre-ActiveSync 12.0
+        bodyType = 'plain';
+        bodySize = childText;
+        break;
+      case asb.Attachments: // ActiveSync 12.0+
+      case em.Attachments:  // pre-ActiveSync 12.0
+        for (var iter2 in Iterator(child.children)) {
+          var attachmentNode = iter2[1];
+          if (attachmentNode.tag !== asb.Attachment &&
+              attachmentNode.tag !== em.Attachment)
+            continue;
+
+          var attachment = {
+            name: null,
+            contentId: null,
+            type: null,
+            part: null,
+            encoding: null,
+            sizeEstimate: null,
+            file: null,
+          };
+
+          var isInline = false;
+          for (var iter3 in Iterator(attachmentNode.children)) {
+            var attachData = iter3[1];
+            var dot, ext;
+            var attachDataText = attachData.children.length ?
+                                 attachData.children[0].textContent : null;
+
+            switch (attachData.tag) {
+            case asb.DisplayName:
+            case em.DisplayName:
+              attachment.name = attachDataText;
+
+              // Get the file's extension to look up a mimetype, but ignore it
+              // if the filename is of the form '.bashrc'.
+              dot = attachment.name.lastIndexOf('.');
+              ext = dot > 0 ? attachment.name.substring(dot + 1).toLowerCase() :
+                              '';
+              attachment.type = mimetypes.detectMimeType(ext);
+              break;
+            case asb.FileReference:
+            case em.AttName:
+            case em.Att0Id:
+              attachment.part = attachDataText;
+              break;
+            case asb.EstimatedDataSize:
+            case em.AttSize:
+              attachment.sizeEstimate = parseInt(attachDataText, 10);
+              break;
+            case asb.ContentId:
+              attachment.contentId = attachDataText;
+              break;
+            case asb.IsInline:
+              isInline = (attachDataText === '1');
+              break;
+            }
+          }
+
+          if (isInline)
+            body.relatedParts.push(mailRep.makeAttachmentPart(attachment));
+          else
+            body.attachments.push(mailRep.makeAttachmentPart(attachment));
+        }
+        header.hasAttachments = body.attachments.length > 0;
+        break;
+      }
+    }
+
+    // If this is an add, then these are new structures so we need to normalize
+    // them.
+    if (isAdded) {
+      body.bodyReps = [mailRep.makeBodyPart({
+        type: bodyType,
+        sizeEstimate: bodySize,
+        amountDownloaded: 0,
+        isDownloaded: false
+      })];
+
+      return {
+        header: mailRep.makeHeaderInfo(header),
+        body: mailRep.makeBodyInfo(body)
+      };
+    }
+    // It's not an add, so this is a delta, and header/body have mergeInto
+    // methods and we should not attempt to normalize them.
+    else {
+      return { header: header, body: body };
+    }
+  },
+
+  /**
+==== BASE ====
    * Download the bodies for a set of headers.
    *
    * XXX This method is a slightly modified version of
@@ -312,7 +988,7 @@ ActiveSyncFolderConn.prototype = {
 
     var type = snippetOnly ? 'plain' : bodyRep.type;
     var data = $mailchew.processMessageContent(bodyContent, type, !snippetOnly,
-                                               true, this._LOG);
+                                               true);
 
     header.snippet = data.snippet;
     bodyRep.isDownloaded = !snippetOnly;

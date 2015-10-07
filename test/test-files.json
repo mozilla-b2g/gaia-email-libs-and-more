@@ -30,7 +30,7 @@
       "optional": false
     },
     "imap:real": {
-      "desc": "IMAP tests against a real server",
+      "desc": "IMAP tests against a real server (BROKEN)",
       "optional": true
     },
     "activesync:fake": {
@@ -124,6 +124,10 @@
       "variants": ["imap:fake:no_internaldate_tz"]
     },
 
+    "test_imap_sync_folder_list.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_incoming_prober.js": {
       "variants": ["imap:noserver", "pop3:noserver"]
     },
@@ -204,10 +208,6 @@
       "variants": ["imap:fake", "imap:real", "activesync:fake", "pop3:fake"]
     },
 
-    "test_storage_upgrade.js": {
-      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
-    },
-
     "test_compose_blobs.js": {
       "variants": ["imap:fake", "activesync:fake"]
     },
@@ -216,8 +216,20 @@
       "variants": ["imap:fake"]
     },
 
+    "test_compose_replyto.js": {
+      "variants": ["imap:fake"]
+    },
+
     "test_compose_detach.js": {
       "variants": ["imap:fake", "activesync:fake"]
+    },
+
+    "test_compose_roundtripping.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
+    },
+
+    "test_storage_upgrade.js": {
+      "variants": ["imap:fake", "activesync:fake", "pop3:fake"]
     },
 
     "test_body_observers.js": {

@@ -1,12 +1,11 @@
 define(function(require, exports, $module) {
 
-var $log = require('rdcommon/log'),
+var logic = require('logic'),
     $allback = require('allback'),
     $mailuniverse = require('mailuniverse'),
     $mailbridge = require('mailbridge'),
     $maildb = require('maildb'),
     $mailapi = require('mailapi'),
-    $slog = require('slog'),
     $date = require('date'),
     $accountcommon = require('accountcommon'),
     $imapacct = require('imap/account'),
@@ -26,11 +25,7 @@ var $log = require('rdcommon/log'),
     $util = require('util'),
     $errbackoff = require('errbackoff'),
     $smtpacct = require('smtp/account'),
-    $router = require('worker-router'),
-    $th_fake_imap_server = require('tests/resources/th_fake_imap_server'),
-    $th_fake_pop3_server = require('tests/resources/th_fake_pop3_server'),
-    $th_real_imap_server = require('tests/resources/th_real_imap_server'),
-    $th_fake_as_server = require('tests/resources/th_fake_activesync_server');
+    $router = require('worker-router');
 
 function checkFlagDefault(flags, flag, def) {
   if (!flags || !flags.hasOwnProperty(flag))
@@ -38,6 +33,7 @@ function checkFlagDefault(flags, flag, def) {
   return flags[flag];
 }
 
+var isLoggingCurrently = false;
 function wrapConsole(type, logFunc) {
   return function() {
     var msg = '';
@@ -46,21 +42,22 @@ function wrapConsole(type, logFunc) {
         msg += ' ';
       msg += arguments[i];
     }
-    logFunc(msg);
+    if (!isLoggingCurrently) {
+      isLoggingCurrently = true;
+      logFunc(msg);
+      isLoggingCurrently = false;
+    }
     window.originalConsole[type].apply(window.originalConsole, arguments);
   };
 }
-function makeConsoleForLogger(logger) {
+
+exports.thunkConsoleForNonTestUniverse = function() {
   if (!window.originalConsole) {
     window.originalConsole = window.console;
   }
-  // Make sure that slog gets a new event emitter every time there's a new
-  // universe to avoid test cases interfering with each other.  Note that this
-  // will happen 'statically' during the test case's function, rather than at
-  // (test) 'run time' when the steps are running.  As such this shouldn't break
-  // anyone.
-  $slog.resetEmitter();
-  $slog.setSensitiveDataLoggingEnabled(true);
+
+  var scope = logic.scope('Console');
+
   window.console = {
     set _enabled(val) {
       window.originalConsole._enabled = val;
@@ -68,10 +65,10 @@ function makeConsoleForLogger(logger) {
     get _enabled() {
       return window.originalConsole._enabled;
     },
-    log:   wrapConsole('log', logger.log.bind(logger)),
-    error: wrapConsole('error', logger.error.bind(logger)),
-    info:  wrapConsole('info', logger.info.bind(logger)),
-    warn:  wrapConsole('warn', logger.warn.bind(logger)),
+    log:   wrapConsole('log', (s) => logic(scope, 'log', { string: s })),
+    error: wrapConsole('error', (s) => logic(scope, 'error', { string: s })),
+    info:  wrapConsole('info', (s) => logic(scope, 'info', { string: s })),
+    warn:  wrapConsole('warn', (s) => logic(scope, 'warn', { string: s })),
     trace: function() {
       console.error.apply(null, arguments);
       try {
@@ -80,13 +77,8 @@ function makeConsoleForLogger(logger) {
       catch (ex) {
         console.warn('STACK!\n' + ex.stack);
       }
-    },
+    }
   };
-}
-
-exports.thunkConsoleForNonTestUniverse = function() {
-  var consoleLogger = LOGFAB.console(null, null, 'console');
-  makeConsoleForLogger(consoleLogger);
 };
 
 /**
@@ -144,10 +136,11 @@ var TestUniverseMixins = {
     self.eCronSync = self.T.actor('CronSync', self.__name, null,
                                   self.eUniverse);
 
+    logic.defineScope(self, 'TestUniverse');
+
     // no need to keep creating consoles if one already got created...
     if (!opts || !opts.old) {
-      var consoleLogger = LOGFAB.console(null, null, self.__name);
-      makeConsoleForLogger(consoleLogger);
+      exports.thunkConsoleForNonTestUniverse();
     }
 
     if (!opts)
@@ -156,17 +149,12 @@ var TestUniverseMixins = {
     self.universe = null;
     self.MailAPI = null;
 
-    self._bridgeLog = null;
-
     // self-registered accounts that belong to this universe
     self.__testAccounts = [];
     // Self-registered accounts that think they are getting restored; we use
     // this to let them hook into the universe bootstrap process when their
     // corresponding loggers will be created.
     self.__restoredAccounts = [];
-
-    self.__folderConnLoggerSoup = {};
-    self.__folderStorageLoggerSoup = {};
 
     // Pick a 'now' for the purposes of our testing that does not change
     // throughout the test.  We really don't want to break because midnight
@@ -230,18 +218,6 @@ var TestUniverseMixins = {
      */
     self.T.convenienceSetup(self, 'initializes', self.eUniverse, self.eCronSync,
                             function() {
-      self.__attachToLogger(LOGFAB.testUniverse(self, null, self.__name));
-      self._bridgeLog = LOGFAB.bridgeSnoop(self, self._logger, self.__name);
-
-      self.RT.captureAllLoggersByType(
-        'ImapFolderConn', self.__folderConnLoggerSoup);
-      self.RT.captureAllLoggersByType(
-        'ActiveSyncFolderConn', self.__folderConnLoggerSoup);
-      self.RT.captureAllLoggersByType(
-        'Pop3FolderSyncer', self.__folderConnLoggerSoup);
-      self.RT.captureAllLoggersByType(
-        'FolderStorage', self.__folderStorageLoggerSoup);
-
       self.fakeNavigator = opts.old ? opts.old.fakeNavigator : {
         onLine: true
       };
@@ -255,11 +231,11 @@ var TestUniverseMixins = {
                      !!self.__restoredAccounts.length;
       if (restored && !opts.nukeDb) {
         if (opts.upgrade) {
-          self.eUniverse.expect_configMigrating_begin();
+          self.eUniverse.expect('configMigrating_begin');
         }
         for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
           if (opts.upgrade) {
-            self.eUniverse.expect_recreateAccount_begin();
+            self.eUniverse.expect('recreateAccount_begin');
           }
           var testAccount = self.__restoredAccounts[iAcct];
           testAccount._expect_restore();
@@ -268,7 +244,7 @@ var TestUniverseMixins = {
         // whereas the begins will happen right in a row.
         for (var iAcct = 0; iAcct < self.__restoredAccounts.length; iAcct++) {
           if (opts.upgrade) {
-            self.eUniverse.expect_recreateAccount_end();
+            self.eUniverse.expect('recreateAccount_end');
           }
           testAccount = self.__restoredAccounts[iAcct];
           if (opts.upgrade && opts.upgrade !== 'nowait' &&
@@ -279,23 +255,23 @@ var TestUniverseMixins = {
           }
         }
         if (opts.upgrade) {
-          self.eUniverse.expect_configMigrating_end();
+          self.eUniverse.expect('configMigrating_end');
         }
         else {
-          self.eUniverse.expect_configLoaded();
+          self.eUniverse.expect('configLoaded');
         }
       }
       else {
-        self.eUniverse.expect_configCreated();
+        self.eUniverse.expect('configCreated');
       }
 
-      self.expect_createUniverse();
+      self.expect('createUniverse');
 
-      self.expect_queriesIssued();
+      self.expect('queriesIssued');
       var callbacks = $allback.allbackMaker(
         ['accounts', 'folders'],
         function gotSlices() {
-          self._logger.queriesIssued();
+          logic(self, 'queriesIssued');
         });
 
       var testOpts = {
@@ -314,8 +290,8 @@ var TestUniverseMixins = {
       // We always ensureSync at startup, wait for that or it could interfere
       // with cronsync tests.  (Also, we don't want this stuff smearing into
       // other test steps either.)
-      self.eCronSync.expect_ensureSync_begin();
-      self.eCronSync.expect_ensureSync_end();
+      self.eCronSync.expect('ensureSync_begin');
+      self.eCronSync.expect('ensureSync_end');
 
       MailUniverse = self.universe = new $mailuniverse.MailUniverse(
         function onUniverse() {
@@ -337,28 +313,28 @@ var TestUniverseMixins = {
               // deferral, we log it as such.  We log processing by decorating
               // MailAPI._processMessage.
               if (TMA._processingMessage && msg.type !== 'pong') {
-                self._bridgeLog.apiDefer(msg.type, msg);
+                logic(TMB, 'apiDefer', { type: msg.type, msg: msg });
               }
               TMA.__bridgeReceive(msg.args);
             });
 
           var origProcessMessage = TMA._processMessage;
           TMA._processMessage = function(msg) {
-            self._bridgeLog.apiProcess(msg.type, msg);
+            logic(TMB, 'apiProcess', { type: msg.type, msg: msg });
             origProcessMessage.call(TMA, msg);
           };
 
           TMA.__bridgeSend = function(msg) {
-            self._bridgeLog.apiSend(msg.type, msg);
+            logic(TMB, 'apiSend', { type: msg.type, msg: msg });
             // 'bridge' => main => 'bounced-bridge'
             bouncedSendMessage(null, msg);
           };
           TMB.__sendMessage = function(msg) {
-            self._bridgeLog.bridgeSend(msg.type, msg);
+            logic(TMB, 'bridgeSend', { type: msg.type, msg: msg });
             // 'bounced-bridge' => main => 'bridge'
             realSendMessage(null, msg);
           };
-          self._logger.createUniverse();
+          logic(self, 'createUniverse');
 
 
           gAllAccountsSlice = self.allAccountsSlice =
@@ -433,7 +409,7 @@ var TestUniverseMixins = {
    * queries to the IMAP server to account for timezone.  We just use UTC.
    * As such, we want to be specifying times in UTC.  And we want our servers
    * to use UTC for their searching so things line up.  So all these things
-   * happen now!  (See th_fake_imap_server.js for it forcing the default
+   * happen now!  (See th_fake_servers.js for it forcing the default
    * timezone offset to 0.)
    *
    * @param {Number} useAsNowTS
@@ -465,11 +441,11 @@ var TestUniverseMixins = {
   do_saveState: function() {
     var self = this;
     this.T.action(self.eUniverse, 'save state', function() {
-      self.eUniverse.expect_saveUniverseState_begin();
+      self.eUniverse.expect('saveUniverseState_begin');
       for (var i = 0; i < self.__testAccounts.length; i++) {
         self.__testAccounts[i].expect_saveState();
       }
-      self.eUniverse.expect_saveUniverseState_end();
+      self.eUniverse.expect('saveUniverseState_end');
       self.universe.saveUniverseState();
     });
   },
@@ -481,10 +457,10 @@ var TestUniverseMixins = {
     for (var i = 0; i < this.__testAccounts.length; i++) {
       this.__testAccounts[i].expect_shutdown();
     }
-    this.expect_cleanShutdown();
+    this.expect('cleanShutdown');
 
     this.universe.shutdown(function() {
-      this._logger.cleanShutdown();
+      logic(this, 'cleanShutdown');
       this.universe = null;
     }.bind(this));
   },
@@ -540,17 +516,22 @@ var TestUniverseMixins = {
     var self = this;
 
     tablesAndKeyPrefixes.forEach(function(checkArgs) {
-      self.expect_dbRowPresent(checkArgs.table, checkArgs.prefix, false);
+      self.expect('dbRowPresent', {
+        table: checkArgs.table,
+        prefix: checkArgs.prefix
+      });
     });
     this._sendHelperMessage(
       'checkDatabaseDoesNotContain', tablesAndKeyPrefixes,
       function(results) {
         results.forEach(function(result) {
           if (result.errCode)
-            self._logger.dbProblem(result.errCode);
+            logic(self, 'dbProblem', { code: result.errCode });
           else
-            self._logger.dbRowPresent(result.table, result.prefix,
-                                      result.hasResult);
+            logic(self, 'dbRowPresent', {
+              table: result.table,
+              prefix: result.prefix
+            });
         });
       });
   },
@@ -558,12 +539,19 @@ var TestUniverseMixins = {
   do_killQueuedOperations: function(testAccount, opsType, count, saveTo) {
     var self = this;
     this.T.action(this, 'kill operations for', testAccount, function() {
-      self.expect_killedOperations(opsType, count);
+      self.expect('killedOperations', {
+        type: opsType,
+        count: count
+      });
 
       var ops = self.universe._opsByAccount[testAccount.accountId][opsType];
       var killed = ops.splice(0, ops.length);
-      self._logger.killedOperations(opsType, killed.length, killed,
-                                    ops);
+      logic(self, 'killedOperations', {
+        type: opsType,
+        count: killed.length,
+        killed: killed,
+        ops: ops
+      });
       if (saveTo)
         saveTo.ops = killed;
     });
@@ -576,12 +564,12 @@ var TestUniverseMixins = {
                   testAccount, 'and wait', function() {
       if (expectFunc)
         expectFunc();
-      self.expect_operationsDone();
+      self.expect('operationsDone');
       for (var i = 0; i < killedThing.ops.length; i++) {
         self.universe._queueAccountOp(testAccount.account, killedThing.ops[i]);
       }
       self.universe.waitForAccountOps(testAccount.account, function() {
-        self._logger.operationsDone();
+        logic(self, 'operationsDone');
       });
     });
   },
@@ -638,8 +626,8 @@ var TestUniverseMixins = {
         };
 
         this.RT.reportActiveActorThisStep(testAccount);
-        testAccount.expect_mutexStolen('inbox');
-        testAccount.expect_mutexStolen('outbox');
+        testAccount.expect('mutexStolen', { which: 'inbox' });
+        testAccount.expect('mutexStolen', { which: 'outbox' });
 
         var inboxMeta = testAccount.account.getFirstFolderWithType('inbox');
         var outboxMeta = testAccount.account.getFirstFolderWithType('outbox');
@@ -650,11 +638,11 @@ var TestUniverseMixins = {
               this.universe.getFolderStorageForFolderId(outboxMeta.id);
 
         inboxStorage.runMutexed('steal', function(callWhenDone) {
-          testAccount._logger.mutexStolen('inbox');
+          logic(testAccount, 'mutexStolen', { which: 'inbox' });
           state.releaseInboxMutex = callWhenDone;
         });
         outboxStorage.runMutexed('steal', function(callWhenDone) {
-          testAccount._logger.mutexStolen('outbox');
+          logic(testAccount, 'mutexStolen', { which: 'outbox' });
           state.releaseOutboxMutex = callWhenDone;
         });
       }.bind(this));
@@ -662,7 +650,7 @@ var TestUniverseMixins = {
     this.T.action(this, 'trigger cronsync', this.eCronSync, function() {
       // note: these each take one argument (which the logger expects)
       this.MailAPI.oncronsyncstart = function(accountIds) {
-        this._logger.apiCronSyncStartReported(accountIds);
+        logic(this, 'apiCronSyncStartReported', { ids: accountIds });
       }.bind(this);
       this.MailAPI.oncronsyncstop = function(accountsResults) {
         var summary;
@@ -682,33 +670,40 @@ var TestUniverseMixins = {
         else {
           summary = null;
         }
-        this._logger.apiCronSyncStopReported(summary, accountsResults);
+        logic(this, 'apiCronSyncStopReported', {
+          summary: summary,
+          results: accountsResults
+        });
       }.bind(this);
 
 
       var accountIds = [];
 
-      this.eCronSync.expect_requestSyncFired();
-      this.eCronSync.expect_cronSync_begin();
-      this.eCronSync.expect_ensureSync_begin();
-      this.eCronSync.expect_syncAccounts_begin();
+      this.eCronSync.expect('requestSyncFired');
+      this.eCronSync.expect('cronSync_begin');
+      this.eCronSync.expect('ensureSync_begin');
+      this.eCronSync.expect('syncAccounts_begin');
+
       opts.accounts.forEach(function(testAccount) {
         var accountId = testAccount.accountId;
         accountIds.push(accountId);
 
-        this.eCronSync.expect_syncAccount_begin(accountId);
-        this.eCronSync.expect_syncAccountHeaders_begin(accountId);
+        this.eCronSync.expect('syncAccount_begin', { accountId: accountId });
+        this.eCronSync.expect('syncAccountHeaders_begin',
+                              { accountId: accountId });
         if (opts.outboxHasMessages) {
-          this.eCronSync.expect_sendOutbox_begin(accountId);
+          this.eCronSync.expect('sendOutbox_begin', { accountId: accountId });
           // the job will also start but then get wedged waiting on our mutex
           this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
-          testAccount.eOpAccount.expect_runOp_begin(
-            'do', 'sendOutboxMessages', null);
+          testAccount.eOpAccount.expect('runOp_begin', {
+            mode: 'do',
+            type: 'sendOutboxMessages'
+          });
         }
       }.bind(this));
-      this.eCronSync.expect_ensureSync_end();
+      this.eCronSync.expect('ensureSync_end');
 
-      this.expect_apiCronSyncStartReported(accountIds);
+      this.expect('apiCronSyncStartReported', { ids: accountIds });
 
       this.universe._cronSync.onRequestSync(accountIds);
     }.bind(this));
@@ -731,13 +726,13 @@ var TestUniverseMixins = {
 
       // IMAP should be establishing a new account every time.
       if (testAccount.eImapAccount) {
-        testAccount.eImapAccount.expect_createConnection();
+        testAccount.eImapAccount.expect('createConnection');
         // (it may seem weird, but we are "reusing" it after creating it...)
-        testAccount.eImapAccount.expect_reuseConnection();
+        testAccount.eImapAccount.expect('reuseConnection');
       }
       // POP3 doesn't actually have a choice.  New connections every time.
       else if (testAccount.ePop3Account) {
-        testAccount.ePop3Account.expect_createConnection();
+        testAccount.ePop3Account.expect('createConnection');
       }
 
       // POP3 does some batch commit stuff too iff there are messages
@@ -745,20 +740,23 @@ var TestUniverseMixins = {
       if (state.inboxHasNewMessages && testAccount.type === 'pop3') {
         // Avoid intercepting the call for this one.
         skipCount = 1;
-        testAccount.eOpAccount.expect_saveAccountState_begin('syncBatch');
-        testAccount.eOpAccount.expect_saveAccountState_end('syncBatch');
+        testAccount.eOpAccount.expect('saveAccountState_begin',
+                                      { reason: 'syncBatch' });
+        testAccount.eOpAccount.expect('saveAccountState_end',
+                                      { reason: 'syncBatch' });
       }
 
-      testAccount.expect_interceptedAccountSave();
-      testAccount.eOpAccount.expect_saveAccountState_begin(
-        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
+      testAccount.expect('interceptedAccountSave');
+      testAccount.eOpAccount.expect('saveAccountState_begin', {
+        reason: testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete'
+      });
 
       interceptNextCall({
         method: 'saveAccountFolderStates',
         onProtoFromConstructor: $maildb.MailDB,
         skipCount: skipCount,
         callMyFunc: function(releaseFunc) {
-          testAccount._logger.interceptedAccountSave();
+          logic(testAccount, 'interceptedAccountSave');
           testAccount._cronsyncReleaseDBSave = releaseFunc;
         }.bind(this)
       });
@@ -800,24 +798,27 @@ var TestUniverseMixins = {
       var willDownloadSnippets = !!state.inboxHasNewMessages &&
                                  testAccount.type !== 'pop3';
 
-      testAccount.expect_releasedAccountSave();
-      testAccount.eOpAccount.expect_saveAccountState_end(
-        testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete');
-      if (testAccount.eOpAccount.ignore_releaseConnection) {
-        testAccount.eOpAccount.ignore_releaseConnection();
-      }
+      testAccount.expect('releasedAccountSave');
+      testAccount.eOpAccount.expect('saveAccountState_end', {
+        reason: testAccount.type !== 'pop3' ? 'checkpointSync' : 'syncComplete'
+      });
 
-      this.eCronSync.expect_syncAccountHeaders_end(testAccount.accountId);
+      // testAccount.eOpAccount.ignore_releaseConnection();
+
+      this.eCronSync.expect('syncAccountHeaders_end',
+                            { accountId: testAccount.accountId });
 
       if (willDownloadSnippets) {
         // Since we're going on to download something, there will be a server
         // job and although the connection will be released, it will then be
         // immediately reused for the job.
         if (testAccount.eImapAccount) {
-          testAccount.eImapAccount.expect_releaseConnection();
+          // testAccount.eImapAccount.expect('releaseConnection');
         }
 
-        this.eCronSync.expect_syncAccountSnippets_begin(testAccount.accountId);
+        this.eCronSync.expect('syncAccountSnippets_begin', {
+          accountId: testAccount.accountId
+        });
         testAccount.expect_runOp(
           'downloadBodies',
           {
@@ -841,26 +842,29 @@ var TestUniverseMixins = {
             interruptServerSave: true
           });
 
-        testAccount.expect_interceptedAccountSave();
+        testAccount.expect('interceptedAccountSave');
         interceptNextCall({
           method: 'saveAccountFolderStates',
           onProtoFromConstructor: $maildb.MailDB,
           callMyFunc: function(releaseFunc) {
-            testAccount._logger.interceptedAccountSave();
+            logic(testAccount, 'interceptedAccountSave');
             testAccount._cronsyncReleaseSnippetSave = releaseFunc;
           }.bind(this)
         });
       }
       else {
-        this.eCronSync.expect_syncAccount_end(testAccount.accountId);
+        this.eCronSync.expect('syncAccount_end',
+                              { accountId: testAccount.accountId });
 
         // Since there are no snippets, we will release the connection.  If
         // there is no outbox job queued or it has already completed, we will
         // also end up killing the connection.
         if (testAccount.eImapAccount) {
-          testAccount.eImapAccount.expect_releaseConnection();
+          // We ignore this because we also had ignore_releaseConnection set.
+          // testAccount.eImapAccount.expect('releaseConnection');
           if (!state.outboxHasMessages || !state.releaseOutboxMutex) {
-            testAccount.eImapAccount.expect_deadConnection('unused');
+            testAccount.eImapAccount.expect('deadConnection',
+                                            { reason: 'unused' });
           }
           else {
             testAccount._unusedConnections++;
@@ -874,7 +878,7 @@ var TestUniverseMixins = {
 
       var releaseFunc = testAccount._cronsyncReleaseDBSave;
       testAccount._cronsyncReleaseDBSave = null;
-      testAccount._logger.releasedAccountSave();
+      logic(testAccount, 'releasedAccountSave');
       releaseFunc();
     }.bind(this));
     // Bail if we don't have a snippet downloading step that we interfered with.
@@ -885,9 +889,11 @@ var TestUniverseMixins = {
       return;
     }
     this.T.action(testAccount, 'release snippet save', this.eCronSync, function(){
-      testAccount.expect_releasedAccountSave();
-      this.eCronSync.expect_syncAccountSnippets_end(testAccount.accountId);
-      this.eCronSync.expect_syncAccount_end(testAccount.accountId);
+      testAccount.expect('releasedAccountSave');
+      this.eCronSync.expect('syncAccountSnippets_end',
+                            { accountId: testAccount.accountId });
+      this.eCronSync.expect('syncAccount_end',
+                            { accountId: testAccount.accountId });
 
       if (expectFunc) {
         expectFunc();
@@ -895,7 +901,7 @@ var TestUniverseMixins = {
 
       var releaseFunc = testAccount._cronsyncReleaseSnippetSave;
       testAccount._cronsyncReleaseSnippetSave = null;
-      testAccount._logger.releasedAccountSave();
+      logic(testAccount, 'releasedAccountSave');
       releaseFunc();
     }.bind(this));
   },
@@ -913,12 +919,16 @@ var TestUniverseMixins = {
         // so we want to close that one out, then do full processings for all
         // subsequent ones
         this.RT.reportActiveActorThisStep(testAccount.eOpAccount);
-        testAccount.eOpAccount.expect_runOp_end(
-          'do', 'sendOutboxMessages', null);
-        testAccount.eOpAccount.expect_saveAccountState_begin(
-          'serverOp:sendOutboxMessages');
-        testAccount.eOpAccount.expect_saveAccountState_end(
-          'serverOp:sendOutboxMessages');
+        testAccount.eOpAccount.expect('runOp_end', {
+          mode: 'do',
+          type: 'sendOutboxMessages'
+        });
+        testAccount.eOpAccount.expect(
+          'saveAccountState_begin',
+          { reason: 'serverOp:sendOutboxMessages' });
+        testAccount.eOpAccount.expect(
+          'saveAccountState_end',
+          { reason: 'serverOp:sendOutboxMessages' });
         // The append may need to create a new connection if the inbox sync
         // is still wedged.  (In fact, the inbox won't have created its
         // connection yet.  But the connection will get thrown away when
@@ -933,12 +943,14 @@ var TestUniverseMixins = {
         }
 
         if (testAccount.eImapAccount) {
-          testAccount.eImapAccount.expect_deadConnection('unused');
+          testAccount.eImapAccount.expect('deadConnection',
+                                          { reason: 'unused' });
           // By definition an unused reaping brings us to 0 unused.
           testAccount._unusedConnections = 0;
         }
 
-        this.eCronSync.expect_sendOutbox_end(testAccount.accountId);
+        this.eCronSync.expect('sendOutbox_end',
+                              { accountId: testAccount.accountId });
       }
 
       if (expectFunc) {
@@ -964,18 +976,23 @@ var TestUniverseMixins = {
     this.RT.reportActiveActorThisStep(this.eCronSync);
     // (ensureSync_end was already expected during the triggering process)
     // there should be 0 active slices when we complete, so 0 should be killed.
-    this.eCronSync.expect_killSlices(0);
-    this.eCronSync.expect_syncAccounts_end();
-    this.eCronSync.expect_cronSync_end();
+    this.eCronSync.expect('killSlices', { count: 0 });
+    this.eCronSync.expect('syncAccounts_end');
+    this.eCronSync.expect('cronSync_end');
 
-    var expectedSummary = opts.accounts.map(function(testAccount) {
-      return {
-        id: testAccount.accountId,
-        count: opts.inboxHasNewMessages
-      };
+    var expectedSummary =
+          (opts.inboxHasNewMessages
+           ? opts.accounts.map(function(testAccount) {
+             return {
+               id: testAccount.accountId,
+               count: opts.inboxHasNewMessages
+             };
+           })
+           : null);
+
+    this.expect('apiCronSyncStopReported', {
+      summary: expectedSummary
     });
-
-    this.expect_apiCronSyncStopReported(expectedSummary);
   },
 
   /**
@@ -984,8 +1001,8 @@ var TestUniverseMixins = {
    */
   expect_ensureSync: function() {
     this.RT.reportActiveActorThisStep(this.eCronSync);
-    this.eCronSync.expect_ensureSync_begin();
-    this.eCronSync.expect_ensureSync_end();
+    this.eCronSync.expect('ensureSync_begin');
+    this.eCronSync.expect('ensureSync_end');
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -1009,6 +1026,7 @@ var TestCommonAccountMixins = {
     if (!opts.universe.__testAccounts)
       throw new Error("Universe is not of the right type: " + opts.universe);
 
+    logic.defineScope(self, 'TestAccount');
     self.accountId = null;
     self.universe = null;
     self.MailAPI = null;
@@ -1052,15 +1070,17 @@ var TestCommonAccountMixins = {
    */
   _expect_commonTestAccountConfig: function() {
     this.RT.reportActiveActorThisStep(this);
-    this.expect_folderSlicePopulated();
+    this.expect('folderSlicePopulated');
   },
 
   _help_commonTestAccountConfig: function() {
     this.foldersSlice = this.MailAPI.viewFolders('account',
                                                  { id: this.accountId });
     this.foldersSlice.oncomplete = function() {
-      this._logger.folderSlicePopulated();
+      logic(this, 'folderSlicePopulated');
     }.bind(this);
+
+    this.testServer.setAccount(this.folderAccount);
   },
 
   /**
@@ -1092,13 +1112,13 @@ var TestCommonAccountMixins = {
   do_modifyAccount: function(options) {
     this.T.action(this, 'modify account',
                   'with options', JSON.stringify(options), function() {
-      this.expect_accountModified();
-      this.expect_saveAccountDef();
+      this.expect('accountModified');
+	  this.expect_saveAccountDef();
 
       var acct = this.testUniverse.allAccountsSlice
                    .getAccountById(this.accountId);
       acct.modifyAccount(options, function() {
-        this._logger.accountModified();
+        logic(this, 'accountModified');
       }.bind(this));
     }.bind(this));
   },
@@ -1109,14 +1129,14 @@ var TestCommonAccountMixins = {
   do_modifyIdentity: function(i, options) {
     this.T.action(this, 'modify identity',
                   'with options', JSON.stringify(options), function() {
-      this.expect_identityModified();
-      this.expect_saveAccountDef();
+      this.expect('identityModified');
+	  this.expect_saveAccountDef();
 
       var acct = this.testUniverse.allAccountsSlice
             .getAccountById(this.accountId);
       var identity = acct.identities[i];
       identity.modifyIdentity(options, function() {
-        this._logger.identityModified();
+        logic(this, 'identityModified');
       }.bind(this));
     }.bind(this));
   },
@@ -1197,15 +1217,20 @@ var TestCommonAccountMixins = {
         expChanges.push({ field: change[iExp], value: change[iExp+1] });
       }
     }
-    this.expect_changesReported(expAdditionRep, expChangeRep, expDeletionRep);
+    this.expect('changesReported', {
+      added: expAdditionRep,
+      changed: expChangeRep,
+      deleted: expDeletionRep
+    });
     if (expectedFlags) {
-      var callArgs = [expectedFlags.top, expectedFlags.bottom,
-                      expectedFlags.growUp || false,
-                      expectedFlags.grow,
-                      isFailure ? 'syncfailed' : 'synced'];
-      if (expectedFlags.newCount !== undefined)
-        callArgs.push(expectedFlags.newCount);
-      this.expect_sliceFlags.apply(this, callArgs);
+      this.expect('sliceFlags', {
+        atTop: expectedFlags.top,
+        atBottom: expectedFlags.bottom,
+        userCanGrowUpwards: expectedFlags.growUp || false,
+        userCanGrowDownwards: expectedFlags.grow,
+        status: isFailure ? 'syncfailed' : 'synced',
+        newCount: expectedFlags.newCount
+      });
     }
 
     // - listen for the changes
@@ -1220,12 +1245,15 @@ var TestCommonAccountMixins = {
       changeRep[item.subject] = true;
       var changeEntries = changeMap[item.subject];
       if (!changeEntries) {
-        self._logger.unexpectedChange(item.subject);
+        logic(self, 'unexpectedChange', { subject: item.subject });
         return;
       }
       changeEntries.forEach(function(changeEntry) {
         if (item[changeEntry.field] !== changeEntry.value)
-          self._logger.changeMismatch(changeEntry.field, changeEntry.value);
+          logic(self, 'changeMismatch', {
+            field: changeEntry.field,
+            value: changeEntry.value
+          });
       });
       if (eventCounter && --eventCounter === 0)
         completed(null);
@@ -1237,15 +1265,21 @@ var TestCommonAccountMixins = {
     };
     var completed = function completed(newEmailCount) {
       if (!completeCheckOn)
-        self._logger.messagesReported(viewThing.slice.items.length);
-      self._logger.changesReported(additionRep, changeRep, deletionRep);
+        logic(self, 'messagesReported', { count: viewThing.slice.items.length });
+      logic(self, 'changesReported', {
+        added: additionRep,
+        changed: changeRep,
+        deleted: deletionRep
+      });
       if (expectedFlags)
-        self._logger.sliceFlags(viewThing.slice.atTop, viewThing.slice.atBottom,
-                                viewThing.slice.userCanGrowUpwards,
-                                viewThing.slice.userCanGrowDownwards,
-                                viewThing.slice.status,
-                                newEmailCount === undefined ?
-                                  null : newEmailCount);
+        logic(self, 'sliceFlags', {
+          atTop: viewThing.slice.atTop,
+          atBottom: viewThing.slice.atBottom,
+          userCanGrowUpwards: viewThing.slice.userCanGrowUpwards,
+          userCanGrowDownwards: viewThing.slice.userCanGrowDownwards,
+          status: viewThing.slice.status,
+          newCount: newEmailCount === undefined ? null : newEmailCount
+        });
 
       viewThing.slice.onchange = null;
       viewThing.slice.onremove = null;
@@ -1277,13 +1311,13 @@ var TestCommonAccountMixins = {
    * Expect the number of unread messaged in the folder to equal num
    */
   expect_unread: function(desc, testFolder, eSync, num) {
-    eSync.expect_namedValue(desc + ' backend', num);
-    eSync.expect_namedValue(desc + ' frontend', num);
+    eSync.expect(desc + ' backend', num);
+    eSync.expect(desc + ' frontend', num);
 
     var backendUnread = this.universe
       .getFolderStorageForFolderId(testFolder.id).folderMeta.unreadCount;
-    eSync.namedValue(desc + ' backend', backendUnread);
-    eSync.namedValue(desc + ' frontend', testFolder.mailFolder.unread);
+    eSync.log(desc + ' backend', backendUnread);
+    eSync.log(desc + ' frontend', testFolder.mailFolder.unread);
   },
 
   /**
@@ -1370,26 +1404,26 @@ var TestCommonAccountMixins = {
           !checkFlagDefault(extraFlags, 'nonet', false) &&
           testFolder.serverFolder.type === 'inbox') {
         self.RT.reportActiveActorThisStep(self.ePop3Account);
-        self.ePop3Account.expect_createConnection();
+        self.ePop3Account.expect('createConnection');
       }
       // IMAP has more complicated connection management
       if (self.type === 'imap' && self.universe.online && self.USES_CONN) {
         self.RT.reportActiveActorThisStep(self.eImapAccount);
         // Turn on set matching since connection reuse and account saving are
         // not strongly ordered, nor do they need to be.
-        self.eImapAccount.expectUseSetMatching();
+        self.eImapAccount.useSetMatching();
         if (isFailure !== true &&
             !checkFlagDefault(extraFlags, 'nonet', false)) {
           self.help_expect_connection(isFailure);
           if (isFailure === 'deadconn' || isFailure === 'connect-error') {
-            self.eImapAccount.expect_deadConnection();
+            self.eImapAccount.expect('deadConnection');
             // dead connection will be removed from the pool
             self._unusedConnections--;
           }
           else if (!_saveToThing) {
-            self.eImapAccount.expect_releaseConnection();
+            self.eImapAccount.expect('releaseConnection');
             if ($sync.KILL_CONNECTIONS_WHEN_JOBLESS) {
-              self.eImapAccount.expect_deadConnection('unused');
+              self.eImapAccount.expect('deadConnection', { reason: 'unused' });
               self._unusedConnections--;
             }
           }
@@ -1409,57 +1443,63 @@ var TestCommonAccountMixins = {
                             expectedValues, extraFlags, null);
       if (expectedValues) {
         if (syncblocked === 'resolve') {
-          self.expect_syncblocked();
+          self.expect('syncblocked');
           // XXX these extra checks in here ideally wouldn't go here, but this
           // is an easy way to make things go without too many extra headaches.
-          self.eAccount.expect_runOp_end('do', 'syncFolderList', null);
-          self.eAccount.expect_saveAccountState_begin();
-          self.eAccount.expect_saveAccountState_end();
-          self.eAccount.expect_saveAccountState_begin();
-          self.eAccount.expect_saveAccountState_end();
+          self.eAccount.expect('runOp_end',
+                               { mode: 'do', type: 'syncFolderList' });
+          self.eAccount.expect('saveAccountState_begin');
+          self.eAccount.expect('saveAccountState_end');
+          self.eAccount.expect('saveAccountState_begin');
+          self.eAccount.expect('saveAccountState_end');
 
           var storage =
                 self.universe.getFolderStorageForFolderId(testFolder.id);
 
           // Local-only folders don't grab the mutex for sync operations.
           if (!storage.isLocalOnly) {
-            testFolder.storageActor.expect_mutexedCall_begin('sync');
+            testFolder.storageActor.expect('mutexedCall_begin',
+                                           { name: 'sync' });
           }
 
-          testFolder.storageActor.expect_syncedToDawnOfTime();
+          testFolder.storageActor.expect('syncedToDawnOfTime');
 
           if (!storage.isLocalOnly) {
-            testFolder.storageActor.expect_mutexedCall_end('sync');
+            testFolder.storageActor.expect('mutexedCall_end',
+                                           { name: 'sync' });
           }
         }
 
         // Generate overall count expectation and first and last message
         // expectations by subject.
-        self.expect_messagesReported(totalExpected);
+        self.expect('messagesReported', { count: totalExpected });
         if (totalExpected) {
-          self.expect_messageSubjects(
-            testFolder.knownMessages.slice(0, totalExpected)
-              .map(function(x) { return x.subject; }));
+          self.expect('messageSubjects', {
+            subjects: (
+              testFolder.knownMessages.slice(0, totalExpected)
+                .map(function(x) { return x.subject; }))
+          });
         }
-        var callArgs = [expectedFlags.top, expectedFlags.bottom,
-                        expectedFlags.growUp || false,
-                        expectedFlags.grow,
-                        isFailure ? 'syncfailed' : 'synced'];
-        if (expectedFlags.newCount !== undefined) {
-          callArgs.push(expectedFlags.newCount);
-        }
-        self.expect_sliceFlags.apply(self, callArgs);
+
+        self.expect('sliceFlags', {
+          atTop: expectedFlags.top,
+          atBottom: expectedFlags.bottom,
+          userCanGrowUpwards: expectedFlags.growUp || false,
+          userCanGrowDownwards: expectedFlags.grow,
+          status: isFailure ? 'syncfailed' : 'synced',
+          newCount: expectedFlags.newCount
+        });
       }
       // If we don't have specific expectations, we still want to wait for the
       // sync to complete.  The exception is that if a syncblocked is reported,
       // then we just expect that...
       else if (!syncblocked) {
         if (!checkFlagDefault(extraFlags, 'noexpectations', false)) {
-          self.expect_viewWithoutExpectationsCompleted();
+          self.expect('viewWithoutExpectationsCompleted');
         }
       }
       else {
-        self.expect_syncblocked();
+        self.expect('syncblocked');
       }
 
       var slice = self.MailAPI.viewFolderMessages(testFolder.mailFolder);
@@ -1470,25 +1510,29 @@ var TestCommonAccountMixins = {
       if (syncblocked) {
         slice.onstatus = function(status) {
           if (status === 'syncblocked')
-            self._logger.syncblocked();
+            logic(self, 'syncblocked');
         };
       }
       if (syncblocked !== 'bail') {
         slice.oncomplete = function(newEmailCount) {
           if (expectedValues) {
-            self._logger.messagesReported(slice.items.length);
+            logic(self, 'messagesReported', { count: slice.items.length });
             if (totalExpected) {
-              self._logger.messageSubjects(
-                slice.items.map(function(x) { return x.subject; }));
+              logic(self, 'messageSubjects', {
+                subjects: slice.items.map(function(x) { return x.subject; })
+              });
             }
-            self._logger.sliceFlags(
-              slice.atTop, slice.atBottom,
-              slice.userCanGrowUpwards,
-              slice.userCanGrowDownwards, slice.status,
-              newEmailCount === undefined ? null : newEmailCount);
+            logic(self, 'sliceFlags', {
+              atTop: slice.atTop,
+              atBottom: slice.atBottom,
+              userCanGrowUpwards: slice.userCanGrowUpwards,
+              userCanGrowDownwards: slice.userCanGrowDownwards,
+              status: slice.status,
+              newCount: newEmailCount === undefined ? null : newEmailCount
+            });
           }
           else {
-            self._logger.viewWithoutExpectationsCompleted();
+            logic(self, 'viewWithoutExpectationsCompleted');
           }
           // The slice must die even if we don't expect values.
           if (!_saveToThing) {
@@ -1511,9 +1555,9 @@ var TestCommonAccountMixins = {
       if (idx === -1)
         throw new Error('Trying to close a non-live slice thing!');
       testFolder._liveSliceThings.splice(idx, 1);
-      self.expect_sliceDied(viewThing.slice.handle);
+      self.expect('sliceDied', { handle: viewThing.slice.handle });
       viewThing.slice.ondead = function() {
-        self._logger.sliceDied(viewThing.slice.handle);
+        logic(self, 'sliceDied', { handle: viewThing.slice.handle });
       };
       viewThing.slice.die();
       // This frees up a connection.
@@ -1534,7 +1578,7 @@ var TestCommonAccountMixins = {
 
       var totalExpected = self._expect_dateSyncs(viewThing, expectedValues,
                                                  null, 0);
-      self.expect_messagesReported(totalExpected);
+      self.expect('messagesReported', { count: totalExpected });
       self.expect_headerChanges(viewThing, checkExpected, expectedFlags, null,
                                 extraFlags);
 
@@ -1755,7 +1799,7 @@ var TestCommonAccountMixins = {
         isFailure = checkFlagDefault(extraFlags, 'failure', false);
 
     if (shouldGrabMutex) {
-      storageActor.expect_mutexedCall_begin(syncType);
+      storageActor.expect('mutexedCall_begin', { name: syncType });
     }
 
     // activesync always syncs the entire folder
@@ -1765,11 +1809,11 @@ var TestCommonAccountMixins = {
           testFolder.mailFolder.type !== 'localdrafts' &&
           testFolder.mailFolder.type !== 'outbox' &&
           !recreateFolder && !syncblocked && !isFailure)
-        storageActor.expect_syncedToDawnOfTime();
+        storageActor.expect('syncedToDawnOfTime');
     }
     else if (this.type === 'pop3' && testFolder.mailFolder.type !== 'inbox') {
       // this folder is always local, so this doesn't matter
-      storageActor.ignore_syncedToDawnOfTime();
+       // storageActor.ignore_syncedToDawnOfTime();
     } else {
       switch (checkFlagDefault(extraFlags, 'syncedToDawnOfTime', false)) {
         case true:
@@ -1778,27 +1822,27 @@ var TestCommonAccountMixins = {
           // to PASTWARDS, comment out this line and things should work.
           if ((syncType === 'sync' && !testFolder.initialSynced) ||
               (syncType === 'grow'))
-            storageActor.expect_syncedToDawnOfTime();
+            storageActor.expect('syncedToDawnOfTime');
           break;
         case 'ignore':
-          storageActor.ignore_syncedToDawnOfTime();
+           // storageActor.ignore_syncedToDawnOfTime();
           break;
       }
     }
     if (!recreateFolder && shouldGrabMutex) {
-      storageActor.expect_mutexedCall_end(syncType);
+      storageActor.expect('mutexedCall_end', { name: syncType });
     }
 
-    storageActor.ignore_loadBlock_begin();
-    storageActor.ignore_loadBlock_end();
+     // storageActor.ignore_loadBlock_begin();
+     // storageActor.ignore_loadBlock_end();
     // all of these manipulations are interesting, but they're new and we haven't
     // been generating expectations on these.
-    storageActor.ignore_addMessageHeader();
-    storageActor.ignore_addMessageBody();
-    storageActor.ignore_updateMessageHeader();
-    storageActor.ignore_updateMessageBody();
-    storageActor.ignore_deleteFromBlock();
-    storageActor.ignore_generatePersistenceInfo();
+     // storageActor.ignore_addMessageHeader();
+     // storageActor.ignore_addMessageBody();
+     // storageActor.ignore_updateMessageHeader();
+     // storageActor.ignore_updateMessageBody();
+     // storageActor.ignore_deleteFromBlock();
+     // storageActor.ignore_generatePersistenceInfo();
   },
 
   /**
@@ -1882,40 +1926,46 @@ var TestCommonAccountMixins = {
     this.RT.reportActiveActorThisStep(this.eOpAccount);
     // - local
     if (checkFlagDefault(flags, 'local', !!localMode)) {
-      this.eOpAccount.expect_runOp_begin(localMode, jobName, null);
+      this.eOpAccount.expect('runOp_begin',
+                             { mode: localMode, type: jobName, error: null });
       while (flushBodyLocalSaves--) {
-        this.eOpAccount.expect_saveAccountState_begin('flushBody');
-        this.eOpAccount.expect_saveAccountState_end('flushBody');
+        this.eOpAccount.expect('saveAccountState_begin',
+                               { reason: 'flushBody' });
+        this.eOpAccount.expect('saveAccountState_end',
+                               { reason: 'flushBody' });
       }
-      this.eOpAccount.expect_runOp_end(localMode, jobName, err);
+      this.eOpAccount.expect('runOp_end',
+                             { mode: localMode, type: jobName, error: null });
     }
     // - save (local)
     if (localSave) {
-      this.eOpAccount.expect_saveAccountState_begin('localOp:' + jobName);
-      this.eOpAccount.expect_saveAccountState_end('localOp:' + jobName);
+      this.eOpAccount.expect('saveAccountState_begin',
+                             { reason: 'localOp:' + jobName });
+      this.eOpAccount.expect('saveAccountState_end',
+                             { reason: 'localOp:' + jobName });
     }
     // - server (begin)
     if (checkFlagDefault(flags, 'server', true))
-      this.eOpAccount.expect_runOp_begin(mode, jobName);
+      this.eOpAccount.expect('runOp_begin', { mode: mode, type: jobName });
     if (this.USES_CONN) {
       // - conn, (conn) release
       var connMode = checkFlagDefault(flags, 'conn', false);
       if (connMode && ('help_expect_connection' in this)) {
         this.help_expect_connection();
         if (checkFlagDefault(flags, 'conn', false) === 'deadconn') {
-          this.eOpAccount.expect_deadConnection();
+          this.eOpAccount.expect('deadConnection');
         }
         // (release is expected by default if we open a conn)
         else if (checkFlagDefault(flags, 'release', true)) {
-          this.eOpAccount.expect_releaseConnection();
+          this.eOpAccount.expect('releaseConnection');
         }
       }
       // - release (without conn)
       else if (checkFlagDefault(flags, 'release', false) === 'deadconn') {
-        this.eOpAccount.expect_deadConnection();
+        this.eOpAccount.expect('deadConnection');
       }
       else if (checkFlagDefault(flags, 'release', false)) {
-        this.eOpAccount.expect_releaseConnection();
+        this.eOpAccount.expect('releaseConnection');
       }
     }
     // - POP3 conn
@@ -1927,20 +1977,25 @@ var TestCommonAccountMixins = {
              (jobName === 'downloadBodyReps' ||
               jobName === 'downloadBodies') &&
              checkFlagDefault(flags, 'conn', true)) {
-      this.eOpAccount.expect_createConnection();
+      this.eOpAccount.expect('createConnection');
     }
     while (flushBodyServerSaves--) {
-      this.eOpAccount.expect_saveAccountState_begin('flushBody');
-      this.eOpAccount.expect_saveAccountState_end('flushBody');
+      this.eOpAccount.expect('saveAccountState_begin',
+                             { reason: 'flushBody' });
+      this.eOpAccount.expect('saveAccountState_end',
+                             { reason: 'flushBody' });
     }
     // - server (end)
     if (checkFlagDefault(flags, 'server', true))
-      this.eOpAccount.expect_runOp_end(mode, jobName, err);
+      this.eOpAccount.expect('runOp_end',
+                             { mode: mode, type: jobName, error: err });
     // - save (server)
     if (serverSave) {
-      this.eOpAccount.expect_saveAccountState_begin('serverOp:' + jobName);
+      this.eOpAccount.expect('saveAccountState_begin',
+                             { reason: 'serverOp:' + jobName });
       if (!checkFlagDefault(flags, 'interruptServerSave', false)) {
-        this.eOpAccount.expect_saveAccountState_end('serverOp:' + jobName);
+        this.eOpAccount.expect('saveAccountState_end',
+                               { reason: 'serverOp:' + jobName });
       }
     }
   },
@@ -1958,7 +2013,7 @@ var TestCommonAccountMixins = {
           this.T.action(this, 'wait for message', expectSubject, 'in',
                         viewThing.testFolder, this.eOpAccount,
                         function() {
-      self.expect_messageSubject(null, expectSubject);
+      self.expect('messageSubject', { subject: expectSubject });
       var foundIt = false;
       if (funcOpts.expect)
         funcOpts.expect();
@@ -1967,7 +2022,7 @@ var TestCommonAccountMixins = {
         if (header.subject !== expectSubject) {
           return false;
         }
-        self._logger.messageSubject(null, header.subject);
+        logic(self, 'messageSubject', { subject: header.subject });
         foundIt = true;
         return true;
       }
@@ -1993,7 +2048,7 @@ var TestCommonAccountMixins = {
 
       // Hey, it's POP3, and POP3 creates a connection for every sync!
       if (self.type === 'pop3') {
-        self.ePop3Account.expect_createConnection();
+        self.ePop3Account.expect('createConnection');
         // it also does batches... so we need one extra save on top of what the
         // next line of code does
         self.expect_saveState();
@@ -2051,7 +2106,7 @@ var TestCommonAccountMixins = {
     var dateMS = mailHeader.date.valueOf();
 
     this.RT.reportActiveActorThisStep(this);
-    this.expect_deletionNotified(1, suid);
+    this.expect('deletionNotified', { count: 1, suid: suid });
 
     var folderStorage =
           this.universe.getFolderStorageForMessageSuid(mailHeader.id);
@@ -2060,7 +2115,10 @@ var TestCommonAccountMixins = {
       suid, dateMS,
       function(header) {
         folderStorage.deleteMessageHeaderAndBodyUsingHeader(header, function() {
-          self._logger.deletionNotified(1, header && header.suid);
+          logic(self, 'deletionNotified', {
+            count: 1,
+            suid: header && header.suid
+          });
         });
       });
   },
@@ -2073,7 +2131,7 @@ var TestCommonAccountMixins = {
    */
   do_createTestFolder: function(folderName, messageSetDef, extraFlags) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderName);
+        testFolder = this.T.thing('TestFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
                                         folderName, null, this);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName,
@@ -2109,18 +2167,15 @@ var TestCommonAccountMixins = {
             save: (self.supportsServerFolders ? 'server' : false),
             conn: self.USES_CONN });
         self.RT.reportActiveActorThisStep(self);
-        self.expect_foundFolder(true);
+        self.expect('foundFolder', { mailFolder: true });
         self.universe.syncFolderList(self.account, function() {
           self.MailAPI.ping(function() {
             testFolder.mailFolder = self.foldersSlice
                                         .getFirstFolderWithPath(folderName);
-            self._logger.foundFolder(!!testFolder.mailFolder,
-                                     testFolder.mailFolder);
+            logic(self, 'foundFolder', {
+              mailFolder: !!testFolder.mailFolder
+            });
             testFolder.id = testFolder.mailFolder.id;
-            testFolder.connActor.__attachToLogger(
-              self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-            testFolder.storageActor.__attachToLogger(
-              self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
           });
         });
       }
@@ -2152,10 +2207,10 @@ var TestCommonAccountMixins = {
       // (serverDelete is unchanged)
       testFolder.initialSynced = false;
 
-      self.expect_folderRecreated();
+      self.expect('folderRecreated');
       self._expect_recreateFolder(testFolder);
       self.folderAccount._recreateFolder(testFolder.id, function() {
-        self._logger.folderRecreated();
+        logic(self, 'folderRecreated');
       });
     });
   },
@@ -2168,9 +2223,11 @@ var TestCommonAccountMixins = {
    */
   _expect_recreateFolder: function(testFolder) {
     var self = this;
-    this.eFolderAccount.expect_recreateFolder();
-    this.eFolderAccount.expect_saveAccountState_begin('recreateFolder');
-    this.eFolderAccount.expect_saveAccountState_end('recreateFolder');
+    this.eFolderAccount.expect('recreateFolder');
+    this.eFolderAccount.expect('saveAccountState_begin',
+                               { reason: 'recreateFolder' });
+    this.eFolderAccount.expect('saveAccountState_end',
+                               { reason: 'recreateFolder' });
 
     var oldConnActor = testFolder.connActor;
     // Give the new actor a good name.
@@ -2281,7 +2338,7 @@ var TestCommonAccountMixins = {
    */
   do_useExistingFolder: function(folderName, suffix, oldFolder) {
     var self = this,
-        testFolder = this.T.thing('testFolder', folderName + suffix);
+        testFolder = this.T.thing('TestFolder', folderName + suffix);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
                                         folderName, null, this);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName,
@@ -2307,11 +2364,6 @@ var TestCommonAccountMixins = {
         testFolder.serverMessages =
           self.testServer.getMessagesInFolder(testFolder.serverFolder);
       }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
     });
     return testFolder;
   },
@@ -2324,7 +2376,7 @@ var TestCommonAccountMixins = {
   do_useExistingFolderWithType: function(folderType, suffix, oldFolder) {
     var self = this,
         folderName = folderType + suffix,
-        testFolder = this.T.thing('testFolder', folderName);
+        testFolder = this.T.thing('TestFolder', folderName);
     testFolder.connActor = this.T.actor(this.FOLDER_CONN_LOGGER_NAME,
                                         folderName, null, this);
     testFolder.storageActor = this.T.actor('FolderStorage', folderName,
@@ -2352,11 +2404,6 @@ var TestCommonAccountMixins = {
         testFolder.serverMessages =
           self.testServer.getMessagesInFolder(testFolder.serverFolder);
       }
-
-      testFolder.connActor.__attachToLogger(
-        self.testUniverse.__folderConnLoggerSoup[testFolder.id]);
-      testFolder.storageActor.__attachToLogger(
-        self.testUniverse.__folderStorageLoggerSoup[testFolder.id]);
     });
     return testFolder;
   },
@@ -2371,13 +2418,13 @@ var TestCommonAccountMixins = {
   do_deleteAccount: function(stepType) {
     var self = this;
     this.T[stepType]('delete', this, function() {
-      self.expect_accountDeleted();
+      self.expect('accountDeleted');
 
       // Fake the account because we don't have easy-access to the MailAccount
       // in here and we don't really need it.
       self.MailAPI._deleteAccount({ id: self.accountId });
       self.MailAPI.ping(function() {
-        self._logger.accountDeleted();
+        logic(self, 'accountDeleted');
       });
     });
   },
@@ -2457,12 +2504,13 @@ var TestCommonAccountMixins = {
     var composer;
 
     this.T.action(this, 'begin composition', function() {
-      this.expect_composerReady();
+      var self = this;
+      this.expect('composerReady');
       var inboxMailFolder =
             this.foldersSlice.getFirstFolderWithType('inbox');
       composer = this.MailAPI.beginMessageComposition(
         null, inboxMailFolder, null,
-        this._logger.composerReady.bind(this._logger));
+        function() { logic(self, 'composerReady'); });
     }.bind(this));
 
     this.T.action(this, 'compose and send', function() {
@@ -2476,11 +2524,11 @@ var TestCommonAccountMixins = {
 
       if (shouldSucceed) {
         this.expect_sendMessageWithOutbox('success', 'conn');
-        this.expect_sendCompleted('success');
+        this.expect('sendCompleted', { state: 'success' });
       } else {
         this.expect_moveMessageToOutbox();
         this.expect_sendOutboxMessages();
-        this.expect_sendCompleted('error');
+        this.expect('sendCompleted', { state: 'error' });
       }
 
       var existingRetryResults = opts.existingRetryResults || [];
@@ -2498,18 +2546,19 @@ var TestCommonAccountMixins = {
         }
       }
 
-      this.expect_accountOpsCompleted();
+      this.expect('accountOpsCompleted');
       this.MailAPI.onbackgroundsendstatus = function(data) {
         if (!data.emitNotifications) {
           return;
         }
+        var self = this;
         // we only care about termination; not 'sending'
         if (data.state === 'success' || data.state === 'error') {
-          this._logger.sendCompleted(data.state);
+          logic(this, 'sendCompleted', { state: data.state });
           this.MailAPI.onbackgroundsendstatus = null;
           this.universe.waitForAccountOps(
             this.account,
-            this._logger.accountOpsCompleted.bind(this._logger));
+            function() { logic(self, 'accountOpsCompleted'); });
         }
       }.bind(this);
 
@@ -2519,25 +2568,27 @@ var TestCommonAccountMixins = {
 };
 
 var TestFolderMixins = {
-  __constructor: function() {
-    this.connActor = null;
-    this.storageActor = null;
-    this.id = null;
+  __constructor: function(self) {
+    self.connActor = null;
+    self.storageActor = null;
+
+    logic.defineScope(self, 'TestFolder');
+    self.id = null;
     // the front-end MailAPI MailFolder instance for the folder
-    this.mailFolder = null;
+    self.mailFolder = null;
     // fake-server folder rep, if we are using a fake-server
-    this.serverFolder = null;
+    self.serverFolder = null;
     // messages on the server
-    this.serverMessages = null;
-    this.serverDeleted = [];
+    self.serverMessages = null;
+    self.serverDeleted = [];
     // messages that should be known to the client based on the sync operations
     //  we have generated expectations for.
-    this.knownMessages = [];
+    self.knownMessages = [];
     // this is a runtime flag!
-    this.initialSynced = false;
+    self.initialSynced = false;
 
-    this._approxMessageCount = 0;
-    this._liveSliceThings = [];
+    self._approxMessageCount = 0;
+    self._liveSliceThings = [];
   },
 
   findServerMessage: function(guid) {
@@ -2588,8 +2639,10 @@ var TestCompositeAccountMixins = {
       self.exactAttachmentSizes = true;
     }
 
+    logic.defineScope(self, 'TestAccount');
+
     self.eOpAccount = self.eFolderAccount =
-      self.T.actor(Type + 'Account', self.__name, null, self);
+      self.T.actor('Account', self.__name, null, self);
 
     if (self.type === 'imap') {
       self.eImapAccount = self.eFolderAccount;
@@ -2616,7 +2669,7 @@ var TestCompositeAccountMixins = {
 
     if ('controlServerBaseUrl' in TEST_PARAMS) {
       self.testServer = self.T.actor(
-        'testFake' + TYPE + 'Server', self.__name,
+        'TestFake' + TYPE + 'Server', self.__name,
         {
           testAccount: self,
           restored: opts.restored,
@@ -2631,7 +2684,7 @@ var TestCompositeAccountMixins = {
     }
     else {
       self.testServer = self.T.actor(
-        'testReal' + TYPE + 'Server', self.__name,
+        'TestReal' + TYPE + 'Server', self.__name,
         {
           testAccount: self,
           restored: opts.restored
@@ -2650,20 +2703,20 @@ var TestCompositeAccountMixins = {
 
   ignore_connectionStuff: function() {
     // both imap and pop3 share the same logger stuff.
-    this.eFolderAccount.ignore_createConnection();
-    this.eFolderAccount.ignore_reuseConnection();
-    this.eFolderAccount.ignore_releaseConnection();
+    // this.eFolderAccount.ignore_createConnection();
+    // this.eFolderAccount.ignore_reuseConnection();
+    // this.eFolderAccount.ignore_releaseConnection();
   },
 
   expect_shutdown: function() {
     this.RT.reportActiveActorThisStep(this.eFolderAccount);
-    this.eFolderAccount.expectOnly__die();
+    //this.eFolderAccount.expectOnly__die();
   },
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eFolderAccount);
-    this.eFolderAccount.expect_saveAccountState_begin();
-    this.eFolderAccount.expect_saveAccountState_end();
+    this.eFolderAccount.expect('saveAccountState_begin');
+    this.eFolderAccount.expect('saveAccountState_end');
   },
 
   help_expect_connection: function(failureType) {
@@ -2674,14 +2727,14 @@ var TestCompositeAccountMixins = {
     }
 
     if (!this._unusedConnections) {
-      this.eFolderAccount.expect_createConnection();
+      this.eFolderAccount.expect('createConnection');
       // caller will need to decrement this if they are going to keep the
       // connection alive; we are expecting it to become available again at
       // the end of the step...
       this._unusedConnections++;
     }
     if (failureType !== 'connect-error') {
-      this.eFolderAccount.expect_reuseConnection();
+      this.eFolderAccount.expect('reuseConnection');
     }
   },
 
@@ -2693,8 +2746,6 @@ var TestCompositeAccountMixins = {
   _do_issueRestoredAccountQueries: function() {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
-      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
-
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
@@ -2716,8 +2767,6 @@ var TestCompositeAccountMixins = {
 
       self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
-
-      self.testServer.finishSetup(self);
     });
   },
 
@@ -2739,8 +2788,6 @@ var TestCompositeAccountMixins = {
      * populated.
      */
     self.T.convenienceSetup(self, 'creates test account', function() {
-      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
-
       self.RT.reportActiveActorThisStep(self.eFolderAccount);
       self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.RT.reportActiveActorThisStep(self.eBackoff);
@@ -2754,13 +2801,15 @@ var TestCompositeAccountMixins = {
       // we expect the connection to be reused and release to sync the folders
       if (self.type === 'imap') {
         self._unusedConnections = 1;
-        self.eFolderAccount.expect_runOp_begin('do', 'syncFolderList');
+        self.eFolderAccount.expect('runOp_begin',
+                                   { mode: 'do', type: 'syncFolderList' });
         self.help_expect_connection();
-        self.eFolderAccount.expect_releaseConnection();
-        self.eFolderAccount.expect_runOp_end('do', 'syncFolderList');
+        self.eFolderAccount.expect('releaseConnection');
+        self.eFolderAccount.expect('runOp_end',
+                                   { mode: 'do', type: 'syncFolderList' });
         // we expect the account state to be saved after syncing folders
-        self.eFolderAccount.expect_saveAccountState_begin();
-        self.eFolderAccount.expect_saveAccountState_end();
+        self.eFolderAccount.expect('saveAccountState_begin');
+        self.eFolderAccount.expect('saveAccountState_end');
       }
 
       if (self._opts.timeWarp)
@@ -2824,7 +2873,7 @@ var TestCompositeAccountMixins = {
         configInfo,
         function accountMaybeCreated(error, errorDetails, account) {
           if (error) {
-            self._logger.accountCreationError(error);
+            logic(self, 'accountCreationError', { error: error });
             return;
           }
 
@@ -2858,8 +2907,6 @@ var TestCompositeAccountMixins = {
           self.imapPort = self.pop3Port = receiveConnInfo.port;
 
           self._help_commonTestAccountConfig();
-
-          self.testServer.finishSetup(self);
         });
     }).timeoutMS = 10000; // there can be slow startups...
   },
@@ -3202,22 +3249,31 @@ var TestCompositeAccountMixins = {
             einfo.count, einfo.full, einfo.deleted, syncDir);
           if (this.type === 'imap') {
             if (!einfo.hasOwnProperty('startTS')) {
-              testFolder.connActor.expect_syncDateRange_begin(null, null, null);
-              testFolder.connActor.expect_syncDateRange_end(
-                einfo.full, einfo.flags, einfo.deleted);
+              testFolder.connActor.expect('syncDateRange_begin');
+              testFolder.connActor.expect('syncDateRange_end', {
+                full: einfo.full,
+                flags: einfo.flags,
+                deleted: einfo.deleted
+              });
             }
             // some tests explicitly specify the date-stamps
             else {
-              testFolder.connActor.expect_syncDateRange_begin(
-                null, null, null, einfo.startTS, einfo.endTS);
-              testFolder.connActor.expect_syncDateRange_end(
-                einfo.full, einfo.flags, einfo.deleted,
-                einfo.startTS, einfo.endTS);
+              testFolder.connActor.expect('syncDateRange_begin', {
+                startTS: einfo.startTS,
+                endTS: einfo.endTS
+              });
+              testFolder.connActor.expect('syncDateRange_end', {
+                full: einfo.full,
+                flags: einfo.flags,
+                deleted: einfo.deleted,
+                startTS: einfo.startTS,
+                endTS: einfo.endTS
+              });
             }
           // implied: this.type === 'pop3'
           } else if (testFolder.serverFolder.type === 'inbox') {
-            testFolder.connActor.expect_sync_begin();
-            testFolder.connActor.expect_sync_end();
+            testFolder.connActor.expect('sync_begin');
+            testFolder.connActor.expect('sync_end');
           }
         }
       }
@@ -3234,12 +3290,16 @@ var TestCompositeAccountMixins = {
             var syncBatches = checkFlagDefault(extraFlags, 'batches',
                                                totalMessageCount ? 1 : 0);
             for (var iBatch = 0; iBatch < syncBatches; iBatch++) {
-              this.eFolderAccount.expect_saveAccountState_begin('syncBatch');
-              this.eFolderAccount.expect_saveAccountState_end('syncBatch');
+              this.eFolderAccount.expect('saveAccountState_begin',
+                                         { reason: 'syncBatch' });
+              this.eFolderAccount.expect('saveAccountState_end',
+                                         { reason: 'syncBatch' });
             }
             if (!isFailure) {
-              this.eFolderAccount.expect_saveAccountState_begin('syncComplete');
-              this.eFolderAccount.expect_saveAccountState_end('syncComplete');
+              this.eFolderAccount.expect('saveAccountState_begin',
+                                         { reason: 'syncComplete' });
+              this.eFolderAccount.expect('saveAccountState_end',
+                                         { reason: 'syncComplete' });
             }
           }
         }
@@ -3251,9 +3311,9 @@ var TestCompositeAccountMixins = {
     }
     else {
       // Make account saving cause a failure; also, connection reuse, etc.
-      this.eFolderAccount.expectNothing();
+      this.eFolderAccount.expectNot('saveAccountState_begin');
       if (nonet)
-        testFolder.connActor.expectNothing();
+        testFolder.connActor.expectNot('sync_begin');
     }
 
     return totalMessageCount;
@@ -3290,7 +3350,7 @@ var TestCompositeAccountMixins = {
       if (self.type === 'pop3' && self.universe.online &&
           viewThing.testFolder.serverFolder.type === 'inbox') {
         self.RT.reportActiveActorThisStep(self.ePop3Account);
-        self.ePop3Account.expect_createConnection();
+        self.ePop3Account.expect('createConnection');
       }
 
       var totalExpected;
@@ -3298,7 +3358,7 @@ var TestCompositeAccountMixins = {
                         viewThing, expectedValues, extraFlags,
                         dirMagnitude < 0 ? -1 : 1) +
                         alreadyExists;
-      self.expect_messagesReported(totalExpected);
+      self.expect('messagesReported', { count: totalExpected });
 
       self._expect_storage_mutexed(viewThing.testFolder, 'grow', extraFlags);
 
@@ -3339,45 +3399,54 @@ var TestCompositeAccountMixins = {
 
       // Expect one or two removal splices, high before low
       if (useHigh + 1 < viewThing.slice.items.length) {
-        self.expect_splice(useHigh + 1,
-                           viewThing.slice.items.length - useHigh - 1);
+        self.expect('splice', {
+          index: useHigh + 1,
+          howMany: viewThing.slice.items.length - useHigh - 1
+        });
       }
       if (useLow > 0) {
-        self.expect_splice(0, useLow);
+        self.expect('splice', { index: 0, howMany: useLow });
       }
 
-      self.expect_messagesReported(expectedTotal);
+      self.expect('messagesReported', { count: expectedTotal });
       var idxHighMessage = viewThing.offset + (useHigh - useLow);
-      self.expect_messageSubjects(
-        viewThing.testFolder.knownMessages
-          .slice(viewThing.offset, idxHighMessage + 1)
-          .map(function(x) {
-                 return x.subject;
-               }));
-      var callArgs = [expectedFlags.top, expectedFlags.bottom,
-                      expectedFlags.growUp || false,
-                      expectedFlags.grow,
-                      'synced'];
-      if (expectedFlags.newCount !== undefined)
-        callArgs.push(expectedFlags.newCount);
-      self.expect_sliceFlags.apply(self, callArgs);
+      self.expect('messageSubjects', {
+        subjects: (
+          viewThing.testFolder.knownMessages
+            .slice(viewThing.offset, idxHighMessage + 1)
+            .map(function(x) {
+              return x.subject;
+            }))
+      });
+
+      self.expect('sliceFlags', {
+        atTop: expectedFlags.top,
+        atBottom: expectedFlags.bottom,
+        userCanGrowUpwards: expectedFlags.growUp || false,
+        userCanGrowDownwards: expectedFlags.grow,
+        status: 'synced',
+        newCount: expectedFlags.newCount
+      });
 
       viewThing.slice.onsplice = function(index, howMany, added,
                                           requested, moreExpected) {
-        self._logger.splice(index, howMany);
+        logic(self, 'splice', { index: index, howMany: howMany });
       };
       viewThing.slice.oncomplete = function(newEmailCount) {
         viewThing.slice.onsplice = null;
 
-        self._logger.messagesReported(viewThing.slice.items.length);
-        self._logger.messageSubjects(
-          viewThing.slice.items.map(function(x) { return x.subject; }));
-        self._logger.sliceFlags(
-          viewThing.slice.atTop, viewThing.slice.atBottom,
-          viewThing.slice.userCanGrowUpwards,
-          viewThing.slice.userCanGrowDownwards,
-          viewThing.slice.status,
-          newEmailCount === undefined ? null : newEmailCount);
+        logic(self, 'messagesReported', { count: viewThing.slice.items.length });
+        logic(self, 'messageSubjects', {
+          subjects: viewThing.slice.items.map(function(x) { return x.subject; })
+        });
+        logic(self, 'sliceFlags', {
+          atTop: viewThing.slice.atTop,
+          atBottom: viewThing.slice.atBottom,
+          userCanGrowUpwards: viewThing.slice.userCanGrowUpwards,
+          userCanGrowDownwards: viewThing.slice.userCanGrowDownwards,
+          status: viewThing.slice.status,
+          newCount: newEmailCount === undefined ? null : newEmailCount
+        });
       };
 
       viewThing.slice.requestShrinkage(useLow, useHigh);
@@ -3407,10 +3476,11 @@ var TestActiveSyncAccountMixins = {
 
   __constructor: function(self, opts) {
     self.eAccount = self.eOpAccount = self.eFolderAccount =
-      self.T.actor('ActiveSyncAccount', self.__name, null, self);
+      self.T.actor('Account', self.__name, null, self);
     self.eJobDriver =
       self.T.actor('ActiveSyncJobDriver', self.__name, null, self);
 
+    logic.defineScope(self, 'TestAccount');
 
     var TEST_PARAMS = self.RT.envOptions;
     if (opts.realAccountNeeded) {
@@ -3427,7 +3497,7 @@ var TestActiveSyncAccountMixins = {
     // does not know about the universe it is replacing.
     else {
       self.testServer = self.T.actor(
-        'testActiveSyncServer', self.__name,
+        'TestActiveSyncServer', self.__name,
         {
           testAccount: self,
           universe: opts.universe,
@@ -3451,8 +3521,6 @@ var TestActiveSyncAccountMixins = {
   _do_issueRestoredAccountQueries: function(restoreType) {
     var self = this;
     self.T.convenienceSetup(self, 'issues helper queries', function() {
-      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
-
       self.universe = self.testUniverse.universe;
       self.MailAPI = self.testUniverse.MailAPI;
 
@@ -3462,8 +3530,6 @@ var TestActiveSyncAccountMixins = {
 
       self._expect_commonTestAccountConfig();
       self._help_commonTestAccountConfig();
-
-      self.testServer.finishSetup(self);
     });
   },
 
@@ -3475,8 +3541,6 @@ var TestActiveSyncAccountMixins = {
      * populated.
      */
     var step= self.T.convenienceSetup(self, 'creates test account', function() {
-      self.__attachToLogger(LOGFAB.testAccount(self, null, self.__name));
-
       self.RT.reportActiveActorThisStep(self.eAccount);
       self.RT.reportActiveActorThisStep(self.eJobDriver);
       self.expect_runOp('syncFolderList', { local: false, save: 'server' });
@@ -3515,7 +3579,7 @@ var TestActiveSyncAccountMixins = {
         configInfo,
         function accountMaybeCreated(error, errorDetails, account) {
           if (error) {
-            self._logger.accountCreationError(error);
+            logic(self, 'accountCreationError', { error: error });
             return;
           }
 
@@ -3536,8 +3600,6 @@ var TestActiveSyncAccountMixins = {
                      ' (id: ' + self.accountId + ')');
 
           self._help_commonTestAccountConfig();
-
-          self.testServer.finishSetup(self);
         });
     });
     if (self._opts.realAccountNeeded)
@@ -3546,13 +3608,13 @@ var TestActiveSyncAccountMixins = {
 
   expect_shutdown: function() {
     this.RT.reportActiveActorThisStep(this.eAccount);
-    this.eAccount.expectOnly__die();
+    //this.eAccount.expectOnly__die();
   },
 
   expect_saveState: function() {
     this.RT.reportActiveActorThisStep(this.eAccount);
-    this.eAccount.expect_saveAccountState_begin();
-    this.eAccount.expect_saveAccountState_end();
+    this.eAccount.expect('saveAccountState_begin');
+    this.eAccount.expect('saveAccountState_end');
   },
 
   _expect_restore: function() {
@@ -3583,47 +3645,53 @@ var TestActiveSyncAccountMixins = {
           // a la _propagateToKnownMessages
           testFolder.knownMessages = testFolder.serverMessages.concat();
 
-          testFolder.connActor.expect_sync_begin(null, null, null);
+          testFolder.connActor.expect('sync_begin');
           // TODO: have filterType be specified in extraFlags for consistency
           // with IMAP.
           // XXX we might also consider inferring some cases?
           if (einfo.filterType) {
             if (einfo.filterType === 'none')
               einfo.filterType = '0';
-            testFolder.connActor.expect_inferFilterType(einfo.filterType);
+            testFolder.connActor.expect('inferFilterType', {
+              filterType: einfo.filterType
+            });
           }
           if (checkFlagDefault(extraFlags, 'recreateFolder', false)) {
             var oldConnActor = testFolder.connActor;
             var newConnActor = this._expect_recreateFolder(testFolder);
 
-            oldConnActor.expect_sync_end(null, null, null);
+            oldConnActor.expect('sync_end');
 
-            newConnActor.expect_sync_begin(null, null, null);
-            newConnActor.expect_sync_end(
-              einfo.full, einfo.changed === undefined ? 0 : einfo.changed,
-              einfo.deleted);
+            newConnActor.expect('sync_begin');
+            newConnActor.expect('sync_end', {
+              full: einfo.full,
+              changed: einfo.changed === undefined ? 0 : einfo.changed,
+              deleted: einfo.deleted
+            });
           }
           else {
-            testFolder.connActor.expect_sync_end(
-              einfo.full, einfo.changed === undefined ? 0 : einfo.changed,
-              einfo.deleted);
+            testFolder.connActor.expect('sync_end', {
+              full: einfo.full,
+              changed: einfo.changed === undefined ? 0 : einfo.changed,
+              deleted: einfo.deleted
+            });
           }
         }
       }
     }
     if (this.universe.online && !nonet &&
         !checkFlagDefault(extraFlags, 'nosave', false)) {
-      this.eAccount.expect_saveAccountState_begin();
-      this.eAccount.expect_saveAccountState_end();
+      this.eAccount.expect('saveAccountState_begin');
+      this.eAccount.expect('saveAccountState_end');
     }
     // (the accountActive check is a hack for test_activesync_recreate
     // right now. It passes in nosave because the expected save comes at a
     // bad time, but then we want to generate other expectations...)
     else if (!checkFlagDefault(extraFlags, 'accountActive', false)) {
       // Make account saving cause a failure; also, connection reuse, etc.
-      this.eAccount.expectNothing();
+      this.eAccount.expectNot('saveAccountState_begin');
       if (nonet)
-        testFolder.connActor.expectNothing();
+        testFolder.connActor.expectNot('sync_begin');
     }
 
     return totalMessageCount;
@@ -3633,135 +3701,11 @@ var TestActiveSyncAccountMixins = {
   },
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  bridgeSnoop: {
-    type: $log.CLIENT,
-    subtype: $log.CLIENT,
-    events: {
-      apiSend: { type: false, msg: false },
-      apiDefer: { type: false, msg: false },
-      apiProcess: { type: false, msg: false },
-      bridgeSend: { type: false, msg: false },
-    },
-  },
-  console: {
-    type: $log.LOGGING,
-    events: {
-      log: { msg: false },
-      error: { msg: false },
-      info: { msg: false},
-      warn: { msg: false },
-    },
-  },
-  testUniverse: {
-    type: $log.TEST_SYNTHETIC_ACTOR,
-    subtype: $log.DAEMON,
-    topBilling: true,
-
-    events: {
-      createUniverse: {},
-      queriesIssued: {},
-
-      dbRowPresent: { table: true, prefix: true, present: true },
-
-      killedOperations: { type: true, length: true, ops: false,
-                          remaining: false  },
-      operationsDone: {},
-
-      cleanShutdown: {},
-
-      apiCronSyncStartReported: { accountIds: false },
-      apiCronSyncStopReported: { accountsResults: false },
-    },
-    errors: {
-      dbProblem: { err: false },
-    },
-  },
-  testAccount: {
-    type: $log.TEST_SYNTHETIC_ACTOR,
-    subtype: $log.CLIENT,
-    topBilling: true,
-
-    events: {
-      accountDeleted: {},
-      foundFolder: { found: true, rep: false },
-      folderSlicePopulated: {},
-
-      // the accounts recreateFolder notification should be converted to an
-      // async process with begin/end, replacing this.
-      folderRecreated: {},
-
-      deletionNotified: { count: true },
-      sliceDied: { handle: true },
-
-      manipulationNotified: {},
-
-      splice: { index: true, howMany: true },
-      sliceFlags: { top: true, bottom: true, growUp: true, growDown: true,
-                    status: true, newCount: true },
-      syncblocked: {},
-      messagesReported: { count: true },
-      messageSubject: { index: true, subject: true },
-      messageSubjects: { subjects: true },
-      // This is used when we've decided to not emit messagesReported/sliceFlags
-      // because we don't care what's in the folder.  This is used primarily
-      // for real servers where we can't destroy the folder and we don't care
-      // what's in it.
-      viewWithoutExpectationsCompleted: {},
-
-      changesReported: { additions: true, changes: true, deletions: true },
-
-      accountModified: {},
-      identityModified: {},
-
-      composerReady: {},
-      sendCompleted: { result: true },
-      // Dubious but semantically explicit waiting for operations to complete
-      // to make sure the test step catches everything that happens inside it.
-      // Since waitForAccountOpts is a MailUniverse thing, this inherently leads
-      // to potential races against the front-end and may be a bad idea unless
-      // a MailAPI.ping is also being used.
-      accountOpsCompleted: {},
-
-      mutexStolen: { folderType: true },
-      mutexReturned: { folderType: true },
-      interceptedAccountSave: {},
-      releasedAccountSave: {},
-    },
-    errors: {
-      accountCreationError: { err: false },
-
-      unexpectedChange: { subject: false },
-      changeMismatch: { field: false, expectedValue: false },
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB,
-    $mailuniverse.LOGFAB, $mailbridge.LOGFAB,
-    $mailslice.LOGFAB, $searchfilter.LOGFAB,
-    $errbackoff.LOGFAB, $cronsync.LOGFAB,
-    // IMAP!
-    $imapacct.LOGFAB, $imapfolder.LOGFAB, $imapjobs.LOGFAB,
-    // POP3!
-    $pop3acct.LOGFAB, $pop3sync.LOGFAB, $pop3jobs.LOGFAB,
-    // ActiveSync!
-    $activesyncacct.LOGFAB, $activesyncfolder.LOGFAB, $activesyncjobs.LOGFAB,
-  ],
-  TESTHELPER_DEPS: [
-    $th_fake_as_server.TESTHELPER,
-    $th_fake_imap_server.TESTHELPER,
-    $th_fake_pop3_server.TESTHELPER,
-    $th_real_imap_server.TESTHELPER,
-  ],
   actorMixins: {
-    testUniverse: TestUniverseMixins,
-    testAccount: TestCommonAccountMixins,
-  },
-  thingMixins: {
-    testFolder: TestFolderMixins,
+    TestUniverse: TestUniverseMixins,
+    TestAccount: TestCommonAccountMixins,
+    TestFolder: TestFolderMixins,
   },
 };
 

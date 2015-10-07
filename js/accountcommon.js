@@ -5,7 +5,7 @@
 define(
   [
     './a64',
-    './slog',
+    'logic',
     './allback',
     'require',
     'module',
@@ -13,7 +13,7 @@ define(
   ],
   function(
     $a64,
-    slog,
+    logic,
     allback,
     require,
     $module,

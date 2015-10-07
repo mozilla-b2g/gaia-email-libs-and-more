@@ -54,7 +54,8 @@ var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
 function ImapAccount(universe, compositeAccount, accountId, credentials,
                      connInfo, foldersTOC,
                      dbConn, existingProtoConn) {
-  logic.defineScope(this, 'ImapAccount');
+  logic.defineScope(this, 'Account',
+                    { accountId, accountType: 'imap' });
   CompositeIncomingAccount.apply(this, arguments);
 
   /**

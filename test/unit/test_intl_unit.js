@@ -1,11 +1,7 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'mimefuncs', 'exports'],
-       function($tc, $th_main, mimefuncs,
-                exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_intl_unit' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var mimefuncs = require('mimefuncs');
 
 /**
  * Run some encodings that actually exist but are unsupported by us /
@@ -14,8 +10,7 @@ var TD = exports.TD = $tc.defineTestsFor(
  * - That we fall back to using utf-8 and see a correctly incorrect
  *   interpretation of the encoded text.
  */
-TD.commonCase('unsupported bad news encodings', function(T, RT) {
-  $th_main.thunkConsoleForNonTestUniverse();
+return new LegacyGelamTest('unsupported bad news encodings', function(T, RT) {
   var cases = [
     {
       name: 'iso-2022-cn (replacement encoder) (7-bit example)',
@@ -39,10 +34,10 @@ TD.commonCase('unsupported bad news encodings', function(T, RT) {
   var eCheck = T.lazyLogger('check');
   cases.forEach(function(info) {
     T.action(eCheck, info.name, function() {
-      eCheck.expect_namedValue('converted', info.weWant);
+      eCheck.expect('converted',  info.weWant);
       var outstr = new TextDecoder('utf-8').decode(
         mimefuncs.charset.convert(info.input, info.encoding));
-      eCheck.namedValue('converted', outstr);
+      eCheck.log('converted', outstr);
     });
   });
 });

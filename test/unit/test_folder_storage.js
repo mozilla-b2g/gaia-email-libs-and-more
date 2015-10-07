@@ -13,15 +13,14 @@
  * because do_check_eq kills the event loop when it fails.)
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/folder_storage_shared', 'date', 'mailslice', 'syncbase',
-        'slice_bridge_proxy', 'exports'],
-       function($tc, $th_main, $shared, $date, $mailslice, $syncbase,
-                $sliceBridgeProxy, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_folder_storage' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $shared = require('./resources/folder_storage_shared');
+var $date = require('date');
+var $mailslice = require('mailslice');
+var $syncbase = require('syncbase');
+var $sliceBridgeProxy = require('slice_bridge_proxy');
 
 var makeTestContext = $shared.makeTestContext;
 var makeMockishSlice = $shared.makeMockishSlice;
@@ -39,12 +38,10 @@ var gLazyLogger = null;
 // really poor shims now that we aren't in xpcshell; these should ideally
 // be converted to use a lazy logger, probably in a hacky fashion.
 function do_check_eq(expected, actual) {
-  gLazyLogger.expect_value(expected);
-  gLazyLogger.value(actual);
+  gLazyLogger.expect('check_eq', expected);
+  gLazyLogger.log('check_eq', actual);
 }
 function do_check_neq(left, right) {
-  gLazyLogger.expect_namedValueD('neq', left, right);
-  gLazyLogger.namedValueD('neq', left, right);
   if (left == right)
     throw new Error(left + ' == ' + right);
 }
@@ -54,11 +51,26 @@ function do_throw(msg) {
   throw new Error(msg);
 }
 
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
+function commonSimple(name, fn) {
+  allTests.push(new LegacyGelamTest(name, (T, RT) => {
+    T.action(() => {
+      var eLazy = T.lazyLogger();
+      fn(eLazy);
+    });
+  }));
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Test helper functions
 
-TD.commonSimple('tuple range intersection',
-                function test_tuple_range_isect(eLazy) {
+commonSimple('tuple range intersection',
+             function test_tuple_range_isect(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var intersect = $mailslice.tupleRangeIntersectsTupleRange;
@@ -140,7 +152,7 @@ function check_arange_eq(arange, startTS, endTS, highestModseq, updated) {
 /**
  * No existing accuracy ranges, create a new one.
  */
-TD.commonSimple('accuracy base case', function test_accuracy_base_case(eLazy) {
+commonSimple('accuracy base case', function test_accuracy_base_case(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -157,8 +169,8 @@ TD.commonSimple('accuracy base case', function test_accuracy_base_case(eLazy) {
 /**
  * Accuracy range does not overlap existing ranges.
  */
-TD.commonSimple('accuracy non-overlapping',
-                function test_accuracy_nonoverlap(eLazy) {
+commonSimple('accuracy non-overlapping',
+             function test_accuracy_nonoverlap(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -201,7 +213,7 @@ TD.commonSimple('accuracy non-overlapping',
  * Accuracy range completely contains one or more existing ranges with no
  * partial overlap.
  */
-TD.commonSimple('accuracy contains', function test_accuracy_contains(eLazy) {
+commonSimple('accuracy contains', function test_accuracy_contains(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -270,7 +282,7 @@ TD.commonSimple('accuracy contains', function test_accuracy_contains(eLazy) {
  * Accuracy range has partial overlap: younger, older, inside, younger+older,
  * younger+older+contained.
  */
-TD.commonSimple('accuracy overlapping', function test_accuracy_overlap(eLazy) {
+commonSimple('accuracy overlapping', function test_accuracy_overlap(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -329,7 +341,7 @@ TD.commonSimple('accuracy overlapping', function test_accuracy_overlap(eLazy) {
 /**
  * Accuracy range merges when using the same modseq/update values.
  */
-TD.commonSimple('accuracy merge', function test_accuracy_merge(eLazy) {
+commonSimple('accuracy merge', function test_accuracy_merge(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -381,8 +393,8 @@ TD.commonSimple('accuracy merge', function test_accuracy_merge(eLazy) {
  * should cover all permutations (except for being first/last, but we are
  * reusing our range-finding helpers that have coverage)
  */
-TD.commonSimple('accuracy refresh check',
-                function test_accuracy_refresh(eLazy) {
+commonSimple('accuracy refresh check',
+             function test_accuracy_refresh(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -478,8 +490,8 @@ function check_block(blockInfo, count, size, startTS, startUID, endTS, endUID,
 /**
  * Base case: there are no blocks yet!
  */
-TD.commonSimple('insertion: no existing blocks',
-                function test_insertion_no_existing_blocks(eLazy) {
+commonSimple('insertion: no existing blocks',
+             function test_insertion_no_existing_blocks(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -511,8 +523,8 @@ TD.commonSimple('insertion: no existing blocks',
  * - We create a (fake) body block 1 that is newer and allegedly covers d8/d9,
  *   it ends up at index 0.
  */
-TD.commonSimple('insertion: adjacent simple',
-                function test_insertion_adjacent_simple(eLazy) {
+commonSimple('insertion: adjacent simple',
+             function test_insertion_adjacent_simple(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -574,8 +586,8 @@ TD.commonSimple('insertion: adjacent simple',
 /**
  * Insertion point is in an existing block and will not overflow, use it.
  */
-TD.commonSimple('insertion in existing block',
-                function test_insertion_in_block_use(eLazy) {
+commonSimple('insertion in existing block',
+             function test_insertion_in_block_use(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -615,8 +627,8 @@ TD.commonSimple('insertion in existing block',
  * splitting logic by causing us to try and split before the first item or
  * after the last item.
  */
-TD.commonSimple('inserting larger-than-block items',
-                function test_insertion_oversized_items(eLazy) {
+commonSimple('inserting larger-than-block items',
+             function test_insertion_oversized_items(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -710,8 +722,8 @@ TD.commonSimple('inserting larger-than-block items',
 /**
  * Insertion point is in an existing block and will overflow, split it.
  */
-TD.commonSimple('insertion in block that will overflow',
-                function test_insertion_in_block_overflow_split(eLazy) {
+commonSimple('insertion in block that will overflow',
+             function test_insertion_in_block_overflow_split(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -767,8 +779,8 @@ TD.commonSimple('insertion in block that will overflow',
  * Test the header block splitting logic on its own.  Verify the server id
  * mapping is maintained throughout the split.
  */
-TD.commonSimple('header block splitting',
-                function test_header_block_splitting(eLazy) {
+commonSimple('header block splitting',
+             function test_header_block_splitting(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -824,7 +836,7 @@ TD.commonSimple('header block splitting',
     bigHeaders.slice(expectedHeadersPerBlock), olderInfo.blockId);
 });
 
-TD.commonCase('body insertion size', function(T, RT) {
+commonCase('body insertion size', function(T, RT) {
 
   function makeText(length) {
     var str = '';
@@ -836,8 +848,8 @@ TD.commonCase('body insertion size', function(T, RT) {
   }
 
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse,
                               realAccountNeeded: false });
 
@@ -859,11 +871,11 @@ TD.commonCase('body insertion size', function(T, RT) {
 
 
   T.action('stage body', eLazy, function() {
-    eLazy.expect_namedValue('initial size', true);
+    eLazy.expect('initial size',  true);
     header = ctx.insertHeader(date, uid);
     storage.addMessageBody(header, bodyInfo, function() {
       // verify non zero initial size
-      eLazy.namedValue('initial size', bodyInfo.size > 0);
+      eLazy.log('initial size', bodyInfo.size > 0);
     });
   });
 
@@ -872,14 +884,14 @@ TD.commonCase('body insertion size', function(T, RT) {
   function updatesSizeBy(bodyRepIndex, contentLength) {
     T.action('update bodyRep[' + bodyRepIndex + ']', eLazy, function() {
       var originalSize = bodyInfo.size;
-      eLazy.expect_namedValueD('updates size', true);
+      eLazy.expect('updates size',  true);
 
       var rep = bodyInfo.bodyReps[bodyRepIndex];
       rep.content = [1, makeText(contentLength)];
       rep.amountDownloaded = contentLength;
 
       storage.updateMessageBody(header, bodyInfo, {}, function() {
-        eLazy.namedValueD(
+        eLazy.log(
           'updates size',
           (bodyInfo.size >= originalSize + contentLength),
           bodyInfo.size
@@ -894,9 +906,9 @@ TD.commonCase('body insertion size', function(T, RT) {
 
 });
 
-TD.commonCase('events while updating body blocks', function(T, RT) {
-  var testUniverse = T.actor('testUniverse', 'U', { realDate: true }),
-      testAccount = T.actor('testAccount', 'A',
+commonCase('events while updating body blocks', function(T, RT) {
+  var testUniverse = T.actor('TestUniverse', 'U', { realDate: true }),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse, restored: true,
                               realAccountNeeded: false });
 
@@ -937,18 +949,18 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
   var header;
 
   T.action('stage body', bodyLogger, function() {
-    bodyLogger.expect_event('saved body');
+    bodyLogger.expect('saved body');
     header = ctx.insertHeader(date, uid);
     storage.addMessageBody(header, bodyInfo, function() {
-      bodyLogger.event('saved body');
+      bodyLogger.log('saved body');
     });
   });
 
   T.action('verify fetch', bodyLogger, function() {
-    bodyLogger.expect_namedValue('bodyInfo', bodyInfo);
+    bodyLogger.expect('bodyInfo',  bodyInfo);
 
     storage.getMessageBody(header.suid, header.date, function(info) {
-      bodyLogger.namedValue('bodyInfo', info);
+      bodyLogger.log('bodyInfo', info);
     });
   });
 
@@ -961,10 +973,10 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
       body: bodyInfo
     };
 
-    bodyLogger.expect_namedValue('notifyBodyModified', expectedMessage);
+    bodyLogger.expect('notifyBodyModified',  expectedMessage);
 
     onNotifyBodyModified = function(suid, detail, body) {
-      bodyLogger.namedValue('notifyBodyModified', {
+      bodyLogger.log('notifyBodyModified', {
         suid: suid,
         detail: details,
         body: body
@@ -985,7 +997,7 @@ TD.commonCase('events while updating body blocks', function(T, RT) {
  * Test that deleting a body out of a block that does not empty the block
  * updates the values appropriately, then empty it and see it go away.
  */
-TD.commonSimple('body deletion', function test_body_deletion(eLazy) {
+commonSimple('body deletion', function test_body_deletion(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1072,8 +1084,8 @@ TD.commonSimple('body deletion', function test_body_deletion(eLazy) {
  * Check server id mapping maintenance for addition and deletion.  Splitting is
  * tested via the header block splitting test.
  */
-TD.commonSimple('srvid mapping for add/del',
-                function test_header_deletion(eLazy) {
+commonSimple('srvid mapping for add/del',
+             function test_header_deletion(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   // - add header and body.
@@ -1120,7 +1132,7 @@ TD.commonSimple('srvid mapping for add/del',
  * Insertion point is outside existing blocks.  Check that we split, and where
  * there are multiple choices, that we pick according to our heuristic.
  */
-TD.commonSimple(
+commonSimple(
     'insertion outside existing blocks',
     function test_insertion_outside_use_nonoverflow_to_overflow(eLazy) {
   gLazyLogger = eLazy;
@@ -1189,8 +1201,8 @@ TD.commonSimple(
  * Test that our range-logic does not break when faced with messages all from
  * the same timestamp and only differing in their UIDs.
  */
-TD.commonSimple('insertion differing only by UIDs',
-                function test_insertion_differing_only_by_uids(eLazy) {
+commonSimple('insertion differing only by UIDs',
+             function test_insertion_differing_only_by_uids(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1333,7 +1345,7 @@ function rexpect(firstDate, firstUID, lastDate, lastUID) {
  * getMessagesAfterMessage iterates over the messages chronologically after a
  * message (end-direction).  We test all 3.
  */
-TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
+commonSimple('header iteration', function test_header_iteration(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1541,7 +1553,7 @@ TD.commonSimple('header iteration', function test_header_iteration(eLazy) {
  * where other test cases may not explicitly test with differing dates
  * within the same block.
  */
-TD.commonSimple('getMessagesBeforeMessage, different dates', function(eLazy) {
+commonSimple('getMessagesBeforeMessage, different dates', function(eLazy) {
   gLazyLogger = eLazy;
   var ctx = makeTestContext();
   var headers = [
@@ -1589,7 +1601,7 @@ TD.commonSimple('getMessagesBeforeMessage, different dates', function(eLazy) {
 /**
  * Test that messages in the future are properly retrieved by the FolderStorage.
  */
-TD.commonSimple('future headers', function test_future_headers(eLazy) {
+commonSimple('future headers', function test_future_headers(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1612,7 +1624,7 @@ TD.commonSimple('future headers', function test_future_headers(eLazy) {
 ////////////////////////////////////////////////////////////////////////////////
 // Discard blocks from in-memory cache
 
-TD.commonSimple('block cache flushing', function(eLazy) {
+commonSimple('block cache flushing', function(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext();
@@ -1714,7 +1726,7 @@ TD.commonSimple('block cache flushing', function(eLazy) {
  * performed by already-tested helper functions, so we just need to test our
  * defined behaviour.
  */
-TD.commonSimple('discard cached blocks by message', function(eLazy) {
+commonSimple('discard cached blocks by message', function(eLazy) {
   // Note: This test is derived from 'block cache flushing'.
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
@@ -1769,7 +1781,7 @@ TD.commonSimple('discard cached blocks by message', function(eLazy) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // Confirm headerCount is tracked correctly
-TD.commonSimple('headerCount folderStorage tracking', function(eLazy) {
+commonSimple('headerCount folderStorage tracking', function(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1819,7 +1831,7 @@ TD.commonSimple('headerCount folderStorage tracking', function(eLazy) {
  * cargo culting this.  I'd like to get a better rationale for what to do when
  * we overhaul our back-end tests to use promises/etc.
  */
-TD.commonSimple('headerCount slice tracking', function(eLazy) {
+commonSimple('headerCount slice tracking', function(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1875,7 +1887,7 @@ TD.commonSimple('headerCount slice tracking', function(eLazy) {
  * no control over the ordering the messages come in (and by default they come
  * in the opposite order from what we want).  So let's
  */
-TD.commonSimple('headerCount ignoreHeaders case', function(eLazy) {
+commonSimple('headerCount ignoreHeaders case', function(eLazy) {
   gLazyLogger = eLazy;
   $shared.gLazyLogger = eLazy;
   var ctx = makeTestContext(),
@@ -1908,7 +1920,7 @@ TD.commonSimple('headerCount ignoreHeaders case', function(eLazy) {
 ////////////////////////////////////////////////////////////////////////////////
 // Purge messages from disk
 
-TD.commonCase('message purging', function test_message_purging(T, RT) {
+commonCase('message purging', function test_message_purging(T, RT) {
   var eCheck = T.lazyLogger('check');
 
   var testSitch = function testSitch(name, args) {
@@ -1949,31 +1961,29 @@ TD.commonCase('message purging', function test_message_purging(T, RT) {
 
       ctx.account.accountDef.syncRange = args.syncRange;
 
-      eCheck.expect_namedValue('messagesPurged', args.purged);
+      eCheck.expect('messagesPurged',  args.purged);
 
       if (args.purged) {
         var lastRemainingHeader = headers[args.count - args.purged - 1];
-        eCheck.expect_namedValue('cutTS', lastRemainingHeader.date);
-        eCheck.expect_namedValue('oldestAccuracyStart',
-                                 lastRemainingHeader.date);
+        eCheck.expect('cutTS',  lastRemainingHeader.date);
+        eCheck.expect('oldestAccuracyStart', lastRemainingHeader.date);
       }
       else {
-        eCheck.expect_namedValue('cutTS', 0);
-        eCheck.expect_namedValue('oldestAccuracyStart',
-                                 getOldestAccuracyStart());
+        eCheck.expect('cutTS',  0);
+        eCheck.expect('oldestAccuracyStart', getOldestAccuracyStart());
       }
-      eCheck.expect_namedValue('arange count', args.aranges);
+      eCheck.expect('arange count',  args.aranges);
 
       // this should complete synchronously
       ctx.storage.purgeExcessMessages(function(numDeleted, cutTS) {
-        eCheck.namedValue('messagesPurged', numDeleted);
-        eCheck.namedValue('cutTS', cutTS);
-        eCheck.namedValue('oldestAccuracyStart',
+        eCheck.log('messagesPurged', numDeleted);
+        eCheck.log('cutTS', cutTS);
+        eCheck.log('oldestAccuracyStart',
                           getOldestAccuracyStart());
 
         // dump the accuracy ranges for introspection for my sanity
         var aranges = ctx.storage._accuracyRanges;
-        eCheck.namedValue('arange count', aranges.length);
+        eCheck.log('arange count', aranges.length);
         for (var i = 0; i < aranges.length; i++) {
           console.log('arange', i, '[', aranges[i].startTS,
                       aranges[i].endTS, ')');
@@ -2090,6 +2100,8 @@ TD.commonCase('message purging', function test_message_purging(T, RT) {
     });
 });
 
+
+return allTests;
 ////////////////////////////////////////////////////////////////////////////////
 
 }); // end define

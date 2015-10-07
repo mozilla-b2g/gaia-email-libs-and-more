@@ -5,12 +5,11 @@
  * mimeparser lib itself.
  **/
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'quotechew', 'mailchew', 'exports'],
-       function($tc, $th_imap, $quotechew, $mailchew, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_mail_quoting' }, null, [$th_imap.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $quotechew = require('quotechew');
+var $mailchew = require('mailchew');
 
 function j() {
   return Array.prototype.join.call(arguments, '\n');
@@ -18,7 +17,22 @@ function j() {
 
 const DESIRED_SNIPPET_LENGTH = 100;
 
-TD.commonCase('Quoting', function(T) {
+var allTests = [];
+
+function commonCase(name, fn) {
+  allTests.push(new LegacyGelamTest(name, fn));
+}
+
+function commonSimple(name, fn) {
+  allTests.push(new LegacyGelamTest(name, (T, RT) => {
+    T.action(() => {
+      var eLazy = T.lazyLogger();
+      fn(eLazy);
+    });
+  }));
+}
+
+commonCase('Quoting', function(T) {
   var longBodyStr =
     'This is a very long message that wants to be snippeted to a ' +
     'reasonable length that is reasonable and not unreasonable.  It is ' +
@@ -376,17 +390,17 @@ TD.commonCase('Quoting', function(T) {
     T.check(eCheck, tdef.name, function() {
       var i;
       for (i = 0; i < tdef.chunks.length; i += 2) {
-        eCheck.expect_namedValue(tdef.chunks[i], tdef.chunks[i+1]);
+        eCheck.expect(tdef.chunks[i], tdef.chunks[i+1]);
       }
       var roundtrip = true;
       if (tdef.hasOwnProperty('roundtrip'))
         roundtrip = tdef.roundtrip;
 
-      eCheck.expect_namedValue('snippet', JSON.stringify(tdef.snippet));
+      eCheck.expect('snippet',  JSON.stringify(tdef.snippet));
       if (roundtrip)
-        eCheck.expect_namedValue(
+        eCheck.expect(
           'forwardText', JSON.stringify(tdef.body.replace('\xa0', '', 'g')));
-      eCheck.expect_event('done');
+      eCheck.expect('done');
 
       var rep = $quotechew.quoteProcessTextBody(tdef.body);
       for (i = 0; i < rep.length; i += 2) {
@@ -420,25 +434,25 @@ TD.commonCase('Quoting', function(T) {
             rtype = 'unknown:' + etype.toString(16);
             break;
         }
-        eCheck.namedValue(rtype, rep[i+1]);
+        eCheck.log(rtype, rep[i+1]);
       }
-      eRawRep.value(rep.map(function(x, i) {
+      eRawRep.log('raw', rep.map(function(x, i) {
         if (i%2)
           return x;
         return x.toString(16);
       }));
       var snippetText = $quotechew.generateSnippet(rep, DESIRED_SNIPPET_LENGTH);
-      eCheck.namedValue('snippet', JSON.stringify(snippetText));
+      eCheck.log('snippet', JSON.stringify(snippetText));
       if (roundtrip) {
         var forwardText = $quotechew.generateForwardBodyText(rep);
-        eCheck.namedValue('forwardText', JSON.stringify(forwardText));
+        eCheck.log('forwardText', JSON.stringify(forwardText));
       }
-      eCheck.event('done');
+      eCheck.log('done');
     });
   });
 });
 
-TD.commonSimple('Empty subject reply', function(eLazy) {
+commonSimple('Empty subject reply', function(eLazy) {
   var scenarios = [
     [null, 'Re: '],
     ['', 'Re: '],
@@ -447,17 +461,17 @@ TD.commonSimple('Empty subject reply', function(eLazy) {
     ['Re: test', 'Re: test']
   ];
 
-  for (i = 0; i < scenarios.length; i++) {
-    scenario = scenarios[i];
-    eLazy.expect_namedValue(scenario[0], scenario[1]);
+  for (var i = 0; i < scenarios.length; i++) {
+    var scenario = scenarios[i];
+    eLazy.expect(scenario[0] + '', scenario[1]);
   }
   for (i = 0; i < scenarios.length; i++) {
     scenario = scenarios[i];
-    eLazy.namedValue(scenario[0], $mailchew.generateReplySubject(scenario[0]));
+    eLazy.log(scenario[0] + '', $mailchew.generateReplySubject(scenario[0]));
   }
 });
 
-TD.commonSimple('Empty forward reply', function(eLazy) {
+commonSimple('Empty forward reply', function(eLazy) {
   var scenarios = [
     [null, 'Fwd: '],
     ['', 'Fwd: '],
@@ -466,15 +480,16 @@ TD.commonSimple('Empty forward reply', function(eLazy) {
     ['Fwd: test', 'Fwd: test']
   ];
 
-  for (i = 0; i < scenarios.length; i++) {
-    scenario = scenarios[i];
-    eLazy.expect_namedValue(scenario[0], scenario[1]);
+  for (var i = 0; i < scenarios.length; i++) {
+    var scenario = scenarios[i];
+    eLazy.expect(scenario[0] + '', scenario[1]);
   }
   for (i = 0; i < scenarios.length; i++) {
     scenario = scenarios[i];
-    eLazy.namedValue(scenario[0],
-      $mailchew.generateForwardSubject(scenario[0]));
+    eLazy.log(scenario[0] + '', $mailchew.generateForwardSubject(scenario[0]));
   }
 });
+
+return allTests;
 
 }); // end define

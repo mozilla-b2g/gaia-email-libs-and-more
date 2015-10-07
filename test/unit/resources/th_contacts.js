@@ -11,13 +11,13 @@
 
 define(
   [
-    'rdcommon/log',
+    'logic',
     'mailapi',
     'module',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $mailapi,
     $module,
     exports
@@ -54,6 +54,8 @@ var TestContactsMixins = {
 
     self._trappedFindCalls = null;
 
+    logic.defineScope(self, 'TestContacts');
+
     /**
      * The fake mozContacts API.
      *
@@ -69,7 +71,7 @@ var TestContactsMixins = {
             (options.filterBy[0] !== 'email' &&
              options.filterBy[0] !== 'id') ||
             options.filterOp !== 'equals') {
-          self._logger.unsupportedFindCall(options);
+          logic(self, 'unsupportedFindCall', { options: options });
           throw new Error("Unsupported find call!");
         }
         var req;
@@ -78,8 +80,11 @@ var TestContactsMixins = {
         }
         else {
           req = { onsuccess: null, onerror: null };
-          self._logger.apiFind_begin(options.filterBy[0], options.filterOp,
-                                     options.filterValue, null);
+          logic(self, 'apiFind_begin', {
+            filterBy: options.filterBy[0],
+            filterOp: options.filterOp,
+            filterValue: options.filterValue
+          });
         }
 
         if (self._trappedFindCalls) {
@@ -108,8 +113,12 @@ var TestContactsMixins = {
             else
               result = [clone(self._dbByContactId[id])];
           }
-          self._logger.apiFind_end(options.filterBy[0], options.filterOp,
-                                   options.filterValue, result);
+          logic(self, 'apiFind_end', {
+            filterBy: options.filterBy[0],
+            filterOp: options.filterOp,
+            filterValue: options.filterValue,
+            result: result
+          });
           req.result = result;
           req.onsuccess({ target: req });
         });
@@ -117,7 +126,7 @@ var TestContactsMixins = {
       },
 
       getAll: function(options) {
-        self._logger.getAllCalled();
+        logic(self, 'getAllCalled');
         throw new Error("getAll() is unsupported!");
       },
 
@@ -207,17 +216,25 @@ var TestContactsMixins = {
 
       _fireContactChange: function(reason, contactID) {
         if (!self.contactsAPI.oncontactchange) {
-          self._logger.unhandledContactchange(reason, contactID);
+          logic(self, 'unhandledContactchange', {
+            reason: reason,
+            contactId: contactID
+          });
           return;
         }
-        self._logger.oncontactchange(reason, contactID, null,
-                                     self.contactsAPI.oncontactchange,
-                                     { reason: reason, contactID: contactID });
+        logic(self, 'oncontactchange', {
+          reason: reason,
+          contactId: contactID,
+          oncontactchange: self.contactsAPI.oncontactchange
+        });
+        self.contactsAPI.oncontactchange({
+          reason: reason,
+          contactID: contactID
+        });
       },
     };
 
     self.T.convenienceSetup(self, 'initializes', function() {
-      self.__attachToLogger(LOGFAB.testContacts(self, null, self.__name));
       // force the ContactCache to reset its state entirely
       var ContactCache = $mailapi.ContactCache;
       ContactCache._resetCache();
@@ -256,7 +273,7 @@ var TestContactsMixins = {
     if (name)
       contact.name = [name];
 
-    this._logger.createContact(contact.id, contact);
+    logic(this, 'createContact', { contactId: contact.id, contact: contact });
     this.contactsAPI._save(contact, quiet);
 
     return contact;
@@ -268,17 +285,17 @@ var TestContactsMixins = {
       contact.name = [name];
     if (emails)
       contact.email = this._mapEmails(emails);
-    this._logger.updateContact(contact.id, contact);
+    logic(this, 'updateContact', { contactId: contact.id, contact: contact });
     this.contactsAPI._save(contact);
   },
 
   removeContact: function(contact) {
-    this._logger.removeContact(contact.id, contact);
+    logic(this, 'removeContact', { contactId: contact.id, contact: contact });
     this.contactsAPI._remove(contact);
   },
 
   clearContacts: function(contact) {
-    this._logger.clearContacts();
+    logic(this, 'clearContacts');
     this.contactsAPI._clear();
   },
 
@@ -304,35 +321,9 @@ var TestContactsMixins = {
   },
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  testContacts: {
-    asyncJobs: {
-      apiFind: { by: false, op: false, value: false, result: false },
-    },
-    calls: {
-      oncontactchange: { reason: false, contactID: false },
-    },
-    events: {
-      createContact: { id: false, contact: false },
-      updateContact: { id: false, contact: false },
-      removeContact: { id: false, contact: false },
-      clearContacts: {},
-
-      unhandledContactchange: { reason: false, contactID: false },
-    },
-    errors: {
-      getAllCalled: {},
-      unsupportedFindCall: { options: false },
-    },
-  },
-});
-
 exports.TESTHELPER = {
-  LOGFAB_DEPS: [
-    LOGFAB
-  ],
   actorMixins: {
-    testContacts: TestContactsMixins
+    TestContacts: TestContactsMixins
   }
 };
 

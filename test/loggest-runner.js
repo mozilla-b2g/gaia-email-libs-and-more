@@ -7,13 +7,11 @@ define(
     // XXX Ideally we would only load this at the request of the test, but
     // there's no real harm in always spinning this up for now.
     'gelam/worker-support/testhelper-main',
-    'rdcommon/testdriver',
     'require'
   ],
   function(
     $router,
     $th_main,
-    $td,
     require
   ) {
 

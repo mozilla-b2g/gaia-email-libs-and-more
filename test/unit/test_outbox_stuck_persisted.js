@@ -5,15 +5,9 @@
  * `test_compose.js`) for message-specific edge cases like attachments,
  * MIME parsing, and other such stuff.
  */
-define(['rdcommon/testcontext', './resources/th_main',
-        './resources/th_devicestorage', './resources/messageGenerator',
-        'util', 'accountcommon', 'exports'],
-       function($tc, $th_imap, $th_devicestorage, $msggen,
-                $util, $accountcommon, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_outbox_stuck_persisted' }, null,
-  [$th_imap.TESTHELPER, $th_devicestorage.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
 // We cannot use a static subject in case we run this test on a real
 // server, which may have messages in folders already.
@@ -24,12 +18,12 @@ function makeRandomSubject() {
 // 2) Try to send two messages, both fail. Clean shutdown the
 // universe. Start the universe back up. Have the automatic-ish "send
 // everything in the inbox" flow trigger and everything get sent.
-TD.commonCase('two get stuck, automated send everything sends them',
-              function(T, RT) {
+return new LegacyGelamTest('two get stuck, automated send-all sends them',
+                           function(T, RT) {
   T.group('setup');
   var TEST_PARAMS = RT.envOptions;
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse });
   var eLazy = T.lazyLogger('misc');
 
@@ -72,10 +66,10 @@ TD.commonCase('two get stuck, automated send everything sends them',
     testAccount.do_waitForMessage(views.outbox, subject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_namedValue('subject', subject);
+        eLazy.expect('subject',  subject);
       },
       withMessage: function(header) {
-        eLazy.namedValue('subject', header.subject);
+        eLazy.log('subject', header.subject);
       }
     }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   });
@@ -95,8 +89,8 @@ TD.commonCase('two get stuck, automated send everything sends them',
   // BEGIN UNIVERSE 2
   T.group('BEGIN UNIVERSE 2');
 
-  var testUniverse2 = T.actor('testUniverse', 'U', { old: testUniverse });
-  var testAccount2 = T.actor('testAccount', 'A',
+  var testUniverse2 = T.actor('TestUniverse', 'U', { old: testUniverse });
+  var testAccount2 = T.actor('TestAccount', 'A',
                              { universe: testUniverse2,
                                restored: true });
 
@@ -120,11 +114,11 @@ TD.commonCase('two get stuck, automated send everything sends them',
     testUniverse2.universe.sendOutboxMessages(
       testUniverse2.universe.accounts[0]);
 
-    eLazy.expect_event('ops-done');
+    eLazy.expect('ops-done');
     testUniverse2.universe.waitForAccountOps(
       testUniverse2.universe.accounts[0],
       function() {
-        eLazy.event('ops-done');
+        eLazy.log('ops-done');
       });
   });
 
@@ -140,19 +134,19 @@ TD.commonCase('two get stuck, automated send everything sends them',
     testAccount2.do_waitForMessage(views2.sent, subject, {
       expect: function() {
         RT.reportActiveActorThisStep(eLazy);
-        eLazy.expect_namedValue('subject', subject);
+        eLazy.expect('subject',  subject);
       },
       withMessage: function(header) {
-        eLazy.namedValue('subject', header.subject);
+        eLazy.log('subject', header.subject);
       }
     }).timeoutMS = TEST_PARAMS.slow ? 30000 : 5000;
   });
 
   // Ensure there are no more outbox messages
   T.check('outbox messages deleted', eLazy, function() {
-    eLazy.expect_namedValue('outbox count', 0);
+    eLazy.expect('outbox count',  0);
     testAccount2.MailAPI.ping(function() {
-      eLazy.namedValue('outbox count', views2.outbox.slice.items.length);
+      eLazy.log('outbox count', views2.outbox.slice.items.length);
     });
   });
 

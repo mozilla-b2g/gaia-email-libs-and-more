@@ -1,10 +1,7 @@
-define(['rdcommon/testcontext', './resources/th_main',
-        'slog', 'mailapi', 'exports'],
-       function($tc, $th_main, slog, $mailapi, exports) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_move_offline' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var $mailapi = require('mailapi');
 
 /**
  * Ensure that partially-completed offline moves don't break the sync
@@ -28,10 +25,11 @@ var TD = exports.TD = $tc.defineTestsFor(
  *    successfully, even though we left a not-yet-completed "move"
  *    message in the target folder.
  */
-TD.commonCase('partially-completed move does not break sync', function(T, RT) {
+return new LegacyGelamTest('partially-completed move does not break sync',
+                           function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U'),
-      testAccount = T.actor('testAccount', 'A',
+  var testUniverse = T.actor('TestUniverse', 'U'),
+      testAccount = T.actor('TestAccount', 'A',
                             { universe: testUniverse }),
       eSync = T.lazyLogger('check');
 
@@ -66,13 +64,13 @@ TD.commonCase('partially-completed move does not break sync', function(T, RT) {
     testAccount.expect_runOp(
       'move', { local: true, server: false, save: true });
 
-    var log = new slog.LogChecker(T, RT);
+    var eFS = T.actor('FolderStorage');
     // The local job will succeed and it will release its mutexes without having
     // experienced any errors.
-    log.mustLog('mailslice:mutex-released',
-                { folderId: sourceFolder.id, err: null });
-    log.mustLog('mailslice:mutex-released',
-                { folderId: targetFolder.id, err: null });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: sourceFolder.id, err: null });
+    eFS.expect('mailslice:mutex-released',
+               { folderId: targetFolder.id, err: null });
 
     // Force the job system to appear backlogged, by inserting a fake
     // operation at the beginning. This op will block the server queue
@@ -111,8 +109,8 @@ TD.commonCase('partially-completed move does not break sync', function(T, RT) {
 
   T.action("verify folder contents", eSync, function() {
     var starredMsg = targetView2.slice.items[0];
-    eSync.expect_namedValue("first message is starred", true);
-    eSync.namedValue("first message is starred", starredMsg.isStarred);
+    eSync.expect("first message is starred",  true);
+    eSync.log("first message is starred", starredMsg.isStarred);
   });
 
   testAccount.do_closeFolderView(targetView2);

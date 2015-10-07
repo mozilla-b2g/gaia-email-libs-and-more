@@ -1,7 +1,6 @@
 define(function(require, exports) {
 'use strict';
 
-let log = require('rdcommon/log');
 let $acctmixins = require('../accountmixins');
 
 
@@ -69,54 +68,4 @@ CompositeIncomingAccount.prototype = {
   },
 };
 
-exports.LOGFAB_DEFINITION = {
-  CompositeIncomingAccount: {
-    type: log.ACCOUNT,
-    events: {
-      createFolder: {},
-      deleteFolder: {},
-      recreateFolder: { id: false },
-
-      createConnection: {},
-      reuseConnection: {},
-      releaseConnection: {},
-      deadConnection: { why: true },
-      unknownDeadConnection: {},
-      connectionMismatch: {},
-
-      /**
-       * XXX: this is really an error/warning, but to make the logging less
-       * confusing, treat it as an event.
-       */
-      accountDeleted: { where: false },
-
-      /**
-       * The maximum connection limit has been reached, we are intentionally
-       * not creating an additional one.
-       */
-      maximumConnsNoNew: {},
-    },
-    TEST_ONLY_events: {
-      deleteFolder: { path: false },
-
-      createConnection: { label: false },
-      reuseConnection: { label: false },
-      releaseConnection: { folderId: false, label: false },
-      deadConnection: { folder: false },
-      connectionMismatch: {},
-    },
-    errors: {
-      connectionError: {},
-      folderAlreadyHasConn: { folderId: false },
-      opError: { mode: false, type: false, ex: log.EXCEPTION },
-    },
-    asyncJobs: {
-      checkAccount: { error: null },
-      runOp: { mode: true, type: true, error: true, op: false },
-      saveAccountState: { reason: true, folderSaveCount: true },
-    },
-    TEST_ONLY_asyncJobs: {
-    },
-  },
-};
 }); // end define

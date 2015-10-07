@@ -1,0 +1,11 @@
+{
+  "name": "logic-inspector",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "license": "",
+  "dependencies": {
+    "browserify": "^9.0.3",
+    "babelify": "^5.0.4"
+  }
+}

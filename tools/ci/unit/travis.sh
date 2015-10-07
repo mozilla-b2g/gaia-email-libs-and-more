@@ -16,15 +16,10 @@ git submodule update --init --recursive
 echo 'Downloading B2G desktop client'
 make b2g
 
-echo 'Create the symlink to B2G desktop xulrunner'
-ln -s ./b2g b2g-bindir-symlink
-
 section_echo 'make all-tests'
 make all-tests
 
-TEST_RESULT=`cat ./test-logs/test-run.summary`
-
-if [ `echo $TEST_RESULT | grep -c "success" ` -gt 0 ]
+if [ `grep -c "success" ./test-logs/last-run.summary` -gt 0 ]
 then
   exit 0;
 else

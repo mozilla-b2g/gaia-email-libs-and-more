@@ -9,7 +9,7 @@ define(function(require, exports) {
   var BrowserBox = require('browserbox');
   var ImapClient = require('browserbox-imap');
   var imapHandler = require('imap-handler');
-  var slog = require('slog');
+  var logic = require('logic');
   var syncbase = require('../syncbase');
   var errorutils = require('../errorutils');
   var oauth = require('../oauth');
@@ -25,6 +25,8 @@ define(function(require, exports) {
   function noop() {
     // nothing
   }
+
+  var scope = logic.scope('ImapClient');
 
    /**
    * Open a connection to an IMAP server.
@@ -82,7 +84,7 @@ define(function(require, exports) {
 
         conn.onauth = function() {
           clearTimeout(connectTimeout);
-          slog.info('imap:connected', connInfo);
+          logic(scope, 'connected', { connInfo: connInfo });
           conn.onauth = conn.onerror = noop;
           resolve(conn);
         };
@@ -120,7 +122,7 @@ define(function(require, exports) {
                                               credsUpdatedCallback);
         });
       } else {
-        slog.error('imap:connect-error', {
+        logic(scope, 'connect-error', {
           error: errorString
         });
         throw errorString;
@@ -148,7 +150,7 @@ define(function(require, exports) {
           .toUpperCase().trim();
 
     if (['NO', 'BAD'].indexOf(cmd) !== -1) {
-      slog.log('imap:protocol-error', {
+      logic(scope, 'protocol-error', {
         humanReadable: response.humanReadable,
         responseCode: response.code,
         // Include the command structure
@@ -290,7 +292,7 @@ define(function(require, exports) {
                     protocolLevelError ||
                     'unknown');
 
-    slog.error('imap:normalized-error', {
+    logic(scope, 'normalized-error', {
       error: err,
       errorName: err && err.name,
       errorMessage: err && err.message,

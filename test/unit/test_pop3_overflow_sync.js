@@ -2,20 +2,14 @@
  * POP3 should only download a certain number of messages in each
  * sync, treating the rest as overflow.
  **/
+define(function(require) {
 
-define(['rdcommon/testcontext', './resources/th_main',
-        'wbxml', 'activesync/codepages',
-        'exports'],
-       function($tc, $th_main, $wbxml, $ascp, exports) {
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_pop3_overflow_sync' }, null,
-  [$th_main.TESTHELPER], ['app']);
-
-TD.commonCase('overflow sync', function(T, RT) {
+return new LegacyGelamTest('overflow sync', function(T, RT) {
   T.group('setup');
-  var testUniverse = T.actor('testUniverse', 'U');
-  var testAccount = T.actor('testAccount', 'A', { universe: testUniverse });
+  var testUniverse = T.actor('TestUniverse', 'U');
+  var testAccount = T.actor('TestAccount', 'A', { universe: testUniverse });
   var eSync = T.lazyLogger('sync');
 
   var NUM_MSGS = 10;
@@ -42,9 +36,9 @@ TD.commonCase('overflow sync', function(T, RT) {
       // for the purposes of this test, the 'overflowMessages' event
       // will happen _after_ other events, so use set matching
       // so that other events can happen first.
-      inboxFolder.connActor.expectUseSetMatching();
-      inboxFolder.connActor.expect_overflowMessages(
-        NUM_MSGS - MAX_MSGS);
+      inboxFolder.connActor.useSetMatching();
+      inboxFolder.connActor.expect('overflowMessages',
+                                   { count: NUM_MSGS - MAX_MSGS });
     }});
 
   // Then let's do a grow sync. After this, we should have another
@@ -57,10 +51,9 @@ TD.commonCase('overflow sync', function(T, RT) {
       flags: 0, changed: 0, deleted: 0 },
     { top: true, bottom: true, grow: true, newCount: null },
     { expectFunc: function() {
-      RT.reportActiveActorThisStep(inboxFolder.connActor);
-      inboxFolder.connActor.expectUseSetMatching();
-      inboxFolder.connActor.expect_overflowMessages(
-        NUM_MSGS - MAX_MSGS * 2);
+      inboxFolder.connActor.useSetMatching();
+      inboxFolder.connActor.expect('overflowMessages',
+                                   { count: NUM_MSGS - MAX_MSGS * 2 });
     }});
   // Then set the overflow sync values to cover all the messages,
   // and assert that we've downloaded the entire folder.

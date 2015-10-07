@@ -5,28 +5,13 @@
  * available in the first place.
  **/
 
-define(
-  [
-    'rdcommon/testcontext',
-    './resources/th_main',
-    './resources/fake_xhr',
-    'worker-support/net-main',
-    'exports'
-  ],
-  function(
-    $tc,
-    $th_main,
-    fakeXHR,
-    netMain,
-    exports
-  ) {
+define(function(require) {
 
-var TD = exports.TD = $tc.defineTestsFor(
-  { id: 'test_net_main_blob_streaing' }, null,
-  [$th_main.TESTHELPER], ['app']);
+var LegacyGelamTest = require('./resources/legacy_gelamtest');
+var fakeXHR = require('./resources/fake_xhr');
+var netMain = require('worker-support/net-main');
 
-TD.commonCase('blob flow control', function(T, RT) {
-  $th_main.thunkConsoleForNonTestUniverse();
+return new LegacyGelamTest('blob flow control', function(T, RT) {
   T.group('setup');
   var eSock = T.lazyLogger('sock');
   var eMessage = T.lazyLogger('message');
@@ -60,15 +45,15 @@ TD.commonCase('blob flow control', function(T, RT) {
         // for expectation purposes this needs to be a Uint8Array
         data = new Uint8Array(data);
       }
-      eSock.namedValue('write', [data, offset, length]);
+      eSock.log('write', [data, offset, length]);
     },
 
     close: function() {
-      eSock.event('close');
+      eSock.log('close');
     },
 
     doDrain: function() {
-      eSock.event('drain');
+      eSock.log('drain');
     },
   };
   navigator.mozTCPSocket = {
@@ -80,7 +65,7 @@ TD.commonCase('blob flow control', function(T, RT) {
 
   var pendingReqs = [], pendingReleases = [];
   window.gFakeXHRListener = function(req, args) {
-    eSock.eventD('xhr fetch issued', args);
+    eSock.log('xhr fetch issued', args);
     pendingReqs.push(req);
     if (pendingReleases.length) {
       var releaseData = pendingReleases.shift();
@@ -88,10 +73,10 @@ TD.commonCase('blob flow control', function(T, RT) {
     }
   };
   function expectXHR_fetch() {
-    eSock.expect_eventD('xhr fetch issued');
+    eSock.expect('xhr fetch issued');
   }
   function expectXHR_release() {
-    eSock.expect_eventD('xhr released');
+    eSock.expect('xhr released');
   }
   function releaseXHR(statusCode, data) {
     if (!pendingReqs.length) {
@@ -101,7 +86,7 @@ TD.commonCase('blob flow control', function(T, RT) {
 
     var req = pendingReqs.shift();
     window.setZeroTimeout(function() {
-      eSock.eventD('xhr released', { status: statusCode, data: data });
+      eSock.log('xhr released', { status: statusCode, data: data });
       // XHR for 'arraybuffer' returns an ArrayBuffer, not an ArrayBufferView,
       // but we are throwing around Uint8Arrays in this test code.
       req.response = req.responseText = data.buffer;
@@ -113,7 +98,7 @@ TD.commonCase('blob flow control', function(T, RT) {
   var sockUid = 'elsock';
   T.action('open fake socket', function() {
     netMain.sendMessage = function(uid, name, args, transferrable) {
-      eMessage.namedValue(name, args);
+      eMessage.log(name, args);
     };
 
     netMain.process(sockUid, 'open', 'hostname', 'port', {});
@@ -122,7 +107,7 @@ TD.commonCase('blob flow control', function(T, RT) {
   // Writes should go directly through.
   T.action(eSock, 'sanity check u8 write', function() {
     var arr = makeU8Array16Multiples(1);
-    eSock.expect_namedValue('write', [arr, 0, arr.length]);
+    eSock.expect('write', [arr, 0, arr.length]);
     netMain.process(sockUid, 'write', [arr, 0, arr.length]);
   });
 
@@ -159,7 +144,7 @@ TD.commonCase('blob flow control', function(T, RT) {
     // the buffer claiming to be full so we don't issue a new write.
     fakeSocket.bufferedAmount = READ_SIZE;
     // the write triggered by the drain
-    eSock.expect_namedValue('write', [firstChunk, 0, firstChunk.length]);
+    eSock.expect('write', [firstChunk, 0, firstChunk.length]);
     // the read triggered by the write
     expectXHR_fetch();
     expectXHR_release();
@@ -175,12 +160,12 @@ TD.commonCase('blob flow control', function(T, RT) {
     var lastChunk = makeU8Array16Multiples(7);
 
     // the write triggered by the drain
-    eSock.expect_namedValue('write', [secondChunk, 0, secondChunk.length]);
+    eSock.expect('write', [secondChunk, 0, secondChunk.length]);
     // the read triggered by that write
     expectXHR_fetch();
     expectXHR_release();
     // and we issue the write immediately because bufferedAmount === 0
-    eSock.expect_namedValue('write', [thirdChunk, 0, thirdChunk.length]);
+    eSock.expect('write', [thirdChunk, 0, thirdChunk.length]);
     // which results in another read...
     expectXHR_fetch();
     expectXHR_release();
@@ -194,7 +179,7 @@ TD.commonCase('blob flow control', function(T, RT) {
   });
   T.action(eSock, 'drain, write/done', function() {
     var lastChunk = makeU8Array16Multiples(7);
-    eSock.expect_namedValue('write', [lastChunk, 0, lastChunk.length]);
+    eSock.expect('write', [lastChunk, 0, lastChunk.length]);
     fakeSocket.ondrain();
   });
 
@@ -227,16 +212,16 @@ TD.commonCase('blob flow control', function(T, RT) {
     var b2Chunk1 = makeU8Array16Multiples(13, 14);
 
     // drain results in write
-    eSock.expect_namedValue('write', [b1Chunk1, 0, b1Chunk1.length]);
+    eSock.expect('write', [b1Chunk1, 0, b1Chunk1.length]);
     // write triggers read
     expectXHR_fetch();
     expectXHR_release();
     // read becomes write immediatele
-    eSock.expect_namedValue('write', [b1Chunk2, 0, b1Chunk2.length]);
+    eSock.expect('write', [b1Chunk2, 0, b1Chunk2.length]);
     // read next blob
     expectXHR_fetch();
     expectXHR_release();
-    eSock.expect_namedValue('write', [b2Chunk1, 0, b2Chunk1.length]);
+    eSock.expect('write', [b2Chunk1, 0, b2Chunk1.length]);
 
     fakeSocket.bufferedAmount = 0;
     releaseXHR(0, b1Chunk2);
@@ -269,8 +254,8 @@ TD.commonCase('blob flow control', function(T, RT) {
     var blobArr = makeU8Array16Multiples(20, 21);
     var u8arr = makeU8Array16Multiples(30, 31, 32);
 
-    eSock.expect_namedValue('write', [blobArr, 0, blobArr.length]);
-    eSock.expect_namedValue('write', [u8arr, 0, u8arr.length]);
+    eSock.expect('write', [blobArr, 0, blobArr.length]);
+    eSock.expect('write', [u8arr, 0, u8arr.length]);
 
     // We leave buffering on because only blob streaming cares about buffering;
     // the typed array is inherently already fully in memory, so there is

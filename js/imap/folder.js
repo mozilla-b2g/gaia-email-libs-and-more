@@ -1,24 +1,22 @@
 define(
   [
-    'rdcommon/log',
+    'logic',
     '../a64',
     '../allback',
     '../date',
     '../syncbase',
     '../util',
-    '../slog',
     'module',
     'require',
     'exports'
   ],
   function(
-    $log,
+    logic,
     $a64,
     $allback,
     $date,
     $sync,
     $util,
-    slog,
     $module,
     require,
     exports
@@ -115,10 +113,14 @@ var MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
  * we should do a SEARCH for new messages.  It is that search that will update
  * our accuracy information and only that.
  */
-function ImapFolderConn(account, storage, _parentLog) {
+function ImapFolderConn(account, storage) {
   this._account = account;
   this._storage = storage;
-  this._LOG = LOGFAB.ImapFolderConn(this, _parentLog, storage.folderId);
+
+  logic.defineScope(this, 'ImapFolderConn', {
+    accountId: account.id,
+    folderId: storage.folderId
+  });
 
   this._conn = null;
   this.box = null;
@@ -230,6 +232,449 @@ ImapFolderConn.prototype = {
   },
 
   /**
+==== BASE ====
+   * Perform a SEARCH for the purposes of folder synchronization.  In the event
+   * we are unable to reach the server (we are offline, the server is down,
+   * nework troubles), the `abortedCallback` will be invoked.  Note that it can
+   * take many seconds for us to conclusively fail to reach the server.
+   *
+   * Track an isRetry flag to ensure we don't fall into an infinite retry loop.
+   */
+  _timelySyncSearch: function(searchOptions, searchedCallback,
+                              abortedCallback, progressCallback, isRetry) {
+    var gotSearchResponse = false;
+
+    // If we don't have a connection, get one, then re-call.
+    if (!this._conn) {
+      // XXX the abortedCallback should really only be used for the duration
+      // of this request, but it will end up being used for the entire duration
+      // our folder holds on to the connection.  This is not a great idea as
+      // long as we are leaving the IMAP connection idling in the folder (which
+      // causes us to not release the connection back to the account).  We
+      // should tie this to the mutex or something else transactional.
+      this.acquireConn(
+        this._timelySyncSearch.bind(this,
+                                    searchOptions, searchedCallback,
+                                    abortedCallback, progressCallback,
+                                    /* isRetry: */ isRetry),
+        abortedCallback, 'sync', true);
+      return;
+    }
+    // We do have a connection. Hopefully the connection is still
+    // valid and functional. However, since this connection may have
+    // been hanging around a while, sending data now might trigger a
+    // connection reset notification. In other words, if the
+    // connection has gone stale, we want to grab a new connection and
+    // retry before aborting.
+    else {
+      if (!isRetry) {
+        var origAbortedCallback = abortedCallback;
+        abortedCallback = (function() {
+          // Here, we've acquired an already-connected socket. If we
+          // were already connected, but failed to receive a response
+          // from the server, this socket is effectively dead. In that
+          // case, retry the SEARCH once again with a fresh connection,
+          // if we haven't already retried the request.
+          if (!gotSearchResponse) {
+            console.warn('Broken connection for SEARCH. Retrying.');
+            this._timelySyncSearch(searchOptions, searchedCallback,
+                                   origAbortedCallback, progressCallback,
+                                   /* isRetry: */ true);
+          }
+          // Otherwise, we received an error from this._conn.search
+          // below (i.e. there was a legitimate server problem), or we
+          // already retried, so we should actually give up.
+          else {
+            origAbortedCallback();
+          }
+        }.bind(this));
+      }
+      this._deathback = abortedCallback;
+    }
+
+    // Having a connection is 10% of the battle
+    if (progressCallback)
+      progressCallback(0.1);
+
+    // Gmail IMAP servers cache search results until your connection
+    // gets notified of new messages via an unsolicited server
+    // response. Sending a command like NOOP is required to flush the
+    // cache and force SEARCH to return new messages that have just
+    // been received. Other IMAP servers don't need this as far as we know.
+    // See <https://bugzilla.mozilla.org/show_bug.cgi?id=933079>.
+    if (this._account.isGmail) {
+      this._conn.exec('NOOP');
+    }
+
+    this._conn.search(searchOptions, { byUid: true }, function(err, uids) {
+        gotSearchResponse = true;
+        if (err) {
+          console.error('Search error on', searchOptions, 'err:', err);
+          abortedCallback();
+          return;
+        }
+        searchedCallback(uids);
+      });
+  },
+
+  syncDateRange: function() {
+    var args = Array.slice(arguments);
+    var self = this;
+
+    require(['imap/protocol/sync'], function(_sync) {
+      $imapsync = _sync;
+      (self.syncDateRange = self._lazySyncDateRange).apply(self, args);
+    });
+  },
+
+  /**
+   * Perform a search to find all the messages in the given date range.
+   * Meanwhile, load the set of messages from storage.  Infer deletion of the
+   * messages we already know about that should exist in the search results but
+   * do not.  Retrieve information on the messages we don't know anything about
+   * and update the metadata on the messages we do know about.
+   *
+   * An alternate way to accomplish the new/modified/deleted detection for a
+   * range might be to do a search over the UID range of new-to-us UIDs and
+   * then perform retrieval on what we get back.  We would do a flag fetch for
+   * all the UIDs we already know about and use that to both get updated
+   * flags and infer deletions from UIDs that don't report back.  Except that
+   * might not work because the standard doesn't seem to say that if we
+   * specify gibberish UIDs that it should keep going for the UIDs that are
+   * not gibberish.  Also, it's not clear what the performance impact of the
+   * additional search constraint might be on server performance.  (Of course,
+   * if the server does not have an index on internaldate, these queries are
+   * going to be very expensive and the UID limitation would probably be a
+   * mercy to the server.)
+   *
+   * IMAP servers do not treat the SINCE and BEFORE options to IMAP
+   * SEARCH consistently. Because we compare messages in chunks of
+   * time-ranges, a message may seem like it has been deleted, when it
+   * actually just fell into the adjacent range bucket (Bug 886534).
+   * To correct for this, we do the following:
+   *
+   * 1. When we sync (whether PASTWARDS or FUTUREWARDS), we include
+   *    messages from a bit before and after the range we asked the
+   *    server for.
+
+   * 2. Compare those messages to the list the server returned. For
+   *    any messages which we have locally, but the server did not
+   *    return:
+   *
+   *    a) Delete any messages which are unambiguously within our
+   *       current time range.
+   *
+   *    b) Mark any messages we expected to see (but didn't) with an
+   *       indicator saying "we asked the server for messages in this
+   *       time range, but we couldn't find it". If a message was
+   *       already missing, expand the range to cover the current
+   *       range also, indicating that the message still wasn't found
+   *       after a wider search.
+   *
+   *    c) Inspect the "missing range" of each message. If the range
+   *       covers at least a day before and after the header's date,
+   *       delete the message. The server didn't return it to us even
+   *       though we checked a full day before and after the message.
+   *
+   *    d) If the server returns the message in a sync and we haven't
+   *       deleted it yet, clear the "missing" flag and start over.
+   *
+   * 3. Because we always sync time ranges farther into the past to
+   *    show the user new messages, the ambiguity between "deleted or
+   *    just hidden" disappears as we get information from continued
+   *    syncs.
+   *
+   * TLDR: Messages on the ends of SEARCH ranges may fall into
+   *       adjacent sync ranges. Don't freak out and delete a message
+   *       just because it didn't show up in this exact range we asked
+   *       for. Only delete the message if we checked all around where
+   *       it was supposed to show up, and it never did.
+   *
+   * @args[
+   *   @param[startTS @oneof[null DateMS]]{
+   *     If non-null, inclusive "SINCE" constraint to use, otherwise the
+   *     constraint is omitted.
+   *   }
+   *   @param[endTS @oneof[null DateMS]]{
+   *     If non-null, exclusive "BEFORE" constraint to use, otherwise the
+   *     constraint is omitted.
+   *   }
+   * ]
+   */
+  _lazySyncDateRange: function(startTS, endTS, accuracyStamp,
+                          doneCallback, progressCallback) {
+    if (startTS && endTS && SINCE(startTS, endTS)) {
+      this._LOG.illegalSync(startTS, endTS);
+      doneCallback('invariant');
+      return;
+    }
+
+    var self = this;
+    var storage = self._storage;
+    var completed = false;
+
+    console.log('syncDateRange:', startTS, endTS);
+    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
+
+    // IMAP Search
+
+    // We don't care about deleted messages, it's best that we're not
+    // aware of them. However, it's important to keep in mind that
+    // this means that EXISTS provides us with an upper bound on the
+    // messages in the folder since we are blinding ourselves to
+    // deleted messages.
+    var searchOptions = { not: { deleted: true } };
+    if (startTS) {
+      searchOptions.since = new Date(startTS);
+    }
+    if (endTS) {
+      searchOptions.before = new Date(endTS);
+    }
+
+    var imapSearchPromise = new Promise(function(resolve) {
+      this._timelySyncSearch(
+        searchOptions,
+        resolve,
+        function abortedSearch() {
+          if (completed)
+            return;
+          completed = true;
+          this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS);
+          doneCallback('aborted');
+        }.bind(this),
+        progressCallback,
+        /* isRetry: */ false);
+    }.bind(this));
+
+    // Database Fetch
+
+    // Fetch messages from the database, extending the search by a day
+    // on either side to prevent timezone-related problems (bug 886534).
+
+    var dbStartTS = (startTS ? startTS - $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
+    var dbEndTS = (endTS ? endTS + $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
+    slog.log('imap:database-lookup', {
+      dbStartTS: dbStartTS,
+      dbEndTS: dbEndTS
+    });
+    var databaseFetchPromise = new Promise(function(resolve) {
+      storage.getAllMessagesInImapDateRange(dbStartTS, dbEndTS, resolve);
+    });
+
+    // Combine the results:
+
+    Promise.all([
+      imapSearchPromise,
+      databaseFetchPromise
+    ]).then(function(results) {
+      var serverUIDs = results[0];
+      var dbHeaders = results[1];
+      var effectiveEndTS = endTS || quantizeDate(NOW() + DAY_MILLIS);
+      var curDaysDelta = Math.round((effectiveEndTS - startTS) / DAY_MILLIS);
+
+      // ----------------------------------------------------------------
+      // BISECTION SPECIAL CASE: If we have a lot of messages to
+      // process and we're searching more than one day, we can shrink
+      // our search.
+
+      var shouldBisect = (serverUIDs.length > $sync.BISECT_DATE_AT_N_MESSAGES &&
+                          curDaysDelta > 1);
+
+      console.log(
+        '[syncDateRange]',
+        'Should bisect?', shouldBisect ? '***YES, BISECT!***' : 'no.',
+        'curDaysDelta =', curDaysDelta,
+        'serverUIDs.length =', serverUIDs.length);
+
+      if (shouldBisect) {
+        // mark the bisection abort...
+        self._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+        var bisectInfo = {
+          oldStartTS: startTS,
+          oldEndTS: endTS,
+          numHeaders: serverUIDs.length,
+          curDaysDelta: curDaysDelta,
+          newStartTS: startTS,
+          newEndTS: endTS,
+        };
+        // If we were being used for a refresh, they may want us to stop
+        // and change their sync strategy.
+        if (doneCallback('bisect', bisectInfo, null) === 'abort') {
+          self.clearErrorHandler();
+          doneCallback('bisect-aborted', null);
+        } else {
+          self.syncDateRange(
+            bisectInfo.newStartTS,
+            bisectInfo.newEndTS,
+            accuracyStamp,
+            doneCallback,
+            progressCallback);
+        }
+        return;
+      }
+
+      // end bisection special case
+      // ----------------------------------------------------------------
+
+      if (progressCallback) {
+        progressCallback(0.25);
+      }
+
+      // Combine the UIDs from local headers with server UIDs.
+
+      var uidSet = new Set();
+      var serverUidSet = new Set();
+      var localHeaderMap = {};
+
+      dbHeaders.forEach(function(header) {
+        // Ignore not-yet-synced local messages (messages without a
+        // srvid), such as messages from a partially-completed local
+        // move. Because they have no server ID, we can't compare them
+        // to anything currently on the server anyway.
+        if (header.srvid !== null) {
+          uidSet.add(header.srvid);
+          localHeaderMap[header.srvid] = header;
+        }
+      });
+
+      serverUIDs.forEach(function(uid) {
+        uidSet.add(uid);
+        serverUidSet.add(uid);
+      });
+
+      var imapSyncOptions = {
+        connection: self._conn,
+        storage: storage,
+        newUIDs: [],
+        knownUIDs: [],
+        knownHeaders: []
+      };
+
+      var numDeleted = 0;
+      var latch = $allback.latch();
+
+      // Figure out which messages are new, updated, or deleted.
+      uidSet.forEach(function(uid) {
+        var localHeader = localHeaderMap[uid] || null;
+        var hasServer = serverUidSet.has(uid);
+
+        // New
+        if (!localHeader && hasServer) {
+          imapSyncOptions.newUIDs.push(uid);
+          slog.log('imap:new-uid', { uid: uid });
+        }
+        // Updated
+        else if (localHeader && hasServer) {
+          imapSyncOptions.knownUIDs.push(uid);
+          imapSyncOptions.knownHeaders.push(localHeader);
+
+          if (localHeader.imapMissingInSyncRange) {
+            localHeader.imapMissingInSyncRange = null;
+            slog.log('imap:found-missing-uid', { uid: uid });
+            storage.updateMessageHeader(
+              localHeader.date, localHeader.id, true, localHeader,
+              /* body hint */ null, latch.defer(), { silent: true });
+          }
+
+          slog.log('imap:updated-uid', { uid: uid });
+        }
+        // Deleted or Ambiguously Deleted
+        else if (localHeader && !hasServer) {
+
+          // So, how long has this message been missing for?
+          var fuzz = $sync.IMAP_SEARCH_AMBIGUITY_MS;
+          var date = localHeader.date;
+
+          // There are 3 possible cases for imapMissingInSyncRange:
+          // 1) We don't have one, so just use the current search range.
+          // 2) It's disjoint from the current search range, so just use the
+          //    current search range.  We do this because we only track one
+          //    range for the message, and unioning disjoint ranges erroneously
+          //    assumes that we know something about the gap range *when we do
+          //    not*.  This situation arises because we previously had synced
+          //    backwards in time so that we were on the "old" ambiguous side
+          //    of the message.  We now must be on the "new" ambiguous side.
+          //    Since our sync range (currently) only ever moves backwards in
+          //    time, it is safe for us to discard the information about the
+          //    "old" side because we'll get that coverage again soon.
+          // 3) It overlaps the current range and we can take their union.
+          var missingRange;
+          if (!localHeader.imapMissingInSyncRange || // (#1)
+              ((localHeader.imapMissingInSyncRange.endTS < startTS) || // (#2)
+               (localHeader.imapMissingInSyncRange.startTS > endTS))) {
+            // adopt/clobber!
+            // (Note that "Infinity" JSON stringifies to null, so be aware when
+            // looking at logs involving this code.  But the values are
+            // structured cloned for bridge and database purposes and so remain
+            // intact.)
+            missingRange = localHeader.imapMissingInSyncRange =
+              { startTS: startTS || 0, endTS: endTS || Infinity };
+          } else { // (#3, union!)
+            missingRange = localHeader.imapMissingInSyncRange;
+            // Make sure to treat 'null' startTS and endTS correctly.
+            // (This is a union range.  We can state that we have not found the
+            // message in the time range SINCE missingRange.startTS and BEFORE
+            // missingRange.endTS.)
+            missingRange.startTS = Math.min(startTS || 0,
+                                            missingRange.startTS || 0);
+            missingRange.endTS = Math.max(endTS || Infinity,
+                                          missingRange.endTS || Infinity);
+          }
+
+          // Have we looked all around where the message is supposed
+          // to be, and the server never coughed it up? Delete it.
+          // (From a range perspective, we want to ensure that the missingRange
+          // completely contains the date +/- fuzz range.  We use an inclusive
+          // comparison in both cases because we are comparing two ranges, not
+          // a single date and a range.)
+          if (missingRange.startTS <= date - fuzz &&
+              missingRange.endTS >= date + fuzz) {
+            slog.log('imap:unambiguously-deleted-uid',
+                     { uid: uid, missingRange: missingRange});
+            storage.deleteMessageHeaderAndBodyUsingHeader(localHeader);
+            numDeleted++;
+          }
+          // Or we haven't looked far enough... maybe it will show up
+          // later. We've already marked the updated "missing" range above.
+          else {
+            slog.log('imap:ambiguously-missing-uid',
+                     { uid: uid, missingRange: missingRange,
+                       rangeToDelete: { startTS: date - fuzz, endTS: date + fuzz },
+                       syncRange: { startTS: startTS, endTS: endTS }});
+            storage.updateMessageHeader(
+              localHeader.date, localHeader.id, true, localHeader,
+              /* body hint */ null, latch.defer(), { silent: true });
+          }
+        }
+      });
+
+      // Now that we've reconciled the difference between the items
+      // listen on the server and the items on the client, we can pass
+      // the hard download work into $imapsync.Sync.
+      latch.then(function() {
+        var uidSync = new $imapsync.Sync(imapSyncOptions);
+        uidSync.onprogress = progressCallback;
+        uidSync.oncomplete = function(newCount, knownCount) {
+          self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
+                                      startTS, endTS);
+
+          // BrowserBox returns an integer modseq, but it's opaque and
+          // we already deal with strings, so cast it here.
+          var modseq = (self.box.highestModseq || '') + '';
+          storage.markSyncRange(startTS, endTS, modseq, accuracyStamp);
+
+          if (!completed) {
+            completed = true;
+            self.clearErrorHandler();
+            doneCallback(null, null, newCount + knownCount, startTS, endTS);
+          }
+        };
+      });
+    }.bind(this));
+ },
+
+  /**
+==== BASE ====
    * Downloads all the body representations for a given message.
    *
    *
@@ -399,7 +844,7 @@ ImapFolderConn.prototype = {
         return;
       }
 
-      $imapchew.updateMessageWithFetch(header, body, req, resp, this._LOG);
+      $imapchew.updateMessageWithFetch(header, body, req, resp);
 
       header.bytesToDownloadForBodyDisplay =
         $imapchew.calculateBytesToDownloadForImapBodyDisplay(body);
@@ -565,18 +1010,20 @@ ImapFolderConn.prototype = {
   },
 
   shutdown: function() {
-    this._LOG.__die();
   },
 };
 
-function ImapFolderSyncer(account, folderStorage, _parentLog) {
+function ImapFolderSyncer(account, folderStorage) {
   this._account = account;
   this.folderStorage = folderStorage;
 
-  this._LOG = LOGFAB.ImapFolderSyncer(this, _parentLog, folderStorage.folderId);
+  logic.defineScope(this, 'ImapFolderSyncer', {
+    accountId: account.id,
+    folderId: folderStorage.folderId
+  });
 
 
-  this.folderConn = new ImapFolderConn(account, folderStorage, this._LOG);
+  this.folderConn = new ImapFolderConn(account, folderStorage);
 }
 exports.ImapFolderSyncer = ImapFolderSyncer;
 ImapFolderSyncer.prototype = {
@@ -605,41 +1052,8 @@ ImapFolderSyncer.prototype = {
 
   shutdown: function() {
     this.folderConn.shutdown();
-    this._LOG.__die();
   },
 };
 
-var LOGFAB = exports.LOGFAB = $log.register($module, {
-  ImapFolderConn: {
-    type: $log.CONNECTION,
-    subtype: $log.CLIENT,
-    events: {
-    },
-    TEST_ONLY_events: {
-    },
-    errors: {
-      callbackErr: { ex: $log.EXCEPTION },
-
-      htmlParseError: { ex: $log.EXCEPTION },
-      htmlSnippetError: { ex: $log.EXCEPTION },
-      textChewError: { ex: $log.EXCEPTION },
-      textSnippetError: { ex: $log.EXCEPTION },
-
-      // Attempted to sync with an empty or inverted range.
-      illegalSync: { startTS: false, endTS: false },
-    },
-    asyncJobs: {
-      syncDateRange: {
-        newMessages: true, existingMessages: true, deletedMessages: true,
-        start: false, end: false,
-      },
-    },
-  },
-  ImapFolderSyncer: {
-    type: $log.DATABASE,
-    events: {
-    }
-  },
-}); // end LOGFAB
 
 }); // end define

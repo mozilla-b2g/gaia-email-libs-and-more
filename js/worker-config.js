@@ -84,7 +84,6 @@
       'mimetypes': 'ext/mimetypes',
       'mix': 'ext/mix',
       'punycode': 'ext/punycode',
-      'rdcommon': 'ext/rdcommon',
       'safe-base64': 'ext/safe-base64',
       'smtpclient': 'ext/smtpclient',
       'stringencoding': 'ext/stringencoding',

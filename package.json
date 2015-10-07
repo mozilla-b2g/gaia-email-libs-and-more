@@ -25,8 +25,8 @@
   "devDependencies": {
     "argparse": "~0.1.15",
     "js-yaml": "~3.2.2",
-    "mail-fakeservers": "0.0.35",
-    "mozilla-download": "~0.4",
+    "mail-fakeservers": "0.0.41",
+    "mozilla-download": "~1.0.5",
     "ms": "~0.6.2",
     "mustache": "~0.8.2",
     "slugid": "~1.0.3"
