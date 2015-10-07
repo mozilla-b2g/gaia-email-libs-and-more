@@ -1,5 +1,5 @@
 /**
- * Customized shim for browserbox to use 'slog' with configurable logging level
+ * Customized shim for browserbox to use logic with configurable logging level
  * that can be cranked up.
  */
 define(function() {
