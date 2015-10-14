@@ -4,10 +4,12 @@
 
 define(
   [
-    'exports'
+    'exports',
+    'evt'
   ],
   function(
-    exports
+    exports,
+    evt
   ) {
 'use strict';
 
@@ -102,6 +104,62 @@ exports.formatAddresses = function(nameAddrPairs) {
 
   return addrstrings.join(', ');
 };
+
+/**
+ * Monkeypatch the given object to add a pseudo-EventTarget interface,
+ * i.e. 'addEventListener' and 'removeEventListener'. This was added to make
+ * it easier to work with mozTCPSocket, which does not currently inherit
+ * from EventEmitter per <https://bugzil.la/882123>.
+ */
+exports.makeEventTarget = function makeEventTarget(obj) {
+  if (!obj.addEventListener) {
+    var emitter = new evt.Emitter();
+    obj.addEventListener = (type, fn) => {
+      var onType = 'on' + type;
+      if (!obj[onType]) {
+        obj[onType] = (evt) => {
+          emitter.emit(type, evt);
+        };
+      }
+      emitter.on(type, fn);
+    };
+    obj.removeEventListener = (type, fn) => {
+      emitter.removeListener(type, fn);
+    };
+  }
+  return obj;
+}
+
+/**
+ * Concatenate multiple ArrayBuffers, returning the result.
+ */
+exports.concatBuffers = function() {
+  var totalLength = 0;
+  for (var i = 0; i < arguments.length; i++) {
+    totalLength += arguments[i].byteLength;
+  }
+  var buffer = new Uint8Array(totalLength);
+  for (var i = 0, offset = 0; i < arguments.length; i++) {
+    buffer.set(arguments[i], offset);
+    offset += arguments[i].byteLength;
+  }
+  return buffer;
+}
+
+
+/**
+ * Strip surrounding angle brackets from the given string/array.
+ * If null, return null.
+ */
+exports.stripArrows = function(s) {
+  if (Array.isArray(s)) {
+    return s.map(exports.stripArrows);
+  } else if (s && s[0] === '<') {
+    return s.slice(1, -1);
+  } else {
+    return s;
+  }
+}
 
 /**
  * Ridiculously simple shallow clone operation that just directly propagates the

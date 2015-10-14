@@ -256,6 +256,17 @@ allTests.push(
     }
     eLazy.expect(
       'sent body text', 'Antelope banana credenza.\n\nDialog excitement!' + finalSignature);
+    // For POP3 we discard the sent attachments in the sent folder.
+    if (folderType !== 'sent' || testAccount.type !== 'pop3') {
+      T.actor('Attachments').expect('attachment-blob', ({ blob, type }) => {
+        return blob.size === ATTACHMENT_SIZE && blob.type === 'image/png';
+      });
+      eLazy.expect(
+        'attachment[0]', {
+          size: ATTACHMENT_SIZE,
+          data: attachmentData.concat()
+      });
+    }
     eLazy.expect(
       'attachments', [{
         filename: 'foo.png',
@@ -267,59 +278,25 @@ allTests.push(
         isDownloadable: (folderType === 'sent') ?
                           (testAccount.type !== 'pop3') : true,
        }]);
-    // For POP3 we discard the sent attachments in the sent folder.
-    if (folderType !== 'sent' || testAccount.type !== 'pop3') {
-      // the second time we save we'll get a conflict
-      var filesuffix = '';
-      if (folderType === 'inbox' && testAccount.type !== 'pop3') {
-        // make the filename we come up with predictable
-        $date.TEST_LetsDoTheTimewarpAgain(Date.now());
-        eDownloader.expect('saveFailure', {
-          storeTo: 'sdcard',
-          type: 'image/png'
-        });
-        filesuffix = '-' + $date.NOW();
-      }
-      eDownloader.expect('savedAttachment', {
-        storeTo: 'sdcard',
-        type: 'image/png',
-        size: ATTACHMENT_SIZE
-      });
-      // adding a file sends created and modified
-      testStorage.expect('created', { path: 'foo' + filesuffix + '.png' });
-      testStorage.expect('modified', { path: 'foo' + filesuffix + '.png' });
-      eLazy.expect(
-        'attachment[0].size', ATTACHMENT_SIZE);
-      eLazy.expect(
-        'attachment[0].data', attachmentData.concat());
-    }
   };
-  var verifyAttachmentContents = function(body, path, iAtt) {
-    testStorage.get(
-      path,
-      function gotBlob(error, blob) {
-        if (error) {
-          console.error('blob fetch error:', error);
-          return;
-        }
-        var reader = new FileReaderSync();
-        try {
-          var data = new Uint8Array(reader.readAsArrayBuffer(blob));
-          var dataArr = [];
-          console.log('got', data.length, 'bytes, readyState',
-                      reader.readyState);
-          for (var i = 0; i < data.length; i++) {
-            dataArr.push(data[i]);
-          }
-          eLazy.log('attachment[' + iAtt + '].size',
-                           body.attachments[iAtt].sizeEstimateInBytes);
-          eLazy.log('attachment[' + iAtt + '].data',
-                           dataArr);
-        }
-        catch(ex) {
-          console.error('reader error', ex);
-        }
+  var verifyAttachmentContents = function(body, blob, iAtt) {
+    var reader = new FileReaderSync();
+    try {
+      var data = new Uint8Array(reader.readAsArrayBuffer(blob));
+      var dataArr = [];
+      console.log('got', data.length, 'bytes, readyState',
+                  reader.readyState);
+      for (var i = 0; i < data.length; i++) {
+        dataArr.push(data[i]);
+      }
+      eLazy.log('attachment[' + iAtt + ']', {
+        size: body.attachments[iAtt].sizeEstimateInBytes,
+        data: dataArr
       });
+    }
+    catch(ex) {
+      console.error('reader error', ex);
+    }
   };
   var commonVerifySentMessageWithMessage = function(folderType, header) {
     // (POP3's sent folder is synthetic and no download is required for it,
@@ -354,7 +331,7 @@ allTests.push(
     header.getBody({ withBodyReps: true }, function(body) {
       eLazy.log('sent body text', body.bodyReps[0].content[1]);
       var attachments = [];
-      body.attachments.forEach(function(att, iAtt) {
+      Promise.all(body.attachments.map(function(att, iAtt) {
         attachments.push({
           filename: att.filename,
           mimetype: att.mimetype,
@@ -362,19 +339,24 @@ allTests.push(
           isDownloadable: att.isDownloadable
         });
         // non-POP3 accounts have to download the message
-        if (testAccount.type !== 'pop3') {
-          att.download(function() {
-            if (folderType === 'inbox') {
-              // we can now restore time to its rightful workingness
-              $date.TEST_LetsDoTheTimewarpAgain(null);
-            }
-            verifyAttachmentContents(body, att._file[1], iAtt);
+        if (testAccount.type !== 'pop3' ||
+            (testAccount.type === 'pop3' && folderType !== 'sent')) {
+          return new Promise((resolve) => {
+            att.download(function() {
+              if (folderType === 'inbox') {
+                // we can now restore time to its rightful workingness
+                $date.TEST_LetsDoTheTimewarpAgain(null);
+              }
+              verifyAttachmentContents(body, att._file, iAtt);
+              resolve();
+            });
           });
-        } else if (folderType !== 'sent') {
-          verifyAttachmentContents(body, att._file[1], iAtt);
+        } else {
+          return Promise.resolve();
         }
+      })).then(() => {
+        eLazy.log('attachments', attachments);
       });
-      eLazy.log('attachments', attachments);
     });
   };
 

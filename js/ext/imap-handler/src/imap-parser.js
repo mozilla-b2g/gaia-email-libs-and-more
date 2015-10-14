@@ -184,9 +184,6 @@
                     break;
                 case 'PARTIAL':
                     partial = node.value.split('.').map(Number);
-                    if (partial.slice(-1)[0] < partial.slice(0, 1)[0]) {
-                        throw new Error('Invalid partial value at position ' + node.startPos);
-                    }
                     branch[branch.length - 1].partial = partial;
                     break;
             }
