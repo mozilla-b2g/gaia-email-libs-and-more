@@ -97,7 +97,8 @@ return TaskDefiner.defineAtMostOnceTask([
                 folderId: req.folderId
               }
             ]
-          }
+          },
+          announceUpdatedOverlayData: [['folders', req.folderId]]
         };
       }
 

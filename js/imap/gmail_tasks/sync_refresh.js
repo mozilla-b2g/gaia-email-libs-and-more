@@ -113,7 +113,11 @@ return TaskDefiner.defineAtMostOnceTask([
                 folderId: req.folderId
               }
             ]
-          }
+          },
+          announceUpdatedOverlayData: [
+            ['accounts', req.accountId],
+            ['accountCascadeToFolders', req.accountId]
+          ]
         };
       }
       let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,

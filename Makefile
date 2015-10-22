@@ -52,7 +52,7 @@ es5: $(JS_ES5)
 
 build/%.js: js/%.js
 	@mkdir -p "$(@D)"
-	./node_modules/.bin/babel -l es6.blockScoping $< -o $@
+	./node_modules/.bin/babel -l es6.blockScoping,es6.arrowFunctions $< -o $@
 
 .PHONY: install-into-gaia
 install-into-gaia: es5 gaia-symlink
