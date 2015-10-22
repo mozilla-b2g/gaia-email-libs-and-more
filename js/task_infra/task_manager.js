@@ -309,14 +309,17 @@ TaskManager.prototype = evt.mix({
    * Enqueue the given tasks for planning now that they have been persisted to
    * disk.
    */
-  __enqueuePersistedTasksForPlanning: function(wrappedTasks) {
+  __enqueuePersistedTasksForPlanning: function(wrappedTasks, sourceId) {
     this._ensureWakeLock();
+    for (let wrappedTask of wrappedTasks) {
+      this.emit('willPlan', wrappedTask, sourceId);
+    }
     this._tasksToPlan.splice(this._tasksToPlan.length, 0, ...wrappedTasks);
     this._maybeDoStuff();
   },
 
   /**
-   * Makes us aware of planend tasks or complex task markers.  This happens
+   * Makes us aware of planned tasks or complex task markers.  This happens
    * as tasks / complex states are restored from the database, or planning
    * steps complete (via `TaskContext`).
    *
@@ -324,9 +327,13 @@ TaskManager.prototype = evt.mix({
    * TaskPriorities.
    */
   __queueTasksOrMarkers: function(taskThings, sourceId, noTrigger) {
+    // Track the number of things task resources passed through to
+    // TaskPriorities.  If this stays zero, everything was blocked on a resource
+    // and there's no new work to do.
     let prioritized = 0;
     for (let taskThing of taskThings) {
       logic(this, 'queueing', { taskThing, sourceId });
+      this.emit('willExecute', taskThing, sourceId);
       if (this._resources.ownOrRelayTaskThing(taskThing)) {
         prioritized++;
       }
@@ -418,10 +425,12 @@ TaskManager.prototype = evt.mix({
       planResult.then((returnedResult) => {
         logic(this, 'planning:end', { task: wrappedTask });
         this.emit('planned:' + wrappedTask.id, returnedResult);
+        this.emit('planned', wrappedTask.id, returnedResult);
       });
     } else {
       logic(this, 'planning:end', { moot: true, task: wrappedTask });
       this.emit('planned:' + wrappedTask.id, undefined);
+      this.emit('planned', wrappedTask.id, undefined);
     }
     return planResult;
   },
@@ -436,10 +445,12 @@ TaskManager.prototype = evt.mix({
       execResult.then((returnedResult) => {
         logic(this, 'executing:end', { task: taskThing });
         this.emit('executed:' + taskThing.id, returnedResult);
+        this.emit('executed', taskThing.id, returnedResult);
       });
     } else {
       logic(this, 'executing:end', { moot: true, task: taskThing });
       this.emit('executed:' + taskThing.id, undefined);
+      this.emit('executed', taskThing.id, undefined);
     }
     return execResult;
   }

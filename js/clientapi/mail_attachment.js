@@ -20,6 +20,8 @@ function MailAttachment(_message, wireRep) {
   this.mimetype = wireRep.type;
   this.sizeEstimateInBytes = wireRep.sizeEstimate;
   this._file = wireRep.file;
+
+  this.__updateDownloadOverlay(null);
 }
 MailAttachment.prototype = evt.mix({
   toString: function() {
@@ -38,6 +40,20 @@ MailAttachment.prototype = evt.mix({
     this._file = wireRep.file;
   },
 
+  /**
+   * Since we're not first-class and instead owned by the MailMessage, only it
+   * gets proper updates and so it has to spoon-feed us
+   */
+  __updateDownloadOverlay: function(info) {
+    if (info) {
+      this.downloadStatus = info.status;
+      this.downloadProgress = info.progress;
+    } else {
+      this.downloadStatus = null;
+      this.downloadProgress = null;
+    }
+  },
+
   get isDownloaded() {
     return !!this._file;
   },
@@ -51,6 +67,7 @@ MailAttachment.prototype = evt.mix({
   get isDownloadable() {
     return this.mimetype !== 'application/x-gelam-no-download';
   },
+
   /**
    * Queue this attachment for downloading.
    *
@@ -64,16 +81,16 @@ MailAttachment.prototype = evt.mix({
    *     capabilities of the default gaia apps, and not a decision easily made
    *     by GELAM.
    */
-  download: function(callWhenDone, callOnProgress,
-                     registerWithDownloadManager) {
+  download: function() {
     if (this.isDownloaded) {
-      callWhenDone();
       return;
     }
-    this._message._api._downloadAttachments(
-      this._message, [], [this._message.attachments.indexOf(this)],
-      [registerWithDownloadManager || false],
-      callWhenDone, callOnProgress);
+    this._message._api._downloadAttachments({
+      messageId: this._message.id,
+      messageDate: this._message.date.valueOf(),
+      relatedPartRelIds: null,
+      attachmentRelIds: [this.relId]
+    });
   },
 });
 

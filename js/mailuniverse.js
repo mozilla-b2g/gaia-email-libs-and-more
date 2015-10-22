@@ -14,7 +14,7 @@ const TaskManager = require('./task_infra/task_manager');
 const TaskRegistry = require('./task_infra/task_registry');
 const TaskPriorities = require('./task_infra/task_priorities');
 const TaskResources = require('./task_infra/task_resources');
-
+const TaskGroupTracker = require('./task_infra/task_group_tracker');
 
 const TriggerManager = require('./db/trigger_manager');
 const dbTriggerDefs = require('./db_triggers/all');
@@ -70,6 +70,7 @@ function MailUniverse(online, testOptions) {
     priorities: this.taskPriorities,
     accountsTOC: this.accountManager.accountsTOC
   });
+  this.taskGroupTracker = new TaskGroupTracker(this.taskManager);
   this.triggerManager = new TriggerManager({
     db: this.db,
     triggers: dbTriggerDefs
@@ -737,11 +738,9 @@ MailUniverse.prototype = {
    *     indicating whether the download should be registered with the download
    *     manager.
    */
-  downloadMessageAttachments: function(messageSuid, messageDate,
-                                       relPartIndices, attachmentIndices,
-                                       registerAttachments,
-                                       callback) {
-    // XXX OLD
+  downloadMessageAttachments: function({
+    messageId, messageDate, relatedPartRelIds, attachmentRelIds }) {
+    return this.taskManager.scheduleNonPer
   },
 
   moveMessages: function(messageSuids, targetFolderId, callback) {

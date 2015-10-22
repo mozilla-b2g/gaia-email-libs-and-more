@@ -78,6 +78,9 @@ TaskContext.prototype = {
   get _taskRegistry() {
     return this.universe.taskRegistry;
   },
+  get _taskGroupTracker() {
+    return this.universe.taskGroupTracker;
+  },
 
   /**
    * Asynchronously acquire a resource and track that we are using it so that
@@ -128,6 +131,15 @@ TaskContext.prototype = {
   },
 
   /**
+   * Ensure that a task group with the given name exists and that this task
+   * belongs to the group.  Returns a Promise that will be resolved when the
+   * last task in the group completes.
+   */
+  trackMeInTaskGroup: function(groupName) {
+    this._taskGroupTracker.ensureNamedTaskGroup(groupName, this.id);
+  },
+
+  /**
    * In the event our task throws an error, we want you to plan the tasks we
    * pass in now in order to repair our state.  This should be used in those
    * cases where a complex task is altering its in-memory aggregated state
@@ -153,8 +165,7 @@ TaskContext.prototype = {
    * silly and if we're needing to do that we should just break the task up
    * into distinct sub-tasks.
    */
-  setFailureTasks: function(tasks) {
-
+  setFailureTasks: function(/*tasks*/) {
   },
 
   /**
@@ -310,7 +321,7 @@ TaskContext.prototype = {
         }
         // nuke the marker
         else {
-          this.universe.taskManager.__removeTaskOrMarker(markerId);
+          this.universe.taskManager.__removeTaskOrMarker(markerId, this.id);
         }
       }
     }
@@ -336,7 +347,7 @@ TaskContext.prototype = {
         // id's as part of the transaction, so we will only have assigned id's
         // at this point.  See the __wrapTasks documentation for more context.)
         this.universe.taskManager.__enqueuePersistedTasksForPlanning(
-          wrappedTasks);
+          wrappedTasks, this.id);
       }
     });
   },

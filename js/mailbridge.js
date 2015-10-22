@@ -496,18 +496,14 @@ MailBridge.prototype = {
     this.universe.fetchMessageBody(msg.id, msg.date, 'bridge');
   },
 
-  _cmd_downloadAttachments: function mb__cmd__downloadAttachments(msg) {
-    // XXX OLD
-    var self = this;
-    this.universe.downloadMessageAttachments(
-      msg.suid, msg.date, msg.relPartIndices, msg.attachmentIndices,
-      msg.registerAttachments,
-      function(err) {
-        self.__sendMessage({
-          type: 'downloadedAttachments',
-          handle: msg.handle
-        });
+  _cmd_downloadAttachments: function(msg) {
+    this.universe.downloadMessageAttachments(msg.downloadReq).then(() => {
+      this.__sendMessage({
+        type: 'promisedResult',
+        handle: msg.handle,
+        data: null
       });
+    });
   },
 
   //////////////////////////////////////////////////////////////////////////////

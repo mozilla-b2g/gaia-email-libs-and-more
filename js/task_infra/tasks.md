@@ -238,6 +238,14 @@ time), but it's worth noting since we may desire to expose a somewhat hardened
 API in the future for extensions in order to avoid having internals become de
 facto APIs that are hard to change.
 
+## Events ##
+
+Emitted on TaskManager:
+- planned:TASKID(returnedResult)
+- planned(taskId, returnedResult)
+- executed:TASKID(returnedResult)
+- executed(taskId, returnedResult)
+
 ## Errors and Retries ##
 
 All tasks are wrapped into a promise (usually using generators and co.wrap under

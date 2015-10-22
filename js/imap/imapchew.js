@@ -35,9 +35,73 @@ function stripArrows(s) {
   }
 }
 
+// parseImapDateTime and formatImapDateTime functions from node-imap;
+// MIT licensed, (c) Brian White.
+
+// ( ?\d|\d{2}) = day number; technically it's either "SP DIGIT" or "2DIGIT"
+// but there's no harm in us accepting a single digit without whitespace;
+// it's conceivable the caller might have trimmed whitespace.
+//
+// The timezone can, as unfortunately demonstrated by net-c.com/netc.fr, be
+// omitted.  So we allow it to be optional and assume its value was zero if
+// omitted.
+var reDateTime =
+      /^( ?\d|\d{2})-(.{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2})(?: ([+-]\d{4}))?$/;
+var HOUR_MILLIS = 60 * 60 * 1000;
+var MINUTE_MILLIS = 60 * 1000;
+var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
 
 /**
- * PartBuilder assists in building a MailRep { header, body } representation.
+* Parses IMAP "date-time" instances into UTC timestamps whose quotes have
+* already been stripped.
+*
+* http://tools.ietf.org/html/rfc3501#page-84
+*
+* date-day = 1*2DIGIT
+* ; Day of month
+* date-day-fixed = (SP DIGIT) / 2DIGIT
+* ; Fixed-format version of date-day
+* date-month = "Jan" / "Feb" / "Mar" / "Apr" / "May" / "Jun" /
+* "Jul" / "Aug" / "Sep" / "Oct" / "Nov" / "Dec"
+* date-year = 4DIGIT
+* time = 2DIGIT ":" 2DIGIT ":" 2DIGIT
+* ; Hours minutes seconds
+* zone = ("+" / "-") 4DIGIT
+* date-time = DQUOTE date-day-fixed "-" date-month "-" date-year
+* SP time SP zone DQUOTE
+*/
+var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
+  var match = reDateTime.exec(dstr);
+  if (!match) {
+    throw new Error('Not a good IMAP date-time: ' + dstr);
+  }
+  var day = parseInt(match[1], 10),
+      zeroMonth = MONTHS.indexOf(match[2]),
+      year = parseInt(match[3], 10),
+      hours = parseInt(match[4], 10),
+      minutes = parseInt(match[5], 10),
+      seconds = parseInt(match[6], 10),
+      // figure the timestamp before the zone stuff. We don't
+      timestamp = Date.UTC(year, zeroMonth, day, hours, minutes, seconds),
+      // to reduce string garbage creation, we use one string. (we have to
+      // play math games no matter what, anyways.)
+      zoneDelta = match[7] ? parseInt(match[7], 10) : 0,
+      zoneHourDelta = Math.floor(zoneDelta / 100),
+      // (the negative sign sticks around through the mod operation)
+      zoneMinuteDelta = zoneDelta % 100;
+
+  // ex: GMT-0700 means 7 hours behind, so we need to add 7 hours, aka
+  // subtract negative 7 hours.
+  timestamp -= zoneHourDelta * HOUR_MILLIS + zoneMinuteDelta * MINUTE_MILLIS;
+
+  return timestamp;
+};
+
+/**
+ * PartBuilder assists in populating the attachments/relatedParts/bodyReps of
+ * the MessageInfo structure.
+ *
  * As each part is added (because, with streaming, we don't have all parts),
  * we decide which ones are attachments, body parts, or parts to ignore.
  *
@@ -49,34 +113,12 @@ function stripArrows(s) {
  * @param {MimeHeaderInfo} headers
  * @param {object} options
  */
-function PartBuilder(headers, { id, suid, srvid, size }) {
+function PartBuilder(headers) {
   this.rootHeaders = headers;
 
-  this.header = mailRep.makeHeaderInfo({
-    id: id !== undefined ? id : null,
-    srvid: srvid,
-    suid: suid !== undefined ? suid : null,
-    guid: headers.guid,
-    author: headers.author,
-    to: headers.getAddressHeader('to', null),
-    cc: headers.getAddressHeader('cc', null),
-    bcc: headers.getAddressHeader('bcc', null),
-    replyTo: headers.getAddressHeader('reply-to', null),
-    date: headers.date,
-    flags: [],
-    hasAttachments: false,
-    subject: headers.getStringHeader('subject'),
-    snippet: null
-  });
-
-  this.body = mailRep.makeBodyInfo({
-    date: headers.date,
-    size: size || 0,
-    attachments: [],
-    relatedParts: [],
-    bodyReps: [],
-    references: headers.references
-  });
+  this.attachments = [];
+  this.relatedParts = [];
+  this.bodyReps = [];
 
   this.unnamedPartCounter = 0;
 
@@ -96,8 +138,8 @@ PartBuilder.prototype = {
     // each compatible part, so we just need to remove the ones we don't want.
     this.alternativePartNumbers.forEach((altPart) => {
       var foundSuitableBody = false;
-      for (var i = this.body.bodyReps.length - 1; i >= 0; i--) {
-        var rep = this.body.bodyReps[i];
+      for (var i = this.bodyReps.length - 1; i >= 0; i--) {
+        var rep = this.bodyReps[i];
         // Is this rep a suitable body for this multipart/alternative part?
         // If so, the multipart/alternative part will be an ancestor of it.
         // We just want the first one that matches, since we already filtered
@@ -106,15 +148,16 @@ PartBuilder.prototype = {
           if (!foundSuitableBody) {
             foundSuitableBody = true;
           } else {
-            this.body.bodyReps.splice(i, 1);
+            this.bodyReps.splice(i, 1);
           }
         }
       }
     });
 
     return {
-      header: this.header,
-      body: this.body,
+      attachments: this.attachments,
+      relatedParts: this.relatedParts,
+      bodyReps: this.bodyReps,
       rootHeaders: this.rootHeaders
     };
   },
@@ -155,23 +198,22 @@ PartBuilder.prototype = {
       var rep;
       if (headers.disposition === 'attachment') {
         rep = this._makePart(partNum, headers);
-        this.body.attachments.push(rep);
-        this.header.hasAttachments = true;
+        this.attachments.push(rep);
         return { type: 'attachment',
                  rep: rep,
-                 index: this.body.attachments.length - 1 };
+                 index: this.attachments.length - 1 };
       }
       else if (headers.mediatype === 'image') {
         rep = this._makePart(partNum, headers);
-        this.body.relatedParts.push(rep);
+        this.relatedParts.push(rep);
         return { type: 'related',
                  rep: rep,
-                 index: this.body.relatedParts.length - 1 };
+                 index: this.relatedParts.length - 1 };
       }
       else if (headers.mediatype === 'text' &&
                (headers.subtype === 'plain' || headers.subtype === 'html')) {
         rep = this._makeBodyPart(partNum, headers);
-        this.body.bodyReps.push(rep);
+        this.bodyReps.push(rep);
         return { type: 'body', rep: rep };
       } else {
         return { type: 'ignore' };
@@ -200,7 +242,7 @@ PartBuilder.prototype = {
       sizeEstimate: 0,
       amountDownloaded: 0,
       isDownloaded: false,
-      content: ''
+      contentBlob: null
     });
   }
 };
@@ -228,7 +270,7 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
         bodyformat: 'decode', // Decode base64/quoted-printable for us.
         strformat: 'typedarray',
         onerror: (e) => {
-          console.error('Browserbox->JSMIME Parser Error:', e, '\n', e.stack)
+          console.error('Browserbox->JSMIME Parser Error:', e, '\n', e.stack);
         }
       });
       headerParser.deliverData(browserboxMessage[key] + '\r\n');
@@ -251,7 +293,7 @@ function encodeHeaderValueWithParams(header, params) {
   for (var key in params) {
     value += '; ' + key + '="' +
       mimefuncs.mimeWordEncode(params[key]) + '"';
-  };
+  }
   return value;
 }
 
@@ -285,19 +327,13 @@ function estimatePartSizeInBytes(encoding, size) {
  * Convert a BODYSTRUCTURE response containing MIME metadata into a format
  * suitable for a MailRep (`{ header, body }`).
  */
-exports.chewHeaderAndBodyStructure = function(imapMessage, folderId, newMsgId) {
-  var headers = browserboxMessageToMimeHeaders(imapMessage);
+exports.chewMessageStructure = function(msg, folderIds, flags, convId,
+                                        maybeUmid, explicitMessageId) {
+  var headers = browserboxMessageToMimeHeaders(msg);
 
-  var partBuilder = new PartBuilder(headers, {
-    id: newMsgId,
-    srvid: imapMessage.uid,
-    suid: folderId + '/' + newMsgId,
-    size: 0
-  });
-
+  var partBuilder = new PartBuilder(headers);
   function chewStructureNode(snode, partNum, parentContentType) {
-    var value;
-    var headers = new mimeStreams.MimeHeaderInfo({
+    var nodeHeaders = new mimeStreams.MimeHeaderInfo({
       'content-id': snode.id ? [snode.id] : null,
       'content-transfer-encoding': snode.encoding ? [snode.encoding] : null,
       'content-disposition': [encodeHeaderValueWithParams(
@@ -306,7 +342,7 @@ exports.chewHeaderAndBodyStructure = function(imapMessage, folderId, newMsgId) {
         [encodeHeaderValueWithParams(snode.type, snode.parameters)],
     }, { parentContentType });
 
-    var { rep } = partBuilder.addNode(partNum, headers);
+    var { rep } = partBuilder.addNode(partNum, nodeHeaders);
 
     if (rep && snode.encoding && snode.size) {
       rep.sizeEstimate = estimatePartSizeInBytes(snode.encoding, snode.size);
@@ -314,8 +350,8 @@ exports.chewHeaderAndBodyStructure = function(imapMessage, folderId, newMsgId) {
     if (rep) {
       rep._partInfo = {
         partID: snode.part,
-        type: headers.mediatype,
-        subtype: headers.subtype,
+        type: nodeHeaders.mediatype,
+        subtype: nodeHeaders.subtype,
         params: snode.parameters,
         encoding: snode.encoding && snode.encoding.toLowerCase()
       };
@@ -329,14 +365,47 @@ exports.chewHeaderAndBodyStructure = function(imapMessage, folderId, newMsgId) {
     }
   }
 
-  chewStructureNode(imapMessage.bodystructure, '1', null);
+  chewStructureNode(msg.bodystructure, '1', null);
 
-  var { header, body } = partBuilder.finalize();
+  let { attachments, relatedParts, bodyReps } = partBuilder.finalize();
 
-  header.flags = imapMessage.flags;
-  header.date = body.date =
-   (imapMessage.internaldate && parseImapDateTime(imapMessage.internaldate));
-  return { header, body };
+   let messageId;
+   let umid = null;
+   // non-gmail, umid-case.
+   if (maybeUmid) {
+     umid = maybeUmid;
+     messageId = explicitMessageId;
+   }
+   // gmail case
+   else {
+     let gmailMsgId = parseGmailMsgId(msg['x-gm-msgid']);
+     messageId = convId + '.' + gmailMsgId + '.' + msg.uid;
+   }
+
+  return mailRep.makeMessageInfo({
+    id: messageId,
+    // uniqueMessageId which provides server indirection for non-gmail sync
+    umid,
+    // The message-id header value
+    guid: headers.guid,
+    date: msg.internaldate ? parseImapDateTime(msg.internaldate) : headers.date,
+    author: headers.author,
+    to: headers.getAddressHeader('to', null),
+    cc: headers.getAddressHeader('cc', null),
+    bcc: headers.getAddressHeader('bcc', null),
+    replyTo: headers.getAddressHeader('reply-to', null),
+    flags: msg.flags,
+    folderIds,
+    hasAttachments: attachments.length > 0,
+    subject: headers.getStringHeader('subject'),
+
+    // we lazily fetch the snippet later on
+    snippet: null,
+    attachments,
+    relatedParts,
+    references: headers.references,
+    bodyReps
+  });
 };
 
 
@@ -437,7 +506,6 @@ exports.canBodyRepFillSnippet = function(bodyRep) {
   );
 };
 
-
 /**
  * Calculates and returns the correct estimate for the number of
  * bytes to download before we can display the body. For IMAP, that
@@ -457,68 +525,4 @@ exports.calculateBytesToDownloadForImapBodyDisplay = function(body) {
   });
   return bytesLeft;
 };
-
-// parseImapDateTime and formatImapDateTime functions from node-imap;
-// MIT licensed, (c) Brian White.
-
-// ( ?\d|\d{2}) = day number; technically it's either "SP DIGIT" or "2DIGIT"
-// but there's no harm in us accepting a single digit without whitespace;
-// it's conceivable the caller might have trimmed whitespace.
-//
-// The timezone can, as unfortunately demonstrated by net-c.com/netc.fr, be
-// omitted.  So we allow it to be optional and assume its value was zero if
-// omitted.
-var reDateTime =
-      /^( ?\d|\d{2})-(.{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2})(?: ([+-]\d{4}))?$/;
-var HOUR_MILLIS = 60 * 60 * 1000;
-var MINUTE_MILLIS = 60 * 1000;
-var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
-              'Oct', 'Nov', 'Dec'];
-
-/**
-* Parses IMAP "date-time" instances into UTC timestamps whose quotes have
-* already been stripped.
-*
-* http://tools.ietf.org/html/rfc3501#page-84
-*
-* date-day = 1*2DIGIT
-* ; Day of month
-* date-day-fixed = (SP DIGIT) / 2DIGIT
-* ; Fixed-format version of date-day
-* date-month = "Jan" / "Feb" / "Mar" / "Apr" / "May" / "Jun" /
-* "Jul" / "Aug" / "Sep" / "Oct" / "Nov" / "Dec"
-* date-year = 4DIGIT
-* time = 2DIGIT ":" 2DIGIT ":" 2DIGIT
-* ; Hours minutes seconds
-* zone = ("+" / "-") 4DIGIT
-* date-time = DQUOTE date-day-fixed "-" date-month "-" date-year
-* SP time SP zone DQUOTE
-*/
-var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
-  var match = reDateTime.exec(dstr);
-  if (!match) {
-    throw new Error('Not a good IMAP date-time: ' + dstr);
-  }
-  var day = parseInt(match[1], 10),
-      zeroMonth = MONTHS.indexOf(match[2]),
-      year = parseInt(match[3], 10),
-      hours = parseInt(match[4], 10),
-      minutes = parseInt(match[5], 10),
-      seconds = parseInt(match[6], 10),
-      // figure the timestamp before the zone stuff. We don't
-      timestamp = Date.UTC(year, zeroMonth, day, hours, minutes, seconds),
-      // to reduce string garbage creation, we use one string. (we have to
-      // play math games no matter what, anyways.)
-      zoneDelta = match[7] ? parseInt(match[7], 10) : 0,
-      zoneHourDelta = Math.floor(zoneDelta / 100),
-      // (the negative sign sticks around through the mod operation)
-      zoneMinuteDelta = zoneDelta % 100;
-
-  // ex: GMT-0700 means 7 hours behind, so we need to add 7 hours, aka
-  // subtract negative 7 hours.
-  timestamp -= zoneHourDelta * HOUR_MILLIS + zoneMinuteDelta * MINUTE_MILLIS;
-
-  return timestamp;
-};
-
 }); // end define

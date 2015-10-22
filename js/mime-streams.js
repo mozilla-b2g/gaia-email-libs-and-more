@@ -123,11 +123,57 @@ exports.LineTransformStream = function() {
   });
 }
 
+/**
+ * Given a message extract and normalize the references header into a list of
+ * strings without arrows, etc.  If there is no references header but there is
+ * an in-reply-to header, use that.
+ *
+ * Note that we currently require properly <> enclosed id's and ignore things
+ * outside of them.
+ *
+ * @return {String[]}
+ *   An array of references.  If there were no references, this will be an
+ *   empty list.
+ *
+ * XXX actually do the in-reply-to stuff; this has extra normalization sanity
+ * checking required so not doing that right now.
+ */
+function extractReferences(referencesStr, messageId) {
+  if (!referencesStr) {
+    return [];
+  }
+
+  let idx = 0;
+  let len = referencesStr.length;
+  let references = [];
+
+  while (idx < len) {
+    idx = referencesStr.indexOf('<', idx);
+    if (idx === -1) {
+      break;
+    }
+
+    let closeArrow = referencesStr.indexOf('>', idx + 1);
+    if (closeArrow === -1) {
+      break;
+    }
+
+    // Okay, so now we have a <...> we can consume.
+    let deArrowed = referencesStr.substring(idx + 1, closeArrow);
+    // Don't let a message include itself in its references
+    if (deArrowed !== messageId) {
+      references.push(deArrowed);
+    }
+
+    idx = closeArrow + 1;
+  }
+
+  return references;
+}
 
 /**
  * MimeHeaderInfo transforms simple MIME header representations into parsed
- * header data. Not to be confused with HeaderInfo, which describes e-mail
- * message headers; MimeHeaderInfo also represents individual parts in a
+ * header data.  MimeHeaderInfo also represents individual parts in a
  * multipart message.
  *
  * The reason we don't just use the header objects returned by JSMime is that
@@ -161,8 +207,8 @@ function MimeHeaderInfo(rawHeaders, opts) {
   this.encoding = this.getStringHeader('content-transfer-encoding', 'binary');
   this.guid = util.stripArrows(this.getStringHeader('message-id'));
 
-  var refs = this.getStringHeader('references');
-  this.references = refs ? util.stripArrows(refs.split(/\s+/)) : null;
+  this.references =
+    extractReferences(this.getStringHeader('references'), this.guid);
 
   this.author = this.getAddressHeader('from', [])[0] ||
     { name: 'Missing Author', address: 'missing@example.com' };

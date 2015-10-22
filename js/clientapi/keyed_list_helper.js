@@ -16,7 +16,7 @@ define(function() {
  */
 return function keyedListHelper({
     wireReps, existingRichReps, constructor, owner, idKey, addEvent,
-    updateEvent, removeEvent }) {
+    changeEvent, removeEvent }) {
   // Map of existing rich reps that we haven't processed yet.  By removing them
   // as we go we can use it to infer deletion.
   let pendingRichMap = new Map();
@@ -30,9 +30,9 @@ return function keyedListHelper({
     if (richRep) {
       richRep.__update(wireRep);
       pendingRichMap.delete(wireRep[idKey]);
-      richRep.emit('update', richRep);
-      if (updateEvent) {
-        owner.emit(updateEvent, richRep);
+      richRep.emit('change', richRep);
+      if (changeEvent) {
+        owner.emit(changeEvent, richRep);
       }
     } else {
       richRep = new constructor(owner, wireRep);

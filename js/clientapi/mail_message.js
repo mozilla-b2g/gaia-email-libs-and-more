@@ -72,17 +72,18 @@ function filterOutBuiltinFlags(flags) {
  *   end if the attachments change.
  *
  * The events that can happen:
- * - on us (prior to our emitting our own 'update' event):
+ * - on us (prior to our emitting our own 'change' event):
  *   - attachment:add
- *   - attachment:update
+ *   - attachment:change
  *   - attachment:remove
  * - on the MailAttachment instances themselves:
- *   - update
+ *   - change
  *   - remove
  *
  * Note that while these events are occurring, our `attachments` property
  * continues to have its original value.  If you want to consult that value with
- * its new state then you should wait for our 'update' event to be emitted.
+ * its new state then you should wait for the message's `change` event to be
+ * emitted.
  */
 function MailMessage(api, wireRep, overlays, slice) {
   evt.Emitter.call(this);
@@ -90,6 +91,7 @@ function MailMessage(api, wireRep, overlays, slice) {
   this._slice = slice;
 
   // Store the wireRep so it can be used for caching.
+  // XXX we can and should probably stop doing this after minor cleanup
   this._wireRep = wireRep;
 
   this.id = wireRep.id;
@@ -170,13 +172,17 @@ MailMessage.prototype = evt.mix({
       owner: this,
       idKey: 'relId',
       addEvent: 'attachment:add',
-      updateEvent: 'attachment:update',
+      changeEvent: 'attachment:change',
       removeEvent: 'attachment:remove'
     });
   },
 
   __updateOverlays: function(overlays) {
-
+    let downloadMap = overlays.downloads;
+    for (let attachment of this.attachments) {
+      let downloadOverlay = downloadMap && downloadMap.get(attachment.relId);
+      attachment.__updateDownloadOverlay(downloadOverlay);
+    }
   },
 
   /**
@@ -393,25 +399,27 @@ MailMessage.prototype = evt.mix({
 
   /**
    * Trigger the download of any inline images sent as part of the message.
-   * Once the images have been downloaded, invoke the provided callback.
+   * Returns a promise that is resolved when the parts have been downloaded and
+   * are available to showEmbeddedImages().
    */
-  downloadEmbeddedImages: function(callWhenDone, callOnProgress) {
-    var relPartIndices = [];
+  downloadEmbeddedImages: function() {
+    var relatedPartRelIds = [];
     for (var i = 0; i < this._relatedParts.length; i++) {
       var relatedPart = this._relatedParts[i];
       if (relatedPart.file) {
         continue;
       }
-      relPartIndices.push(i);
+      relatedPartRelIds.push(relatedPart.relId);
     }
-    if (!relPartIndices.length) {
-      if (callWhenDone) {
-        callWhenDone();
-      }
-      return;
+    if (!relatedPartRelIds.length) {
+      return Promise.resolve();
     }
-    this._api._downloadAttachments(this, relPartIndices, [], [],
-                                   callWhenDone, callOnProgress);
+    return this._api._downloadAttachments({
+      messageId: this.id,
+      messageDate: this.date.valueOf(),
+      relatedPartRelIds,
+      attachmentRelIds: null
+    });
   },
 
   /**

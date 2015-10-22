@@ -483,26 +483,10 @@ MailAPI.prototype = evt.mix({
     body.emit('change', msg.detail, body);
   },
 
-  _downloadAttachments: function(body, relPartIndices, attachmentIndices,
-                                 registerAttachments,
-                                 callWhenDone, callOnProgress) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
+  _downloadAttachments: function(downloadReq) {
+    return this._sendPromisedRequest({
       type: 'downloadAttachments',
-      body: body,
-      relParts: relPartIndices.length > 0,
-      attachments: attachmentIndices.length > 0,
-      callback: callWhenDone,
-      progress: callOnProgress
-    };
-    this.__bridgeSend({
-      type: 'downloadAttachments',
-      handle: handle,
-      suid: body.id,
-      date: body._date,
-      relPartIndices: relPartIndices,
-      attachmentIndices: attachmentIndices,
-      registerAttachments: registerAttachments
+      downloadReq
     });
   },
 
