@@ -1,7 +1,7 @@
 define(function(require, exports) {
 'use strict';
 
-const { parseUI64: parseGmailMsgId } = require('../a64');
+const { parseUI64: parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
 
 const mimefuncs = require('mimefuncs');
 const mailRep = require('../db/mail_rep');
@@ -227,6 +227,7 @@ PartBuilder.prototype = {
 
   _makePart: function(partNum, headers) {
     return mailRep.makeAttachmentPart({
+      relId: encodeA64(this.attachments.length),
       name: headers.filename || 'unnamed-' + (++this.unnamedPartCounter),
       contentId: headers.contentId,
       type: headers.contentType.toLowerCase(),
@@ -354,7 +355,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
     }
     if (rep) {
       rep._partInfo = {
-        partID: snode.part,
+        partId: snode.part,
         type: nodeHeaders.mediatype,
         subtype: nodeHeaders.subtype,
         params: snode.parameters,

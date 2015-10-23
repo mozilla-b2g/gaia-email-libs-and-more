@@ -439,6 +439,28 @@ MailUniverse.prototype = {
     ], why);
   },
 
+  recreateAccount: function(accountId, why) {
+    // Latch the accountDef now since it's going away.  It's safe to do this
+    // synchronously since the accountDefs are loaded by startup and the
+    // AccountManager provides immediate access to them.
+    let accountDef = this.accountManager.getAccountDefById(accountId);
+
+    // Because of how the migration logic works (verbatim reuse of the account
+    // id), make sure we don't schedule the migration task until the deletion
+    // task has been executed.
+    this.taskManager.scheduleTaskAndWaitForExecutedResult({
+      type: 'account_delete',
+      accountId
+    }, why).then(() => {
+      this.taskManager.scheduleTasks([
+        {
+          type: 'account_migrate',
+          accountDef
+        }
+      ], why);
+    });
+  },
+
   /**
    * TODO: This and tryToCreateAccount should be refactored to properly be
    * tasks.

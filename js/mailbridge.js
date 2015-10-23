@@ -258,6 +258,10 @@ MailBridge.prototype = {
     // TODO: implement; existing logic has been moved to tasks/modify_account.js
   },
 
+  _cmd_recreateAccount: function(msg) {
+    this.universe.recreateAccount(msg.accountId, 'bridge');
+  },
+
   _cmd_deleteAccount: function(msg) {
     this.universe.deleteAccount(msg.accountId, 'bridge');
   },

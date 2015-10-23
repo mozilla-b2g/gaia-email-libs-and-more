@@ -756,7 +756,14 @@ MailAPI.prototype = evt.mix({
     req.callback && req.callback();
   },
 
-  _deleteAccount: function ma__deleteAccount(account) {
+  _recreateAccount: function(account) {
+    this.__bridgeSend({
+      type: 'recreateAccount',
+      accountId: account.id,
+    });
+  },
+
+  _deleteAccount: function(account) {
     this.__bridgeSend({
       type: 'deleteAccount',
       accountId: account.id,

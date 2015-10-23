@@ -202,7 +202,7 @@ ParallelIMAP.prototype = {
     let messages = yield conn.listMessages(
       request.uid,
        [
-        'BODY.PEEK[' + (request.partInfo.partID || '1') + ']' +
+        'BODY.PEEK[' + (request.partInfo.partId || '1') + ']' +
           (request.bytes ?
            '<' + request.bytes[0] + '.' + request.bytes[1] + '>' :
            '')
