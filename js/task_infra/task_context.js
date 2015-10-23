@@ -69,6 +69,22 @@ TaskContext.prototype = {
     }
   },
 
+  /**
+   * Returns whether we think the device is currently online.
+   */
+  get deviceOnline() {
+    return this.universe.online;
+  },
+
+  /**
+   * Returns whether we think the account associated with this task is currently
+   *
+   * TODO: Actually make this do something.
+   */
+  get accountProblem() {
+    return false;
+  },
+
   // Convenience helpers to help us get at these without redundantly storing.
   // Underscored since tasks should not be directly accessing these on their
   // own.  Instead they should be using helpers on this object.

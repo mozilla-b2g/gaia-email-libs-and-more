@@ -1,24 +1,24 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let { makeDaysAgo, makeDaysBefore, quantizeDate } = require('../../date');
+const { makeDaysAgo, makeDaysBefore, quantizeDate, NOW } = require('../../date');
 
-let imapchew = require('../imapchew');
-let parseImapDateTime = imapchew.parseImapDateTime;
+const imapchew = require('../imapchew');
+const parseImapDateTime = imapchew.parseImapDateTime;
 
-let a64 = require('../../a64');
-let parseGmailConvId = a64.parseUI64;
+const a64 = require('../../a64');
+const parseGmailConvId = a64.parseUI64;
 
 
-let GmailLabelMapper = require('../gmail/gmail_label_mapper');
-let SyncStateHelper = require('../gmail/sync_state_helper');
+const GmailLabelMapper = require('../gmail/gmail_label_mapper');
+const SyncStateHelper = require('../gmail/sync_state_helper');
 
-let syncbase = require('../../syncbase');
+const syncbase = require('../../syncbase');
 
 /**
  * Expand the date-range of known messages for the given folder/label.
@@ -70,17 +70,23 @@ return TaskDefiner.defineSimpleTask([
 
       let existingSinceDate = syncState.getFolderIdSinceDate(req.folderId);
       let newSinceDate;
+      let firstInboxSync = false;
       if (existingSinceDate) {
         searchSpec.before = new Date(quantizeDate(existingSinceDate));
         newSinceDate = makeDaysBefore(existingSinceDate,
                                       syncbase.INITIAL_SYNC_GROWTH_DAYS);
         searchSpec.since = new Date(newSinceDate);
       } else {
+        // It's the first sync for this folder, but is this folder the inbox?
+        firstInboxSync =
+          foldersTOC.foldersById.get(req.folderId).type === 'inbox';
         newSinceDate = makeDaysAgo(syncbase.INITIAL_SYNC_DAYS);
         searchSpec.since = new Date(newSinceDate);
       }
 
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+
+      let syncDate = NOW();
 
       logic(ctx, 'searching', { searchSpec: searchSpec });
       let allMailFolderInfo = account.getFirstFolderWithType('all');
@@ -132,13 +138,33 @@ return TaskDefiner.defineSimpleTask([
       }
       syncState.finalizePendingRemovals();
 
+      let atomicClobbers;
+      // Treat our first inbox sync as a full sync.  This is true for gaia mail,
+      // this is potentially less true for other UIs, but it's true enough.
+      if (firstInboxSync) {
+        atomicClobbers = {
+          accounts: new Map([
+            [
+              req.accountId,
+              {
+                syncInfo: {
+                  lastSuccessfulSyncAt: syncDate,
+                  lastAttemptedSyncAt: syncDate,
+                  failedSyncsSinceLastSuccessfulSync: 0
+                }
+              }
+            ]])
+        };
+      }
+
       yield ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
         },
         newData: {
           tasks: syncState.tasksToSchedule
-        }
+        },
+        atomicClobbers
       });
     })
   }

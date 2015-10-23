@@ -11,7 +11,8 @@ const makeWrappedOverlayFunc = function(helpedOverlayFunc) {
       this,
       id,
       persistentState.binToMarker.get(id),
-      memoryState.inProgressBins.has(id));
+      memoryState.inProgressBins.has(id) ||
+        memoryState.remainInProgressBins.has(id));
   };
 };
 
@@ -24,7 +25,8 @@ const makeWrappedPrefixOverlayFunc = function([extractor, helpedOverlayFunc]) {
       fullId,
       binId,
       persistentState.binToMarker.get(binId),
-      memoryState.inProgressBins.has(binId));
+      memoryState.inProgressBins.has(binId) ||
+        memoryState.remainInProgressBins.has(binId));
   };
 };
 
@@ -83,7 +85,8 @@ return {
     return {
       memoryState: {
         accountId,
-        inProgressBins: new Set()
+        inProgressBins: new Set(),
+        remainInProgressBins: new Set()
       },
       markers: persistentState.binToMarker.values()
     };
@@ -93,15 +96,21 @@ return {
    * Checks if an existing task already exists.  If it does, we do nothing other
    * than (someday) doing root cause id bookkeeping stuff.  Otherwise we invoke
    * the helped_plan method and repurpose its taskState to be our marker.  It's
-   * on the helped_plan implementation to generate
+   * on the helped_plan implementation to generate.
    */
   plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
     let binId = req[this.binByArg];
 
     // - Fast-path out if the bin is already planned.
     if (persistentState.binToMarker.has(binId)) {
-      yield ctx.finishTask({});
-      return undefined;
+      let rval;
+      if (this.helped_already_planned) {
+        rval = yield this.helped_already_planned(ctx, req);
+      } else {
+        rval = {};
+      }
+      yield ctx.finishTask(rval);
+      return rval.result;
     }
 
     let rval = yield this.helped_plan(ctx, req);
@@ -121,12 +130,23 @@ return {
       persistentState.binToMarker.set(binId, marker);
       rval.complexTaskState = persistentState;
 
+      if (rval.remainInProgressUntil) {
+        memoryState.remainInProgressBins.add(binId);
+        rval.remainInProgressUntil.then(() => {
+          memoryState.remainInProgressBins.delete(binId);
+          this.helped_progress_completed(binId, ctx.universe.dataOverlayManager);
+        });
+      }
+
       // The TaskContext doesn't actually know whether we're complex or not,
       // so we need to clobber this to be null to indicate that it should close
       // out the task.
       rval.taskState = null;
     }
 
+    if (this.helped_invalidate_overlays) {
+      this.helped_invalidate_overlays(binId, ctx.universe.dataOverlayManager);
+    }
     // The helped_plan implementation needs to tell us to do the announcement
     // for it since the persistentState will not be updated until after it
     // returns.  (Although could dangerously/incorrectly try and depend on the
@@ -145,12 +165,19 @@ return {
     let binId = marker[this.binByArg];
     memoryState.inProgressBins.add(binId);
 
+    if (this.helped_invalidate_overlays) {
+      this.helped_invalidate_overlays(binId, ctx.universe.dataOverlayManager);
+    }
+
     let rval = yield this.helped_execute(ctx, marker);
 
     memoryState.inProgressBins.delete(binId);
     persistentState.binToMarker.delete(binId);
     rval.complexTaskState = persistentState;
 
+    if (this.helped_invalidate_overlays) {
+      this.helped_invalidate_overlays(binId, ctx.universe.dataOverlayManager);
+    }
     // The helped_execute implementation needs to tell us to do the announcement
     // for it since the persistentState will not be updated until after it
     // returns.  (Although could dangerously/incorrectly try and depend on the

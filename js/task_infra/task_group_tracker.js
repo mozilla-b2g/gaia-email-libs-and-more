@@ -154,4 +154,6 @@ TaskGroupTracker.prototype = {
     }
   }
 };
+
+return TaskGroupTracker;
 });

@@ -1226,7 +1226,7 @@ MailAPI.prototype = evt.mix({
   },
 
   _composeDone: function(messageId, command, draftFields) {
-    this.__bridgeSend({
+    return this._sendPromisedRequest({
       type: 'doneCompose',
       messageId, command, draftFields
     });

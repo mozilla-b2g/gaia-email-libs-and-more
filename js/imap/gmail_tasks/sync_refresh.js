@@ -60,6 +60,21 @@ return TaskDefiner.defineAtMostOnceTask([
       }
     ],
 
+    helped_invalidate_overlays: function(accountId, dataOverlayManager) {
+      dataOverlayManager.announceUpdatedOverlayData(
+        'accounts', accountId);
+      dataOverlayManager.announceUpdatedOverlayData(
+        'accountCascadeToFolders', accountId);
+    },
+
+    helped_already_planned: function(ctx, rawTask) {
+      // The group should already exist; opt into its membership to get a
+      // Promise
+      return Promise.resolve({
+        result: ctx.trackMeInTaskGroup('sync_refresh:' + rawTask.accountId)
+      });
+    },
+
     /**
      * In our planning phase we discard nonsensical requests to refresh
      * local-only folders.
@@ -76,24 +91,18 @@ return TaskDefiner.defineAtMostOnceTask([
         `view:folder:${rawTask.folderId}`
       ];
 
+      // Create a task group that follows this task and all its offspring.  This
+      // will define the lifetime of our overlay as well.
+      let groupPromise =
+        ctx.trackMeInTaskGroup('sync_refresh:' + rawTask.accountId);
       return Promise.resolve({
         taskState: plannedTask,
-        announceUpdatedOverlayData: [
-          ['accounts', rawTask.accountId],
-          // ask the account-specific folders_toc for help generating overlay
-          // push notifications so we don't have to.
-          ['accountCascadeToFolders', rawTask.accountId]
-        ]
+        remainInProgressUntil: groupPromise,
+        result: groupPromise
       });
     },
 
     helped_execute: co.wrap(function*(ctx, req) {
-      // Our overlay logic will report us as active already, so send the update
-      // to avoid inconsistencies.  (Alternately, we could mutate the marker
-      // with non-persistent changes.)
-      ctx.announceUpdatedOverlayData('accounts', req.accountId);
-      ctx.announceUpdatedOverlayData('accountCascadeToFolders', req.accountId);
-
       // -- Exclusively acquire the sync state for the account
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
@@ -113,11 +122,7 @@ return TaskDefiner.defineAtMostOnceTask([
                 folderId: req.folderId
               }
             ]
-          },
-          announceUpdatedOverlayData: [
-            ['accounts', req.accountId],
-            ['accountCascadeToFolders', req.accountId]
-          ]
+          }
         };
       }
       let syncState = new SyncStateHelper(ctx, rawSyncState, req.accountId,
@@ -283,13 +288,7 @@ return TaskDefiner.defineAtMostOnceTask([
                 }
               }
             ]])
-        },
-        announceUpdatedOverlayData: [
-          ['accounts', req.accountId],
-          // ask the account-specific folders_toc for help generating overlay
-          // push notifications so we don't have to.
-          ['accountCascadeToFolders', req.accountId]
-        ]
+        }
       };
     })
   }

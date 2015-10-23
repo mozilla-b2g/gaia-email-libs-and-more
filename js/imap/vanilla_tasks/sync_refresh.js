@@ -31,6 +31,18 @@ return TaskDefiner.defineAtMostOnceTask([
       }
     },
 
+    helped_invalidate_overlays: function(folderId, dataOverlayManager) {
+      dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
+    },
+
+    helped_already_planned: function(ctx, rawTask) {
+      // The group should already exist; opt into its membership to get a
+      // Promise
+      return Promise.resolve({
+        result: ctx.trackMeInTaskGroup('sync_refresh:' + rawTask.folderId)
+      });
+    },
+
     /**
      * In our planning phase we discard nonsensical requests to refresh
      * local-only folders.
@@ -49,7 +61,8 @@ return TaskDefiner.defineAtMostOnceTask([
       // the folder and populated it.)
       if (!folderInfo.serverPath) {
         return {
-          taskState: null
+          taskState: null,
+          result: Promise.resolve()
         };
       }
 
@@ -62,18 +75,18 @@ return TaskDefiner.defineAtMostOnceTask([
         `view:folder:${rawTask.folderId}`
       ];
 
+      // Create a task group that follows this task and all its offspring.  This
+      // will define the lifetime of our overlay as well.
+      let groupPromise =
+        ctx.trackMeInTaskGroup('sync_refresh:' + rawTask.folderId);
       return {
         taskState: plannedTask,
-        announceUpdatedOverlayData: [['folders', rawTask.folderId]]
+        remainInProgressUntil: groupPromise,
+        result: groupPromise
       };
     }),
 
     helped_execute: co.wrap(function*(ctx, req) {
-      // Our overlay logic will report us as active already, so send the update
-      // to avoid inconsistencies.  (Alternately, we could mutate the marker
-      // with non-persistent changes.)
-      ctx.announceUpdatedOverlayData('folders', req.folderId);
-
       // -- Exclusively acquire the sync state for the folder
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
@@ -97,8 +110,7 @@ return TaskDefiner.defineAtMostOnceTask([
                 folderId: req.folderId
               }
             ]
-          },
-          announceUpdatedOverlayData: [['folders', req.folderId]]
+          }
         };
       }
 
@@ -240,8 +252,7 @@ return TaskDefiner.defineAtMostOnceTask([
                 failedSyncsSinceLastSuccessfulSync: 0
               }
             ]])
-        },
-        announceUpdatedOverlayData: [['folders', req.folderId]]
+        }
       };
     })
   }

@@ -1,39 +1,13 @@
 define(function(require, exports) {
 'use strict';
 
-const { parseUI64: parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
+const { parseUI64: parseGmailMsgId } = require('../a64');
 
-let mimefuncs = require('mimefuncs');
-let mailRep = require('../db/mail_rep');
-let $mailchew = require('../bodies/mailchew');
-let jsmime = require('jsmime');
-let mimeStreams = require('mime-streams');
-let dateMod = require('date');
-
-
-function parseRfc2231CharsetEncoding(s) {
-  // charset'lang'url-encoded-ish
-  var match = /^([^']*)'([^']*)'(.+)$/.exec(s);
-  if (match) {
-    // we can convert the dumb encoding into quoted printable.
-    return mimefuncs.mimeWordsDecode(
-      '=?' + (match[1] || 'us-ascii') + '?Q?' +
-        match[3].replace(/%/g, '=') + '?=');
-  }
-  return null;
-}
-
-
-// Given an array or string, strip any surrounding angle brackets.
-function stripArrows(s) {
-  if (Array.isArray(s)) {
-    return s.map(stripArrows);
-  } else if (s && s[0] === '<') {
-    return s.slice(1, -1);
-  } else {
-    return s;
-  }
-}
+const mimefuncs = require('mimefuncs');
+const mailRep = require('../db/mail_rep');
+const $mailchew = require('../bodies/mailchew');
+const jsmime = require('jsmime');
+const mimeStreams = require('mime-streams');
 
 // parseImapDateTime and formatImapDateTime functions from node-imap;
 // MIT licensed, (c) Brian White.
@@ -96,6 +70,36 @@ var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
   timestamp -= zoneHourDelta * HOUR_MILLIS + zoneMinuteDelta * MINUTE_MILLIS;
 
   return timestamp;
+};
+
+/**
+ * Transform a browserbox representation of an item that has a value
+ * (i.e. { value: foo }) into a pure value, recursively.
+ *
+ *   [{ value: 1 } ] -> [1]
+ *   { value: 1 } -> 1
+ *   undefined -> null
+ */
+var valuesOnly = exports.valuesOnly = function(item) {
+  if (Array.isArray(item)) {
+    return item.map(valuesOnly);
+  } else if (item && typeof item === 'object') {
+    if ('value' in item) {
+      return item.value;
+    } else {
+      var result = {};
+      for (var key in item) {
+        result[key] = valuesOnly(item[key]);
+      }
+      return result;
+    }
+  } else if (item && typeof item === 'object') {
+    return item;
+  } else if (item !== undefined) {
+    return item;
+  } else {
+    return null;
+  }
 };
 
 /**
@@ -262,6 +266,7 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
     // rely on instead: grabbing the right key based upon just this
     // regex.
     if (/header\.fields/.test(key)) {
+      // (the stuff in here runs exactly once; not multiple times!)
       var headerParser = new jsmime.MimeParser({
         startPart(jsmimePartNum, jsmimeHeaders) {
           headers = mimeStreams.MimeHeaderInfo.fromJSMime(jsmimeHeaders);

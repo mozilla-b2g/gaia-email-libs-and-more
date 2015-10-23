@@ -607,7 +607,13 @@ MailBridge.prototype = {
     this.universe.saveDraft(msg.messageId, msg.draftFields);
     // Actually send if send.
     if (msg.command === 'send') {
-      this.universe.outboxSendDraft(msg.messageId);
+      this.universe.outboxSendDraft(msg.messageId).then((sendProblem) => {
+        this.__sendMessage({
+          type: 'promisedResult',
+          handle: msg.handle,
+          data: sendProblem
+        });
+      });
     }
   },
 

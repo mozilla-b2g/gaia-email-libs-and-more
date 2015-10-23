@@ -84,7 +84,48 @@ TaskDefiner.prototype = {
    * indicate what arguments we should use to bin/uniquely group the tasks by.
    *
    * A new task covered by an existing task/marker will be currently be dropped.
-   * TODO: Do root cause magic to handle this scenario better.
+   *
+   * - helped_overlay_NAMESPACE(binId, marker, inProgress): A naming pattern
+   *   that allows definining one or more overlay functions where support logic
+   *   will lookup the current marker and whether it's in progress (or is
+   *   being treated as in-progress because `remainInProgressUntil` was used in
+   *   helped_plan).  The function should return its contribution to the overlay
+   *   value for the item, or null if it has no contribution.
+   * - helped_prefix_overlay_NAMESPACE: Like the non-prefix version, but that
+   *   version assumes the overlay id is the same as the bin id.  In this case,
+   *   instead of providing a function, you provide a 2-element list where the
+   *   first function extracts the binId to use from the overlay id, and the
+   *   second function has the same signature as that of the non-prefix case.
+   * - helped_plan: The returned value is passed to finishTask.  We also
+   *   introduce the following values that can be included for extra semantics:
+   *   - `result`: The value to return from the actual `plan` implementation.
+   *   - `announceUpdatedOverlayData`: A list of [namespace, id] values like
+   *     one would manually invoke via ctx.announceUpdatedOverlayData(namespace,
+   *     id).  Because the relevant data structures are not updated until your
+   *     generator returns, directly invoking those methods would not do what
+   *     you expect.
+   *   - `remainInProgressUntil`: If a promise is provided, we will report this
+   *     bin as `inProgress` to your overlay helpers even after the execute
+   *     phase has concluded.  The expected idiom is to use this in cases like
+   *     "sync_refresh" where a task group is created via
+   *     `ctx.trackMeInTaskGroup` (which returns a promise), so that the task
+   *     can claim to be in progress until all its spin-off tasks have
+   *     completed.  It could make sense for this to be supported in the execute
+   *     case as well, but we're avoiding that complexity for now.
+   * - helped_already_planned: Optional method to be invoked when we've
+   *   determined there's already a marker in place for the given bin.  Intended
+   *   to be used to return a Promise created via `ctx.trackMeInTaskGroup` so
+   *   things like refresh requests can be consolidated while still having
+   *   useful promises returned.
+   * - helped_invalidate_overlays(binId): Optional, but required if
+   *   `remainInProgressUntil` is provided.  Very useful for avoiding tons of
+   *   redundant-ish data overlay invalidation calls.  Invoked when:
+   *   - Planning completes.
+   *   - Execution is starting.
+   *   - Execution completes.
+   *   - The `remainInProgressUntil` resolves, and after we have removed the
+   *     state that caused our overlay implementations to claim the bin was
+   *     still `inProgress`.
    */
   defineAtMostOnceTask: function(mixparts) {
     return mixInvokingBaseHooks(AtMostOnceBase, mixparts);

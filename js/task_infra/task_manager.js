@@ -214,6 +214,19 @@ TaskManager.prototype = evt.mix({
   },
 
   /**
+   * Schedule a persistent task, returning a promise that will be resolved
+   * with the return value of the task's planning stage.
+   */
+  scheduleTaskAndWaitForPlannedResult: function(rawTask, why) {
+    return this.scheduleTasks([rawTask], why)
+    .then((taskIds) => {
+      return this.waitForTasksToBePlanned(taskIds);
+    }).then((results) => {
+      return results[0];
+    });
+  },
+
+  /**
    * Return a promise that will be resolved when the tasks with the given id's
    * have been executed.  The resolved value is a list of the declared results
    * of each task having been executed.  Tasks may optionally return a result;

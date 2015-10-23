@@ -332,9 +332,16 @@ MessageComposition.prototype = evt.mix({
    * Enqueue the message for sending. When the callback fires, the
    * message will be in the outbox, but will likely not have been sent yet.
    *
-   * TODO: Return a promise that indicates whether we're actively trying to
-   * send the message or whether it's just queued for future sending because
-   * we're offline.  (UI can currently infer from other channels/data.)
+   * Returns a Promise that will be resolved with null if we expect the message
+   * to be immediately sent, or one of the following strings if there is some
+   * reason that it is not being sent.  Problems are listed by precedence; the
+   * first error in the list that applies will be reported.  An error
+   * - 'account-problem': There's some problem with the account that needs to be
+   *   addressed before we will attempt to send the message.
+   * - 'offline': The device is offline.  We need to be offline before we can
+   *   send the message.
+   * - 'outbox-paused': The outbox is paused by the UI for UX reasons.  When the
+   *   outbox is unpaused, we fully expect to send the message.
    */
   finishCompositionSendMessage: function() {
     return this.api._composeDone(this.id, 'send', this._buildWireRep());

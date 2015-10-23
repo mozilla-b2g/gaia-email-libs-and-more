@@ -680,13 +680,13 @@ MailUniverse.prototype = {
    * Move a message from being a draft to being in the outbox, potentially
    * initiating the send if we're online.
    */
-  outboxSendDraft: function(messageId) {
-    return this.taskManager.scheduleTasks([{
+  outboxSendDraft: function(messageId, why) {
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult({
       type: 'outbox_send',
       command: 'send',
       accountId: accountIdFromMessageId(messageId),
       messageId
-    }]);
+    }, why);
   },
 
   /**
