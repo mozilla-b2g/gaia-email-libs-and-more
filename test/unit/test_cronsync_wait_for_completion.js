@@ -116,7 +116,7 @@ return new LegacyGelamTest('cronsync waits for completion', function(T, RT) {
     { top: true, bottom: true, grow: false, newCount: null },
     { syncedToDawnOfTime: true });
 
-  // We are actually running with the real, actual sync API powering us.
+  // We are actually running with the real, actual mozAlarms API powering us.
   // So what we want is a value that is sufficiently far in the future that it
   // won't fire during the test but it's also not ridiculous.  We pick an hour.
   var SYNC_INTERVAL = 60 * 60 * 1000;

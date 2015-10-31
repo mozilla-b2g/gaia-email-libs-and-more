@@ -35,13 +35,13 @@ Cu.import("resource://gre/modules/osfile.jsm");
 ////////////////////////////////////////////////////////////////////////////////
 // Import important services that b2g's shell.js loads
 //
-// For example, if we want requestSync to work, we have to import its service!
+// For example, if we want mozAlarms to work, we have to import its service!
 // (Commented out stuff was in shell.js but we don't think we need it or
 // absolutely don't want it.)
 Cu.import('resource://gre/modules/ContactService.jsm');
 //Cu.import('resource://gre/modules/SettingsChangeNotifier.jsm');
 Cu.import('resource://gre/modules/DataStoreChangeNotifier.jsm');
-//Cu.import('resource://gre/modules/AlarmService.jsm');
+Cu.import('resource://gre/modules/AlarmService.jsm');
 Cu.import('resource://gre/modules/ActivitiesService.jsm');
 Cu.import('resource://gre/modules/NotificationDB.jsm');
 //Cu.import('resource://gre/modules/Payment.jsm');
@@ -50,7 +50,6 @@ Cu.import("resource://gre/modules/AppsUtils.jsm");
 //Cu.import('resource://gre/modules/Keyboard.jsm');
 //Cu.import('resource://gre/modules/ErrorPage.jsm');
 //Cu.import('resource://gre/modules/AlertsHelper.jsm');
-Cu.import('resource://gre/modules/RequestSyncService.jsm');
 
 Cu.import('resource://gre/modules/Webapps.jsm');
 DOMApplicationRegistry.allAppsLaunchable = true;
