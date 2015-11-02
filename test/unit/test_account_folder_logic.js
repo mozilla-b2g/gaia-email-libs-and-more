@@ -236,6 +236,8 @@ new LegacyGelamTest('syncFolderList obeys hierarchy', function(T, RT) {
                 children: [
                   { name: 'Sent', path: 'INBOX.Subfolder.Sent',
                     ns: validNS, expType: 'normal' },
+                  { name: 'Sent', path: 'INBOX.IDN.Sent',
+                    ns: validNS, expType: 'normal' },
                   { name: 'Sent', path: 'INBOX.Subfolder.Sent',
                     ns: invalidNS, expType: 'normal' }
                 ]
