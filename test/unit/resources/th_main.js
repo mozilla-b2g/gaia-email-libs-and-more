@@ -974,9 +974,6 @@ var TestUniverseMixins = {
 
     this.RT.reportActiveActorThisStep(this);
     this.RT.reportActiveActorThisStep(this.eCronSync);
-    // (ensureSync_end was already expected during the triggering process)
-    // there should be 0 active slices when we complete, so 0 should be killed.
-    this.eCronSync.expect('killSlices', { count: 0 });
     this.eCronSync.expect('syncAccounts_end');
     this.eCronSync.expect('cronSync_end');
 
