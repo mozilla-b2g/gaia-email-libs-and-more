@@ -172,6 +172,28 @@ commonCase('Quoting', function(T) {
         ],
       snippet: 'running all the time',
     },
+    {
+      name: 'quoting with linebreak in "wrote" lead-in',
+      body: j(
+          'On blah blah Long Name Person <really.long@bob.bob>',
+          'wrote:',
+          '',
+          '> Confusion',
+          '',
+          'Puppies!'
+        ),
+      chunks: [
+          'leadin',
+          // we transform the newline and smoosh these together
+          'On blah blah Long Name Person <really.long@bob.bob> wrote:',
+          'q1', 'Confusion',
+          'content', 'Puppies!'
+        ],
+      snippet: 'Puppies!',
+      // Because the multi-line leadin normalizes to a single line, we can't
+      // roundtrip this one (naively)
+      roundtrip: false
+    },
     // - nested quoting
     // nb: we don't bother with lead-in detection on nested levels
     {
@@ -299,7 +321,7 @@ commonCase('Quoting', function(T) {
     {
       name: 'simple product boilerplate on top-posting',
       body: j(
-          'Yes, dance time.', '', 'Sent from my iPad',
+          'Yes, dance time.', '', 'Sent from my iPad', '',
           'John wrote:', '> Dance time?'
         ),
       chunks: [
@@ -393,8 +415,9 @@ commonCase('Quoting', function(T) {
         eCheck.expect(tdef.chunks[i], tdef.chunks[i+1]);
       }
       var roundtrip = true;
-      if (tdef.hasOwnProperty('roundtrip'))
+      if (tdef.hasOwnProperty('roundtrip')) {
         roundtrip = tdef.roundtrip;
+      }
 
       eCheck.expect('snippet',  JSON.stringify(tdef.snippet));
       if (roundtrip)

@@ -14,6 +14,7 @@ var assert = require('./resources/assert');
  * depth calculation regression in bug 1169589.
  */
 var treeDefs = [
+  /* XXX next rev of tests, allow us to more easily have isolated accounts in test configs like this
   {
     name: 'non-namespaced, non-special-use, all folders already exist',
     folderConfig: {
@@ -38,6 +39,37 @@ var treeDefs = [
       { name: 'foo', path: 'foo', type: 'normal', depth: 0 },
       { name: 'bar', path: 'foo/bar', type: 'normal', depth: 1 },
       { name: 'baz', path: 'foo/bar/baz', type: 'normal', depth: 2 }
+    ],
+  },
+  */
+  {
+    name: 'namespaced, non-special-use, all folders already exist',
+    folderConfig: {
+      underInbox: true,  // (this makes us namespaced)
+      folders: [
+        { name: 'Drafts' },
+        { name: 'Sent' },
+        { name: 'Trash' },
+        { name: 'foo' },
+        { name: 'foo/bar' },
+        { name: 'foo/bar/baz' },
+        { name: 'IDN' },
+        { name: 'IDN/Sent' }
+      ]
+    },
+    expectedFolders: [
+      { name: 'INBOX', path: 'INBOX', type: 'inbox', depth: 0 },
+      { name: 'Drafts', path: 'INBOX/Drafts', type: 'drafts', depth: 1 },
+      { name: 'localdrafts', path: 'INBOX/localdrafts', type: 'localdrafts',
+        depth: 1 },
+      { name: 'outbox', path: 'INBOX/outbox', type: 'outbox', depth: 1 },
+      { name: 'Sent', path: 'INBOX/Sent', type: 'sent', depth: 1 },
+      { name: 'Trash', path: 'INBOX/Trash', type: 'trash', depth: 1 },
+      { name: 'foo', path: 'INBOX/foo', type: 'normal', depth: 1 },
+      { name: 'bar', path: 'INBOX/foo/bar', type: 'normal', depth: 2 },
+      { name: 'baz', path: 'INBOX/foo/bar/baz', type: 'normal', depth: 3 },
+      { name: 'IDN', path: 'INBOX/IDN', type: 'normal', depth: 1 },
+      { name: 'Sent', path: 'INBOX/IDN/Sent', type: 'normal', depth: 2 }
     ],
   }
 ];

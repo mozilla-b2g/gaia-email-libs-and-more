@@ -120,7 +120,12 @@ define(function(require) {
         .then(() => {
 
           // Initialize the MailAPI if necessary.
-          if (!this.options.legacy) {
+          // (If this is a legacy test, its logic handles instantiating the
+          // MailAPI.  If this a new test that :asuth just hacked up that is
+          // more of a unit test and passes `noApi`, that's also good.)
+          // TODO: lose the `noApi` thing here as we transition to more unified
+          // test-running.  (Maybe such tests can just use mocha?)
+          if (!(this.options.legacy || this.options.noApi)) {
             if (!existingMailAPI) {
               this._shimConsole();
               this.group('Initialize MailAPI');
