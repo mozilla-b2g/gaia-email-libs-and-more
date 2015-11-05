@@ -148,7 +148,7 @@ var RE_WROTE_LINE = /wrote/;
  *   characters.  An enhanced mechanism could operate on a normalized
  *   representation where the quoting has been normalized to no longer include
  *   the > characters.  That would be a sortof multi-pass AST/tree-transformer.
- *   Furture work.)
+ *   Future work.)
  * - The reply logic performs normalization on output, but without knowing about
  *   lead-ins, it makes the wrong normalization call for these wrote lines,
  *   inserting wasted whitespace.  This regex is an attempt to retroactively do
@@ -162,7 +162,7 @@ var RE_WROTE_LINE = /wrote/;
  * above does.)
  *
  * Again, since this only controls whether a newline is inserted or not, it's
- * really note the end of the world.
+ * really not the end of the world.
  */
 var RE_REPLY_LAST_LINE_IN_BLOCK_CONTAINS_WROTE = /wrote[^\n]+$/;
 

@@ -415,7 +415,7 @@ commonCase('Quoting', function(T) {
         eCheck.expect(tdef.chunks[i], tdef.chunks[i+1]);
       }
       var roundtrip = true;
-      if ('roundtrip' in tdef) {
+      if (tdef.hasOwnProperty('roundtrip')) {
         roundtrip = tdef.roundtrip;
       }
 
