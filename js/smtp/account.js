@@ -129,10 +129,11 @@ SmtpAccount.prototype = {
          * The send failed.
          */
         onError: (error, badAddresses) => {
-          logic(this, 'smtp:error', {
-          error: err,
-          badAddresses: badAddresses
-        });
+          logic(this, 'smtp:error',
+                {
+                  error,
+                  badAddresses
+                });
           resolve({ error, badAddresses });
         }
       });
@@ -208,7 +209,7 @@ SmtpAccount.prototype = {
             this.compositeAccount.accountDef,
             /* folderInfo: */ null,
             /* callback: */ resolve);
-        };
+        });
       }
     ).then((newConn) => {
       conn = newConn;
