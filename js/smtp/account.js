@@ -79,15 +79,15 @@ SmtpAccount.prototype = {
          * @param {function()} bail Abort the connection. Used for when
          * we must gracefully cancel without sending a message.
          */
-        sendEnvelope: function(conn) {
+        sendEnvelope: (conn) => {
           var envelope = composer.getEnvelope();
-          logic(scope, 'sendEnvelope', { _envelope: envelope });
+          logic(this, 'sendEnvelope', { _envelope: envelope });
           conn.useEnvelope(envelope);
         },
 
         // establishConnection monekypatches/wraps the connection so that drain
         // notfications are converted into these progress notifications.
-        onProgress: function() {
+        onProgress: () => {
           // Keep the wake lock open as long as it looks like we're
           // still communicating with the server.
           composer.heartbeat('SMTP Progress');
@@ -95,11 +95,11 @@ SmtpAccount.prototype = {
         /**
          * Send the message body.
          */
-        sendMessage: function(conn) {
+        sendMessage: (conn) => {
           var blob = composer.superBlob;
 
           // Then send the actual message if everything was cool
-          logic(scope, 'sending-blob', { size: blob.size });
+          logic(this, 'sending-blob', { size: blob.size });
           // simplesmtp's SMTPClient does not understand Blobs, so we
           // issue the write directly. All that it cares about is
           // knowing whether our data payload included a trailing
@@ -121,15 +121,15 @@ SmtpAccount.prototype = {
         /**
          * The send succeeded.
          */
-        onSendComplete: function(/* conn */) {
-          logic(scope, 'smtp:sent');
+        onSendComplete: (/* conn */) => {
+          logic(this, 'smtp:sent');
           resolve({ error: null });
         },
         /**
          * The send failed.
          */
-        onError: function(error, badAddresses) {
-          logic(scope, 'smtp:error', {
+        onError: (error, badAddresses) => {
+          logic(this, 'smtp:error', {
           error: err,
           badAddresses: badAddresses
         });
@@ -149,20 +149,20 @@ SmtpAccount.prototype = {
   checkAccount: function() {
     return new Promise((resolve) => {
       this.establishConnection({
-        sendEnvelope: function(conn, bail) {
+        sendEnvelope: (conn, bail) => {
           // If we get here, we've successfully connected. Sorry, SMTP
           // server friend, we aren't actually going to send a message
           // now. Psych!
           resolve(null);
           bail();
         },
-        sendMessage: function(/* conn */) {
+        sendMessage: (/* conn */) => {
           // We're not sending a message, so this won't be called.
         },
-        onSendComplete: function(/* conn */) {
+        onSendComplete: (/* conn */) => {
           // Ibid.
         },
-        onError: function(err /*, badAddresses */) {
+        onError: (err /*, badAddresses */) => {
           // Aha, here we have an error -- we might have bad credentials
           // or something else. This error is normalized per the
           // documentation for sendMessage, so we can just pass it along.
@@ -176,7 +176,7 @@ SmtpAccount.prototype = {
               this.compositeAccount, err, 'outgoing');
           }
           resolve(err);
-        }.bind(this)
+        }
       });
     });
   },
@@ -194,14 +194,13 @@ SmtpAccount.prototype = {
    * onError(err, badAddresses) -- send failed (or connection error)
    */
   establishConnection: function(callbacks) {
-    var scope = this;
     var conn;
     var sendingMessage = false;
     client.createSmtpConnection(
       this.credentials,
       this.connInfo,
-      function onCredentialsUpdated() {
-        return new Promise(function(resolve) {
+      () => {
+        return new Promise((resolve) => {
           // Note: Since we update the credentials object in-place,
           // there's no need to explicitly assign the changes here;
           // just save the account information.
@@ -209,9 +208,9 @@ SmtpAccount.prototype = {
             this.compositeAccount.accountDef,
             /* folderInfo: */ null,
             /* callback: */ resolve);
-        }.bind(this));
-      }.bind(this)
-    ).then(function(newConn) {
+        };
+      }
+    ).then((newConn) => {
       conn = newConn;
       DisasterRecovery.associateSocketWithAccount(conn.socket, this);
       this._activeConnections.push(conn);
@@ -220,7 +219,7 @@ SmtpAccount.prototype = {
       // get to knowing that we are still sending data to the
       // server. We use this to hold a wakelock open.
       var oldOnDrain = conn.socket.ondrain;
-      conn.socket.ondrain = function() {
+      conn.socket.ondrain = () => {
         oldOnDrain && oldOnDrain.call(conn.socket);
         callbacks.onProgress && callbacks.onProgress();
       };
@@ -228,12 +227,12 @@ SmtpAccount.prototype = {
       callbacks.sendEnvelope(conn, conn.close.bind(conn));
 
       // We sent the envelope; see if we can now send the message.
-      conn.onready = function(badRecipients) {
-        logic(scope, 'onready');
+      conn.onready = (badRecipients) => {
+        logic(this, 'onready');
 
         if (badRecipients.length) {
           conn.close();
-          logic(scope, 'bad-recipients', { badRecipients: badRecipients });
+          logic(this, 'bad-recipients', { badRecipients: badRecipients });
           callbacks.onError('bad-recipient', badRecipients);
         } else {
           sendingMessage = true;
@@ -242,14 +241,14 @@ SmtpAccount.prototype = {
       };
 
       // Done sending the message, ideally successfully.
-      conn.ondone = function(success) {
+      conn.ondone = (success) => {
         conn.close();
 
         if (success) {
-          logic(scope, 'sent');
+          logic(this, 'sent');
           callbacks.onSendComplete(conn);
         } else {
-          logic(scope, 'send-failed');
+          logic(this, 'send-failed');
           // We don't have an error to reference here, but we stored
           // the most recent SMTP error, which should tell us why the
           // server rejected the message.
@@ -258,25 +257,25 @@ SmtpAccount.prototype = {
         }
       };
 
-      conn.onerror = function(err) {
+      conn.onerror = (err) => {
         // Some sort of error occurred; analyze and report.
         conn.close();
         err = client.analyzeSmtpError(conn, err, sendingMessage);
         callbacks.onError(err, /* badAddresses: */ null);
       };
 
-      conn.onclose = function() {
-        logic(scope, 'onclose');
+      conn.onclose = () => {
+        logic(this, 'onclose');
 
         var idx = this._activeConnections.indexOf(conn);
         if (idx !== -1) {
           this._activeConnections.splice(idx, 1);
         } else {
-          logic(scope, 'dead-unknown-connection');
+          logic(this, 'dead-unknown-connection');
         }
-      }.bind(this);
-    }.bind(this))
-      .catch(function(err) {
+      };
+    })
+      .catch((err) => {
         err = client.analyzeSmtpError(conn, err, sendingMessage);
         callbacks.onError(err);
       });
