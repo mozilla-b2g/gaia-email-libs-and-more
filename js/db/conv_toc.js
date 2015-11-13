@@ -70,6 +70,10 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     let { idsWithDates, drainEvents, tocEventId, convEventId } =
       yield this._db.loadConversationMessageIdsAndListen(this.convId);
 
+    // Sort the IDs in the same order as used by the binary search used later
+    // for modifications done with this class.
+    idsWithDates.sort(conversationMessageComparator);
+
     this.idsWithDates = idsWithDates;
     this._tocEventId = tocEventId;
     this._convEventId = convEventId;
