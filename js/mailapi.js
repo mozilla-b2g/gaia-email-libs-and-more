@@ -49,30 +49,6 @@ exports._MailFolder = MailFolder;
 var LEGAL_CONFIG_KEYS = [];
 
 /**
- * Error reporting helper; we will probably eventually want different behaviours
- * under development, under unit test, when in use by QA, advanced users, and
- * normal users, respectively.  By funneling all errors through one spot, we
- * help reduce inadvertent breakage later on.
- */
-function reportError() {
-  console.error.apply(console, arguments);
-  var msg = null;
-  for (var i = 0; i < arguments.length; i++) {
-    if (msg) {
-      msg += ' ' + arguments[i];
-    } else {
-      msg = '' + arguments[i];
-    }
-  }
-  // When in tests, this will fail the test; when not in tests, we just log.
-  logic.fail(new Error(msg));
-}
-var unexpectedBridgeDataError = reportError,
-    internalError = reportError,
-    reportClientCodeError = reportError;
-
-
-/**
  * The public API exposed to the client via the MailAPI global.
  *
  * TODO: Implement a failsafe timeout mechanism for returning Promises for
@@ -227,7 +203,7 @@ MailAPI.prototype = evt.mix({
   _processMessage: function(msg) {
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
-      unexpectedBridgeDataError('Unsupported message type:', msg.type);
+      logic.fail(new Error('Unsupported message type:', msg.type));
       return;
     }
     try {
@@ -239,8 +215,7 @@ MailAPI.prototype = evt.mix({
       }
     }
     catch (ex) {
-      internalError('Problem handling message type:', msg.type, ex,
-                    '\n', ex.stack);
+      logic(this, 'processMessageError', { type: msg.type, ex });
       return;
     }
   },
@@ -461,26 +436,6 @@ MailAPI.prototype = evt.mix({
       id: messageId,
       date: messageDate
     });
-  },
-
-  _recv_bodyModified: function(msg) {
-    var body = this._liveBodies[msg.handle];
-
-    if (!body) {
-      unexpectedBridgeDataError('body modified for dead handle', msg.handle);
-      // possible but very unlikely race condition where body is modified while
-      // we are removing the reference to the observer...
-      return;
-    }
-
-    var wireRep = msg.bodyInfo;
-    // We update the body representation regardless of whether there is an
-    // onchange listener because the body may contain Blob handles that need to
-    // be updated so that in-memory blobs that have been superseded by on-disk
-    // Blobs can be garbage collected.
-    body.__update(wireRep, msg.detail);
-
-    body.emit('change', msg.detail, body);
   },
 
   _downloadAttachments: function(downloadReq) {
@@ -1110,27 +1065,7 @@ MailAPI.prototype = evt.mix({
       return (mailbox.length >= 1) ? mailbox[0] : null;
     }
     catch (ex) {
-      reportClientCodeError('parse mailbox error', ex,
-                            '\n', ex.stack);
       return null;
-    }
-  },
-
-  _recv_mutationConfirmed: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    if (!req) {
-      unexpectedBridgeDataError('Bad handle for mutation:', msg.handle);
-      return;
-    }
-
-    req.undoableOp._tempHandle = null;
-    req.undoableOp._longtermIds = msg.longtermIds;
-    if (req.undoableOp._undoRequested) {
-      req.undoableOp.undo();
-    }
-
-    if (req.callback) {
-      req.callback(msg.result);
     }
   },
 
