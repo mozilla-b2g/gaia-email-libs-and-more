@@ -89,7 +89,8 @@ function TaskManager({ universe, db, registry, resources, priorities,
 }
 TaskManager.prototype = evt.mix({
   __restoreFromDB: co.wrap(function*() {
-    let { wrappedTasks, complexTaskStates } = yield this._db.loadTasks();
+    let { wrappedTasks, complexTaskStates } =
+      yield this._db.loadTasks();
     logic(this, 'restoreFromDB', { count: wrappedTasks.length });
 
     // -- Restore wrapped tasks
@@ -479,6 +480,40 @@ TaskManager.prototype = evt.mix({
       this.emit('executed', taskThing.id, undefined);
     }
     return execResult;
+  },
+
+  /**
+   * Used by `TaskContext.spawnSubtask` to tell us about subtasks it is
+   * spawning.  From a scheduling/management/ownership perspective, we don't
+   * care about them at all.  But from a logging perspective we do care and
+   * we want them to pass through us.
+   *
+   * Currently we are treating subtasks very explicitly to logging as their own
+   * thing and not pretending they are tasks being executed.  Likewise, we do
+   * not expose them to task groups, etc.  The rationale is that subtasks'
+   * life-cycles are strictly bound by their parent tasks, so they are boring on
+   * their own.  (Also, they're basically just a hack to reuse all the
+   * read/mutate/lock semantics while still maintaining our rules about
+   * locking.)
+   *
+   * @param {TaskContext} subctx
+   *   The task context created for the subtask.
+   * @param {Function} subtaskFunc
+   *   The subtask function to be invoked and which is expected to return a
+   *   Promise (presumably the function is wrapped using co.wrap()).  We use
+   *   subctx.__taskInstance as the `this`, the `subctx` as the first argument,
+   *   and the `subtaskArg` as the second argument.
+   * @param Object [subtaskArg]
+   */
+  __trackAndWrapSubtask: function(ctx, subctx, subtaskFunc, subtaskArg) {
+    logic(this, 'subtask:begin', { taskId: ctx.id, subtaskId: subctx.id });
+    let subtaskResult =
+      subtaskFunc.call(subctx.__taskInstance, subctx, subtaskArg);
+    // (we want our logging to definitely happen before any result is returned)
+    return subtaskResult.then((result) => {
+      logic(this, 'subtask:end', { taskId: ctx.id, subtaskId: subctx.id });
+      return result;
+    });
   }
 });
 

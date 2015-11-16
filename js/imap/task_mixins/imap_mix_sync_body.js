@@ -104,7 +104,10 @@ return {
 
         let byteRange;
         if (maxBytesPerMessage || rep.amountDownloaded) {
-          byteRange = [rep.amountDownloaded, bytesToFetch];
+          byteRange = {
+            offset: rep.amountDownloaded,
+            bytesToFetch
+          };
         }
 
         // If we had already downloaded part of the body, be sure to parse it.
@@ -123,8 +126,8 @@ return {
           folderInfo,
           {
             uid,
-            partInfo: rep._partInfo,
-            bytes: byteRange
+            part: rep.part,
+            byteRange
           });
 
         bodyParser.parse(rawBody);
@@ -136,7 +139,7 @@ return {
           {
             bodyRepIndex: iBodyRep,
             createSnippet: iBodyRep === bodyRepIndex,
-            bytes: byteRange
+            byteRange
           },
           bodyResult
         );

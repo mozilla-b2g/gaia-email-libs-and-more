@@ -151,7 +151,7 @@ Tasks have the following life-cycle states/transitions:
 
 ## Complex Tasks ##
 
-Complex tasks are responsible for maintaining their own aggregate state as a
+Complex tasks are responsible for maintaining their own (aggregate) state as a
 persistent, atomic state.  Given this state, they assert a set of task markers
 with priority tags.  The task manager treats these task markers like planned
 simple tasks, consuming them in the same fashion.  But when the TaskManager

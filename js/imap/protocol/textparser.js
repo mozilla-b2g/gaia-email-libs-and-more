@@ -26,6 +26,9 @@ define(
  *      var content = parser.complete();
  *    });
  *
+ * XXX convert this implementation to use jsmime like was done in other parts
+ * of :mcav's streamification work.  In particular, we want this because it
+ * avoids an additional conversion of the "buffer" back to a binary string.
  */
 function TextParser(partDef) {
   this._partDef = partDef;

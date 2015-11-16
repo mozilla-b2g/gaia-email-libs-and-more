@@ -1,9 +1,9 @@
 define(function(require) {
 'use strict';
 
-let { numericUidFromMessageId } = require('../../id_conversions');
+const { numericUidFromMessageId } = require('../../id_conversions');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
 return TaskDefiner.defineComplexTask([
   require('../../task_mixins/mix_sync_body'),

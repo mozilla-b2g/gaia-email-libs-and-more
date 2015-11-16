@@ -178,7 +178,7 @@ MailMessage.prototype = evt.mix({
   },
 
   __updateOverlays: function(overlays) {
-    let downloadMap = overlays.downloads;
+    let downloadMap = overlays.download;
     for (let attachment of this.attachments) {
       let downloadOverlay = downloadMap && downloadMap.get(attachment.relId);
       attachment.__updateDownloadOverlay(downloadOverlay);

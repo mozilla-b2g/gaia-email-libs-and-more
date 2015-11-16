@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 108;
+const CUR_VERSION = 109;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -69,23 +69,31 @@ const TBL_SYNC_STATES = 'syncStates';
 const TBL_TASKS = 'tasks';
 
 /**
- * Complex task state.  When a complex task plans a raw task, the state goes in
- * here and the original task is nuked.
+ * Complex task state to be loaded in its entirety when tasks are intialized for
+ * an account.  Complex tasks can store either a single object of their choosing
+ * in here, or have multiple keyed values that are automatically loaded into a
+ * map.
+ *
+ * Since the information is kept in-memory once loaded and should be of limited
+ * size, the single object form will usually be a good choice.  However, in
+ * cases involving DOM Blobs/Files where we need to write values to disk and
+ * then read them back to convert them from a memory-backed Blob to a
+ * disk-backed File and such manipulations may want to logically occur in
+ * parallel, the multi-record Map implementation may be preferable.  (Noting
+ * that the IndexedB transactions will be serialized.  But our tasks operate on
+ * a higher abstraction level and it's easier to reason about if we can view
+ * them as distinct records with orthogonal life cycles.)
  *
  * The key is a composite of:
  * - `AccountId`: Because complex tasks are managed on a per-account basis.
  * - `ComplexTaskName`: Namespaces the task.
+ * - Optional `ComplexTaskKey`: If doing the Map, this key will exist.
+ *   Otherwise the key will be a 2-item Array.
  *
- * key: [`AccountId`, `ComplexTaskName`, ...]
- *
- * The value must include `key` as a property that is the key.  This is because
- * of mozGetAll limitations.
+ * key: [`AccountId`, `ComplexTaskName`, ...key]
  *
  * This data is loaded at startup for task prioritization reasons.  Writes are
- * made as part of task completing transactions.  Currently the complex task
- * state has to be a simple (potentially giant) object because it's planned to
- * simplify unit testing and we don't actually expect there to be that much
- * data.
+ * made as part of task completing transactions.
  */
 const TBL_COMPLEX_TASKS = 'complexTasks';
 
@@ -813,6 +821,11 @@ MailDB.prototype = evt.mix({
           trans.objectStore(TBL_UMID_LOCATION),
           requests.umidLocations);
       }
+      if (requests.complexTaskStates) {
+        dbReqCount += genericUncachedLookups(
+          trans.objectStore(TBL_COMPLEX_TASKS),
+          requests.complexTaskStates);
+      }
 
       // -- Cached lookups
       if (requests.conversations) {
@@ -1000,7 +1013,7 @@ MailDB.prototype = evt.mix({
   },
 
   /**
-   * Load all tasks from the database.  Ideally this is called before any calls
+   * Load all tasks from thew database.  Ideally this is called before any calls
    * to addTasks if you want to avoid having a bad time.
    */
   loadTasks: function() {
@@ -1009,9 +1022,13 @@ MailDB.prototype = evt.mix({
     let taskStore = trans.objectStore(TBL_TASKS);
     let complexTaskStore = trans.objectStore([TBL_COMPLEX_TASKS]);
     return Promise.all(
-      [wrapReq(taskStore.mozGetAll()), wrapReq(complexTaskStore.mozGetAll())])
-    .then(([wrappedTasks, complexTaskStates]) => {
-      return { wrappedTasks, complexTaskStates };
+      [wrapReq(taskStore.getAll()), wrapReq(complexTaskStore.getAllKeys()),
+       wrapReq(complexTaskStore.getAll())])
+    .then(([wrappedTasks, complexTaskStateKeys, complexTaskStateValues]) => {
+      return {
+        wrappedTasks,
+        complexTaskState: [complexTaskStateKeys, complexTaskStateValues]
+      };
     });
   },
 
@@ -1290,6 +1307,11 @@ MailDB.prototype = evt.mix({
       this.emit(convEventId, messageId, preDate, postDate, message, false);
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
+      this.emit('msg!*!change', messageId, message);
+      if (!message) {
+        this.emit('msg!' + messageId + '!remove', messageId);
+        this.emit('msg!*!remove', messageId);
+      }
     }
   },
 

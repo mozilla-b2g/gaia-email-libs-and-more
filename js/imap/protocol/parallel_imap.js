@@ -1,8 +1,9 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
+const mimefuncs = require('mimefuncs');
 
 /**
  * Helper that just ensures we have a connection and then calls the underlying
@@ -182,10 +183,11 @@ ParallelIMAP.prototype = {
   upload: simpleWithConn('upload'),
 
   /**
-   * This is a temporary non-streaming mechanism that fetches a single body part
-   * in a single go.  This is a stop-gap that will be replaced with :mcav's
-   * streaming refactor.  This will necessarily entail refactoring the callers
-   * of this method.
+   * Fetch the full or partial contents of a message part, returning a
+   * Uint8Array with the contents.
+   *
+   * In the future, with changes to browserbox, we may be able to return a
+   * stream instead of delivering the data all at once.
    */
   fetchBody: co.wrap(function*(folderInfo, request) {
     let conn = yield this._gimmeConnection();
@@ -202,9 +204,10 @@ ParallelIMAP.prototype = {
     let messages = yield conn.listMessages(
       request.uid,
        [
-        'BODY.PEEK[' + (request.partInfo.partId || '1') + ']' +
-          (request.bytes ?
-           '<' + request.bytes[0] + '.' + request.bytes[1] + '>' :
+        'BODY.PEEK[' + (request.part || '1') + ']' +
+          (request.byteRange ?
+           ('<' + request.byteRange.offset + '.' +
+            request.byteRange.bytesToFetch + '>') :
            '')
       ],
       { byUid: true, precheck }
@@ -220,7 +223,9 @@ ParallelIMAP.prototype = {
     if (!body) {
       throw new Error('no body returned!');
     }
-    return body;
+    // browserbox traffics in 'binary' strings; convert this back to a
+    // TypedArray.
+    return mimefuncs.toTypedArray(body);
   })
 };
 

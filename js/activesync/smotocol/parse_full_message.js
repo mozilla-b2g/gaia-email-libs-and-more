@@ -107,6 +107,9 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
             case asb.EstimatedDataSize:
               bodySize = grandchild.children[0].textContent;
               break;
+            default:
+              // Ignore other tag types.
+              break;
           }
         }
         break;
@@ -130,6 +133,7 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
             part: null,
             encoding: null,
             sizeEstimate: null,
+            downloadState: null,
             file: null,
           };
 
@@ -167,6 +171,9 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
               case asb.IsInline:
                 isInline = (attachDataText === '1');
                 break;
+              default:
+                // Ignore other tag types.
+                break;
             }
           }
 
@@ -178,6 +185,9 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
           }
         }
         scratchMsg.hasAttachments = scratchMsg.attachments.length > 0;
+        break;
+      default:
+        // Ignore other tag types.
         break;
     }
   }

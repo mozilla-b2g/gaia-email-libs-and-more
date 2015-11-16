@@ -14,21 +14,13 @@ function arrayAppend(array1, array2) {
  * Wrapper around the textparser, accumulates buffer content and returns it as
  * part of the .complete step.
  */
-function SnippetParser(partDef) {
+function SnippetParser(/*partDef*/) {
   TextParser.apply(this, arguments);
   this._array = null;
 }
 
 SnippetParser.prototype = {
   parse: function(u8array) {
-    // XXX yuck.  right, so browserbox is currently providing us with a string.
-    // this code has been assuming a Uint8Array.  So we'll convert to that.
-    // Even though mailparser is going to end up converting it back after.  I'd
-    // normalize this to expect strings but I think jsmime may want the
-    // uint8array, so, yeah, ugh.
-    if (typeof(u8array) === 'string') {
-      u8array = (new TextEncoder()).encode(u8array);
-    }
     if (!this._array) {
       this._array = u8array;
     } else {

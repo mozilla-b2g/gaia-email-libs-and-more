@@ -67,15 +67,38 @@ TaskRegistry.prototype = {
    * The loaded complex task states which we stash until we hear about the
    * account existing with `accountExists`.
    */
-  initializeFromDatabaseState: function(complexStates) {
-    for (let rec of complexStates) {
-      let [accountId, taskType] = rec.key;
+  initializeFromDatabaseState: function([stateKeys, stateValues]) {
+    if (stateKeys.length !== stateValues.length) {
+      throw new Error('impossible complex state inconsistency issue');
+    }
+    for (let i = 0; i < stateKeys.length; i++) {
+      let [accountId, taskType, taskKey] = stateKeys[i];
+      let value = stateValues[i];
+      // NB: The data we receive from IndexedDB has a known ordering that could
+      // allow this loop to avoid wasted Map lookups, although it's unlikely
+      // to ever matter.
+
+      // - Binned by account
       let dataByTaskType = this._dbDataByAccount.get(accountId);
       if (!dataByTaskType) {
         dataByTaskType = new Map();
         this._dbDataByAccount.set(accountId, dataByTaskType);
       }
-      dataByTaskType.set(taskType, rec);
+
+      // - Binned by task type
+      // Is this a multi-valued Map?
+      if (taskKey !== undefined) {
+        // Multi-valued Map stored as multiple keyed records
+        let map = dataByTaskType.get(taskType);
+        if (!map) {
+          map = new Map();
+          dataByTaskType.set(taskType, map);
+        }
+        map.set(taskKey, value);
+      } else {
+        // Single object, no key.
+        dataByTaskType.set(taskType, value);
+      }
     }
   },
 
@@ -212,6 +235,7 @@ TaskRegistry.prototype = {
       }
     }
 
+    ctx.__taskInstance = taskMeta.impl;
     if (taskMeta.impl.isComplex) {
       return taskMeta.impl.plan(
         ctx, taskMeta.persistentState, taskMeta.memoryState, rawTask);
@@ -243,6 +267,7 @@ TaskRegistry.prototype = {
                        taskMeta.impl.isComplex);
     }
 
+    ctx.__taskInstance = taskMeta.impl;
     if (isMarker) {
       return taskMeta.impl.execute(
         ctx, taskMeta.persistentState, taskMeta.memoryState, taskThing);

@@ -749,20 +749,26 @@ MailUniverse.prototype = {
    * This request is persistent although the callback will obviously be
    * discarded in the event the app is killed.
    *
-   * @param {String[]} relPartIndices
+   * @param {Object} arg
+   * @param {MessageId} messageId
+   * @param {DateMS} messageDate
+   * @param {String[]} arg.relatedPartRelIds
    *     The part identifiers of any related parts to be saved to IndexedDB.
-   * @param {String[]} attachmentIndices
+   * @param {String[]} arg.attachmentRelIds
    *     The part identifiers of any attachment parts to be saved to
    *     DeviceStorage.  For each entry in this array there should be a
    *     corresponding boolean in registerWithDownloadManager.
-   * @param {Boolean[]} registerAttachments
-   *     An array of booleans corresponding to each entry in attachmentIndices
-   *     indicating whether the download should be registered with the download
-   *     manager.
    */
   downloadMessageAttachments: function({
     messageId, messageDate, relatedPartRelIds, attachmentRelIds }) {
-    return this.taskManager.scheduleNonPer
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult({
+      type: 'download',
+      accountId: accountIdFromMessageId(messageId),
+      messageId,
+      messageDate,
+      relatedPartRelIds,
+      attachmentRelIds
+    });
   },
 
   moveMessages: function(messageSuids, targetFolderId, callback) {

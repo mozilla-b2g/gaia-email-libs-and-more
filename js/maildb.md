@@ -153,8 +153,10 @@ task manager to do that for you.
 
 - `accounts!tocChange`: accounts add/change/remove
 - `acct!AccountId!folders!tocChange`: folders add/change/remove on an account
-- `fldr!FolderId!convs!tocChange`: conversations add/change/remove in a folder
+- `fldr!FolderId!convs!tocChange`: conversations add/change/remove in a folder.
+  Arguments:
 - `conv!ConvSuid!messages!tocChange`: messages add/change/remove in a conv
+  Arguments: [messageId, preDate, postDate, message, freshlyAdded]
 
 Note that there are potentially other TOC implementations out there, but since
 their representations aren't directly mapped to the database, we aren't involved
@@ -165,17 +167,32 @@ tasks, so that's what the TOC implementation would hang off of.
 
 - `acct!AccountId!change`
 - `fldr!FolderId!change`
-- `conv!ConversationId!change`
-- `msg!MessageId!change`
-- `tach!MessageId!AttId!change`
+- `conv!ConversationId!change`: Fired when the conversation (summary) changes.
+  Arguments: [convId, convInfo].
+- `msg!MessageId!change`: Fired for changes to existing messages as well as
+  their removal.  Arguments: [messageId, message].  In the case of removal,
+  the message argument will be null.
+- `msg!MessageId!remove`: Fired when the given message is removed.  Arguments:
+   [messageId].
 
 ### Trigger events ###
 These events provide the maximum amount of information possible to the listener.
-They also include the
 
 - `conv!*!add`: The conversation came into existence.  Arguments: [convInfo]
 - `conv!*!change`: The conversation was modified.  Arguments: [convId, preInfo,
   convInfo, added, kept, removed].
+- `msg!*!change`: The message was changed or removed.  Arguments: [messageId,
+  message].  In the case of removal, the message argument will be null.
+- `msg!*!remove`: The message was removed.  Note that if you want changes too,
+  the change event already covers removal.  Use this is you only want removal.
+  Arguments: [messageId].
+- `tach!*!download`: TODO: An attachment was fully downloaded.  Arguments:
+  [message, part].  This does not fire for embedded parts.  TODO-wise, I'm not
+  yet sure how to best know when to fire this event.  I'm leaning towards
+  explicit hinting because the attachment state management is already so
+  convoluted and so false positives seem quite possible and the cost is also
+  not entirely trivial.  (Immutable reps would be ideal and maybe a good idea,
+  but scope-wise not appropriate at this instant.)
 
 ### Cache events ###
 

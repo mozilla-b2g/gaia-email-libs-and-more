@@ -1,7 +1,8 @@
 define(function (require) {
 'use strict';
 
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
 
 /**
  * Provides helpers and standard arguments/context for tasks.
@@ -12,6 +13,10 @@ function TaskContext(taskThing, universe) {
   logic.defineScope(this, 'Task', { id: taskThing.id });
   this.id = taskThing.id;
   this._taskThing = taskThing;
+  // The TaskRegistry will clobber this onto us so we can know the `this` to
+  // provide to any subtasks.
+  this.__taskInstance = null;
+
   // It's a TaskMarker if the type is on the root.  We care just because it
   // determines where the task metadata is.  This does not have any other
   // significance.
@@ -25,6 +30,7 @@ function TaskContext(taskThing, universe) {
 
   this._stuffToRelease = [];
   this._preMutateStates = null;
+  this._subtaskCounter = 0;
 
   /**
    * @type {'prep'|'mutate'|'finishing'}
@@ -78,6 +84,7 @@ TaskContext.prototype = {
 
   /**
    * Returns whether we think the account associated with this task is currently
+   * experiencing problems.
    *
    * TODO: Actually make this do something.
    */
@@ -204,14 +211,97 @@ TaskContext.prototype = {
     this._taskManager.__renewWakeLock();
   },
 
+  /**
+   * Notify interested parties that our overlay contribution to the given id in
+   * the given namespace has (probably) changed.  Note that we don't provide
+   * the data; it gets pulled from us on-demand.
+   *
+   * Also note that you don't need to go crazy announcing updates.  For example,
+   * if you're maintaining a download progress in bytes and are updating the
+   * byte count every time you get a packet, you don't actually need to announce
+   * every change.
+   */
   announceUpdatedOverlayData: function(namespace, id) {
     this.universe.dataOverlayManager.announceUpdatedOverlayData(namespace, id);
   },
 
+  /**
+   * Read one or more pieces of data from the database.  This does not acquire
+   * a write-lock.  You absolutely must *not* mutate the objects returned.  If
+   * you later on want to mutate the record, you should use `beginMutate` and at
+   * that point update your variable to use the object returned (which may
+   * differ!).  See `MailDB.read` for more extensive signature details.
+   */
   read: function(what) {
     return this.universe.db.read(this, what);
   },
 
+  /**
+   * Helper to read a single piece of data which you're not planning on
+   * mutating.  If you're thinking of using this multiple times in succession
+   * without a data-dependency between them, then you want to be using `read`.
+   * If you're think of trying to mutate what's returned, you want one of:
+   * `mutateSingle`, `beginMutate` or `spawnSimpleMutationSubtask`.
+   *
+   * @param {String} namespace
+   *   The key you'd use in a `read` request.  Like `messages` or `conversations`
+   * @param {String|Array} reqId
+   *   The id to use in the read request.  In the case of `messages`, this would
+   *   be a list of the form [MessageId, DateMS] and you would also provide
+   *   `readbackId`.  Most of the time, the id is just the id and you don't
+   *   need to provide a `readbackId`.
+   * @param {String} [readbackId]
+   *   Required in cases where the read id is not the same as the id that the
+   *   result will have, like for `messages`.
+   * @return {Promise}
+   *   A promise that will be resolved with the read result (which could be
+   *   null!), or will throw if the underlying read request fails and throws.
+   */
+  readSingle: function(namespace, reqId, readbackId) {
+    let readMap = new Map();
+    readMap.set(reqId, null);
+    let req = {
+      [namespace]: readMap
+    };
+
+    return this.universe.db.read(this, req).then((results) => {
+      return results[namespace].get(readbackId || reqId);
+    });
+  },
+
+  /**
+   * Helper to read a single piece of data while also acquiring a write-lock.
+   * See/understead `readSingle` and `beginMutate` before trying to use this.
+   */
+  mutateSingle: function(namespace, reqId, readbackId) {
+    let readMap = new Map();
+    readMap.set(reqId, null);
+    let req = {
+      [namespace]: readMap
+    };
+
+    return this.universe.db.beginMutate(this, req).then((results) => {
+      return results[namespace].get(readbackId || reqId);
+    });
+  },
+
+  /**
+   * Basically `read` but you're also acquiring write-locks on the records you
+   * request for access.  If some other task is currently holding the
+   * write-locks, then your task will block until the other task releases them.
+   * If you previously issued a `read` for any of these values, make sure that
+   * you update your variable to what we return here, because object identity
+   * may not hold.  See `MailDB.beginMutate` for more details.
+   *
+   * You should only acquire write-locks when your task is done waiting on
+   * network traffic and will complete in a timely fashion.  It is okay to be
+   * I/O bound; just don't be depending on things that could take an arbitrary
+   * amount of time.
+   *
+   * If you want to write some data to disk but your task wants to keep running,
+   * then you can spawn a subtask which can do beginMutate and complete in a
+   * timely fashion.  See `spawnSubtask` and `spawnSimpleMutationSubtask`.
+   */
   beginMutate: function(what) {
     if (this.state !== 'prep') {
       throw new Error(
@@ -219,6 +309,80 @@ TaskContext.prototype = {
     }
     this.state = 'mutate';
     return this.universe.db.beginMutate(this, what);
+  },
+
+  /**
+   * Immediately spawn a helper sub-task, returning a Promise that will be
+   * resolved when the subtask completes.  The caller/owning task is responsible
+   * for waiting on all of its sub-tasks to resolve or reject before completing.
+   *
+   * The subtask will be invoked with its own `TaskContext` as its first
+   * argument and the provided argument object as its second object.  The `this`
+   * for the task will be the `this` currently associated with the task.
+   *
+   * Subtasks are intended to be used for cases where write locks need to be
+   * taken and then the write promptly performed, inherently releasing the
+   * write-lock.
+   *
+   * @return {Promise}
+   */
+  spawnSubtask: function(subtaskFunc, argObj) {
+    let subId = 'sub:' + this.id + ':' + this._subtaskCounter++;
+    let subThing = {
+      id: subId,
+      type: 'subtask'
+    };
+    let subContext = new TaskContext(subThing, this.universe);
+    return this._taskManager.__trackAndWrapSubtask(
+      this, subContext, subtaskFunc, argObj);
+  },
+
+  /**
+   * Helper for subtasks where you basically just want to apply some changes to
+   * a record from disk.  You name the namespace and id like in `mutateSingle`,
+   * we create a subtask that issues that call, calls your *synchronous*
+   * function with the result, and then writes whatever you return back.  (It
+   * can be the same object if you want, a new object if you want, or null if
+   * you want to delete the object.)  If you want an asynchronous function,
+   * then you need to use `spawnSubtask` directly.
+   *
+   * We currently do not do anything with flushed reads because our driving
+   * consumer (mix_download) does not need the functionality.  (Specifically,
+   * its `persistentState` introduces complexities since it may only be mutated
+   * while holding the write lock, so a flushed read is not useful since we need
+   * to re-acquire a write-lock.  Luckily mix_download does some expensive stuff
+   * with that.
+   */
+  spawnSimpleMutationSubtask: function({ namespace, id }, mutateFunc ) {
+    return this.spawnSubtask(
+      this._simpleMutationSubtask, { mutateFunc, namespace, id });
+  },
+
+  _simpleMutationSubtask: co.wrap(function*(subctx,
+                                            { mutateFunc, namespace, id }) {
+    // note! our 'this' context is that of the task implementation!
+    let obj = yield subctx.mutateSingle(namespace, id);
+
+    let writeObj = mutateFunc.call(this, obj);
+
+    yield subctx.finishTask({
+      mutations: {
+        [namespace]: new Map([[id, writeObj]])
+      }
+    });
+
+    // NB: this is where we'd do a flushed read-back if we wanted to.
+    return writeObj;
+  }),
+
+  /**
+   * Perform a write of an object, retaining the write-lock, followed by
+   * immediately reading the object back.  This only makes sense for Blob
+   * laundering where we try and forget about memory-backed Blobs in favor of
+   * disked-back Blobs (or more properly after read-back, Files).
+   */
+  flushedWriteRetainingLock: function() {
+
   },
 
   /**
@@ -234,6 +398,9 @@ TaskContext.prototype = {
    *   because I'm trying to reuse the mix-in IMAP uses.  Using this could
    *   be avoided by some refactoring or giving ActiveSync its own full
    *   implementation.
+   * - draft attaching.  This is an offline I/O bound process, so the hack here
+   *   is more about forgetting about memory-backed Blobs in favor of
+   *   disk-backed Blobs.
    */
   mutateMore: function(what) {
     if (this.state !== 'mutate') {

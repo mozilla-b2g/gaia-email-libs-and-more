@@ -1,13 +1,15 @@
 define(function(require, exports) {
 'use strict';
 
-const { parseUI64: parseGmailMsgId, encodeInt: encodeA64 } = require('../a64');
+const { parseUI64: parseGmailMsgId } = require('../a64');
 
 const mimefuncs = require('mimefuncs');
 const mailRep = require('../db/mail_rep');
 const $mailchew = require('../bodies/mailchew');
 const jsmime = require('jsmime');
-const mimeStreams = require('mime-streams');
+
+const MimeHeaderInfo = require('../mime/mime_header_info');
+const PartBuilder = require('../mime/part_builder');
 
 // parseImapDateTime and formatImapDateTime functions from node-imap;
 // MIT licensed, (c) Brian White.
@@ -102,155 +104,6 @@ var valuesOnly = exports.valuesOnly = function(item) {
   }
 };
 
-/**
- * PartBuilder assists in populating the attachments/relatedParts/bodyReps of
- * the MessageInfo structure.
- *
- * As each part is added (because, with streaming, we don't have all parts),
- * we decide which ones are attachments, body parts, or parts to ignore.
- *
- * Usage:
- *   var builder = new PartBuilder(headers);
- *   builder.addPart(...);
- *   var { header, body } = builder.finalize();
- *
- * @param {MimeHeaderInfo} headers
- * @param {object} options
- */
-function PartBuilder(headers) {
-  this.rootHeaders = headers;
-
-  this.attachments = [];
-  this.relatedParts = [];
-  this.bodyReps = [];
-
-  this.unnamedPartCounter = 0;
-
-  this.alternativePartNumbers = [];
-}
-exports.PartBuilder = PartBuilder;
-
-PartBuilder.prototype = {
-
-  /**
-   * Return the header and body MailRep representation.
-   */
-  finalize: function() {
-    // Since we only now know that we've seen all the parts, it's time to make
-    // a decision for multipart/alternative parts: which body parts should we
-    // keep, and which ones should we discard? We've generated bodyReps for
-    // each compatible part, so we just need to remove the ones we don't want.
-    this.alternativePartNumbers.forEach((altPart) => {
-      var foundSuitableBody = false;
-      for (var i = this.bodyReps.length - 1; i >= 0; i--) {
-        var rep = this.bodyReps[i];
-        // Is this rep a suitable body for this multipart/alternative part?
-        // If so, the multipart/alternative part will be an ancestor of it.
-        // We just want the first one that matches, since we already filtered
-        // out unacceptable bodies.
-        if (rep.part.indexOf(altPart + '.') === 0) {
-          if (!foundSuitableBody) {
-            foundSuitableBody = true;
-          } else {
-            this.bodyReps.splice(i, 1);
-          }
-        }
-      }
-    });
-
-    return {
-      attachments: this.attachments,
-      relatedParts: this.relatedParts,
-      bodyReps: this.bodyReps,
-      rootHeaders: this.rootHeaders
-    };
-  },
-
-  /**
-   * Add one MimeHeaderInfo to the incoming message, returning information about
-   * what kind of part we think this is (body/attachment/ignore).
-   *
-   * The return format is as follows:
-   *
-   * {
-   *   type: 'ignore' OR 'attachment' OR 'related' OR 'body',
-   *   rep: the MailRep representing this part,
-   *   index: the index of the current part in attachments/relatedParts
-   * }
-   *
-   * @param {string} partNum
-   * @param {MimeHeaderInfo} headers
-   * @return {object}
-   */
-  addNode: function(partNum, headers) {
-    if (headers.parentContentType === 'message/rfc822') {
-      return { type: 'ignore' };
-    }
-    if (headers.mediatype === 'multipart') {
-      if (headers.subtype === 'alternative') {
-        this.alternativePartNumbers.push(partNum);
-      }
-      return { type: 'ignore' };
-    } else {
-      // Ignore signatures.
-      if ((headers.mediatype === 'application') &&
-          (headers.subtype === 'pgp-signature' ||
-           headers.subtype === 'pkcs7-signature')) {
-        return { type: 'ignore' };
-      }
-
-      var rep;
-      if (headers.disposition === 'attachment') {
-        rep = this._makePart(partNum, headers);
-        this.attachments.push(rep);
-        return { type: 'attachment',
-                 rep: rep,
-                 index: this.attachments.length - 1 };
-      }
-      else if (headers.mediatype === 'image') {
-        rep = this._makePart(partNum, headers);
-        this.relatedParts.push(rep);
-        return { type: 'related',
-                 rep: rep,
-                 index: this.relatedParts.length - 1 };
-      }
-      else if (headers.mediatype === 'text' &&
-               (headers.subtype === 'plain' || headers.subtype === 'html')) {
-        rep = this._makeBodyPart(partNum, headers);
-        this.bodyReps.push(rep);
-        return { type: 'body', rep: rep };
-      } else {
-        return { type: 'ignore' };
-      }
-    }
-  },
-
-  _makePart: function(partNum, headers) {
-    return mailRep.makeAttachmentPart({
-      relId: encodeA64(this.attachments.length),
-      name: headers.filename || 'unnamed-' + (++this.unnamedPartCounter),
-      contentId: headers.contentId,
-      type: headers.contentType.toLowerCase(),
-      part: partNum,
-      encoding: headers.encoding,
-      sizeEstimate: 0, // we do not know
-      file: null,
-      charset: headers.charset,
-      textFormat: headers.format
-    });
-  },
-
-  _makeBodyPart: function(partNum, headers) {
-    return mailRep.makeBodyPart({
-      type: headers.subtype,
-      part: partNum,
-      sizeEstimate: 0,
-      amountDownloaded: 0,
-      isDownloaded: false,
-      contentBlob: null
-    });
-  }
-};
 
 
 /**
@@ -270,7 +123,7 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
       // (the stuff in here runs exactly once; not multiple times!)
       var headerParser = new jsmime.MimeParser({
         startPart(jsmimePartNum, jsmimeHeaders) {
-          headers = mimeStreams.MimeHeaderInfo.fromJSMime(jsmimeHeaders);
+          headers = MimeHeaderInfo.fromJSMime(jsmimeHeaders);
         }
       }, {
         bodyformat: 'decode', // Decode base64/quoted-printable for us.
@@ -286,7 +139,6 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
   }
   return headers;
 }
-
 
 /**
  * Encode a header value (with parameters) into a parameter header.
@@ -339,7 +191,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
 
   var partBuilder = new PartBuilder(headers);
   function chewStructureNode(snode, partNum, parentContentType) {
-    var nodeHeaders = new mimeStreams.MimeHeaderInfo({
+    var nodeHeaders = new MimeHeaderInfo({
       'content-id': snode.id ? [snode.id] : null,
       'content-transfer-encoding': snode.encoding ? [snode.encoding] : null,
       'content-disposition': [encodeHeaderValueWithParams(
@@ -432,7 +284,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
  *        text: '',
  *        buffer: Uint8Array|Null,
  *        bytesFetched: n,
- *        bytesRequested: n
+ *        byteRange: { offset, bytesToFetch }|null
  *      }
  *    );
  *
@@ -451,7 +303,7 @@ exports.updateMessageWithFetch = function(message, req, res) {
 
   // check if the request was unbounded or we got back less bytes then we
   // requested in which case the download of this bodyRep is complete.
-  if (!req.bytes || res.bytesFetched < req.bytes[1]) {
+  if (!req.byteRange || res.bytesFetched < req.byteRange.bytesToFetch) {
     bodyRep.isDownloaded = true;
 
     // clear private space for maintaining parser state.

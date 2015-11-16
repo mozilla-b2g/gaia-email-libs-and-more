@@ -1,13 +1,21 @@
-define(['module', 'exports', 'logic', 'tcp-socket', 'md5',
-        './transport', 'mimeparser', 'imap/imapchew',
-        'syncbase', 'date', 'co',
-        'mimefuncs', 'util', 'mime-streams',
-        './mime_mapper', 'allback'],
-function(module, exports, logic, tcpSocket, md5,
-         transport, MimeParser, imapchew,
-         syncbase, dateMod, co, mimefuncs, util, mimeStreams,
-         mimeMapper, allback) {
-'use strict';
+define(function(require) {
+  'use strict';
+
+  const logic = require('logic');
+  const tcpSocket = require('tcp-socket');
+  const md5 = require('md5');
+  const transport = require('./transport');
+  const imapchew = require('imap/imapchew');
+  const syncbase = require('syncbase');
+  const co = require('co');
+  const mimefuncs = require('mimefuncs');
+  const util = require('util');
+  const allback = require('allback');
+
+  const ByteCounterTransformStream =
+    require('../streamy/byte_counter_transform_stream');
+  const MimeNodeTransformStream =
+    require('../streamy/mime_node_transform_stream');
 
   /**
    * The Pop3Client modules and classes are organized according to
@@ -48,10 +56,6 @@ function(module, exports, logic, tcpSocket, md5,
   // Allow setTimeout and clearTimeout to be shimmed for unit tests.
   var setTimeout = window.setTimeout.bind(window);
   var clearTimeout = window.clearTimeout.bind(window);
-  exports.setTimeoutFunctions = function(set, clear) {
-    setTimeout = set;
-    clearTimeout = clear;
-  };
 
   /***************************************************************************
    * Pop3Client
@@ -84,7 +88,7 @@ function(module, exports, logic, tcpSocket, md5,
    *    };
    *
    */
-  var Pop3Client = exports.Pop3Client = function(options, cb) {
+  function Pop3Client(options, cb) {
     // for clarity, list the available options:
     this.options = options = options || {};
     options.host = options.host || null;
@@ -718,19 +722,19 @@ function(module, exports, logic, tcpSocket, md5,
         } else {
             return body + '\n' + currentValue;
         }
-    }).
+    })
     // remove whitespace stuffing
     // http://tools.ietf.org/html/rfc3676#section-4.4
-    replace(/^ /gm, '');
+    .replace(/^ /gm, '');
   }
 
   Pop3Client.prototype.parseMessageFromLineStream =
   co.wrap(function*(lineStream, srvid, totalExpectedSize, handlers) {
     handlers = handlers || {};
-    var countingTransform = new mimeStreams.ByteCounterTransformStream();
+    var countingTransform = new ByteCounterTransformStream();
     var mimeReader = lineStream
       .pipeThrough(countingTransform)
-      .pipeThrough(new mimeStreams.MimeNodeTransformStream())
+      .pipeThrough(new MimeNodeTransformStream())
       .getReader();
 
     var partBuilder;
@@ -757,6 +761,8 @@ function(module, exports, logic, tcpSocket, md5,
         if (type === 'attachment' || type === 'related') {
           rep.sizeEstimate = 0;
 
+          // XXX broked; need to mesh streaming logic and pre-existing convoy
+          // changes.
           rep.file = yield mimeStreams.readAttachmentStreamWithChunkFlushing(
             headers.contentType,
             bodyStream,
@@ -885,4 +891,11 @@ function(module, exports, logic, tcpSocket, md5,
     } // end for
   });
 
+  return {
+    Pop3Client,
+    setTimeoutFunctions: function(set, clear) {
+      setTimeout = set;
+      clearTimeout = clear;
+    }
+  };
 }); // end define

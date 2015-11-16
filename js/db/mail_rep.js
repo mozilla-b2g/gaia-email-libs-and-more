@@ -206,7 +206,8 @@ function makeDraftInfo(raw) {
   * @prop {RawImapPartInfo} _partInfo
   *   Raw info on the part from browserbox PLUS we annotated `pendingBuffer` on
   *   to the object when doing snippet fetching (and therefore amountDownloaded
-  *   > 0 and !isDownloaded).
+  *   > 0 and !isDownloaded).  TODO: clean this up further, even if it's just
+  *   renaming this to rawImapPartInfo.
   * @prop {Blob} contentBlob
   *   A Blob either containing a JSON-serialized quotechew.js representation or
   *   an htmlchew.js sanitized HTML representation, depending on our `type`.
@@ -267,7 +268,20 @@ function makeBodyPart(raw) {
  * @prop {Number} sizeEstimate
  *   Estimated file size in bytes.  Gets updated to be the correct size on
  *   attachment download.
- * @prop {null|["device storage type" "file path"]|HTMLBlob|HTMLBlob[]} file
+ * @prop {null|'cached'|'saved'|'draft'} downloadState
+ *   One of the following:
+ *   - null: The file is not (fully) downloaded.  It may be in the process of
+ *     being downloaded
+ *   - 'cached': The file has been downloaded and is being stored in IndexedDB.
+ *     It is a single Blob available on `file`.
+ *   - 'saved': The file has been saved to DeviceStorage and file contains an
+ *     object of the form { storage, path } where `storage` is the device
+ *     storage name it was saved to, and `path` is its path within that storage.
+ *   - 'draft': The attachment is part of a message draft and is actually an
+ *     Array of pre-base64 MIME encoded Blobs.  The attachment is effectively
+ *     unviewable because of this.  We will ideally change this in the future
+ *     to keep the item raw and instead encode on send.
+ * @prop {null|{storage, path}|HTMLBlob|HTMLBlob[]} file
  *   This is one of the following:
  *   - null: The attachment has not been downloaded, the file size is an
  *     estimate.
@@ -311,16 +325,28 @@ function makeAttachmentPart(raw) {
     part: raw.part || null,
     encoding: raw.encoding || null,
     sizeEstimate: raw.sizeEstimate,
+    downloadState: raw.downloadState || null,
     file: raw.file || null,
     charset: raw.charset || null,
     textFormat: raw.textFormat || null
   };
 }
 
+/**
+ * Helper function to pick the given part out of the `attachments` or
+ * `relatedParts` by relId.  Obviously this is a trivial find operation right
+ * now, but in the event we later change those lists to be Maps, having this
+ * helper will maybe have been useful.
+ */
+function pickPartByRelId(parts, relId) {
+  return parts.find(part => part.relId === relId);
+}
+
 return {
   makeMessageInfo,
   makeDraftInfo,
   makeBodyPart,
-  makeAttachmentPart
+  makeAttachmentPart,
+  pickPartByRelId
 };
 }); // end define
