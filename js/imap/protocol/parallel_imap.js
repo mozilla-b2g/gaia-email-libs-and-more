@@ -176,6 +176,19 @@ ParallelIMAP.prototype = {
   listNamespaces: simpleWithConn('listNamespaces'),
   search: inFolderWithConn('search', 2),
 
+  // Select the mailbox returning the mailboxInfo directly (not nested in an
+  // object).  If the mailbox is already selected, just return it.
+  selectMailbox: function(folderInfo) {
+    return this._gimmeConnection().then((conn) => {
+      if (folderInfo.path === conn.selectedMailboxPath) {
+        return Promise.resolve(conn.selectedMailboxInfo);
+      }
+      return conn.selectMailbox(folderInfo.path).then(() => {
+        return conn.selectedMailboxInfo;
+      });
+    });
+  },
+
   store: inFolderWithConn('store', 4),
 
   // APPEND does not require being in a folder, it just wants the path, so the

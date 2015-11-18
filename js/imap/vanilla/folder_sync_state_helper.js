@@ -81,6 +81,10 @@ FolderSyncStateHelper.prototype = {
     this.rawSyncState.sinceDate = val;
   },
 
+  get knownMessageCount() {
+    return this._uidInfo.size;
+  },
+
   issueUniqueMessageId: function() {
     return (this._folderId + '.' +
             a64.encodeInt(this.rawSyncState.nextUmidSuffix++));

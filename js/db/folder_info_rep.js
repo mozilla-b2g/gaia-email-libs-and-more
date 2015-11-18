@@ -38,6 +38,16 @@ define(function() {
  *   Indicates the granularity at which this folder is synchronized with the
  *   server.  Some folders are not synchronized with a server, in which case
  *   the value 'local-only' is used.
+ * @property {Boolean} fullySynced
+ *   Is this folder fully synchronized?
+ * @property {Number|null} estimatedUnsyncedMessages
+ *   The number of messages we think are not yet synchronized in this folder or
+ *   null if we have no idea.
+ * @property {DateMS|null} syncedThrough
+ *   The oldest date we are synchronized through in this folder.  This will be
+ *   null if we've never synchronized this folder or that's not how the sync
+ *   engine for this account works.
+ *
  * @property {DateMS} [lastSuccessfulSyncAt]
  *   The last time the folder was successfully synchronized, or 0 if the folder
  *   has never been (successfully) synchronized.  In the case of sync engines

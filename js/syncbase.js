@@ -30,21 +30,6 @@ exports.ISPDB_AUTOCONFIG_ROOT =
 ////////////////////////////////////////////////////////////////////////////////
 // IMAP time constants
 
-/**
- * How recently synchronized does a time range have to be for us to decide that
- * we don't need to refresh the contents of the time range when opening a slice?
- * If the last full synchronization is more than this many milliseconds old, we
- * will trigger a refresh, otherwise we will skip it.
- */
-exports.OPEN_REFRESH_THRESH_MS = 10 * 60 * 1000;
-
-/**
- * How recently synchronized does a time range have to be for us to decide that
- * we don't need to refresh the contents of the time range when growing a slice?
- * If the last full synchronization is more than this many milliseconds old, we
- * will trigger a refresh, otherwise we will skip it.
- */
-exports.GROW_REFRESH_THRESH_MS = 60 * 60 * 1000;
 
 ////////////////////////////////////////////////////////////////////////////////
 // POP3 Sync Constants
@@ -95,11 +80,6 @@ exports.POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
 exports.SYNC_FOLDER_LIST_EVERY_MS = $date.DAY_MILLIS;
 
 /**
- * How many messages should we send to the UI in the first go?
- */
-exports.INITIAL_FILL_SIZE = 15;
-
-/**
  * How many days in the past should we first look for messages.
  *
  * IMAP only.
@@ -113,19 +93,10 @@ exports.INITIAL_SYNC_DAYS = 3;
 exports.INITIAL_SYNC_GROWTH_DAYS = 3;
 
 /**
- * What should be multiple the current number of sync days by when we perform
- * a sync and don't find any messages?  There are upper bounds in
- * `ImapFolderSyncer.onSyncCompleted` that cap this and there's more comments
- * there.  Note that we keep moving our window back as we go.
- *
- * This was 1.6 for a while, but it was proving to be a bit slow when the first
- * messages start a ways back.  Also, once we moved to just syncing headers
- * without bodies, the cost of fetching more than strictly required went way
- * down.
- *
- * IMAP only.
+ * When growing in a folder, what's the approximate number of messages we should
+ * target to synchronize?  Note that this is in messages, not conversations.
  */
-exports.TIME_SCALE_FACTOR_ON_NO_MESSAGES = 2;
+exports.GROWTH_MESSAGE_COUNT_TARGET = 32;
 
 /**
  * What is the furthest back in time we are willing to go?  This is an
@@ -355,12 +326,10 @@ exports.MAX_SNIPPET_BYTES = 4 * 1024;
  * syncbase can be overridden.
  */
 exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
-
   // Legacy values: This function used to accept a mapping that didn't
   // match one-to-one with constant names, but was changed to map
   // directly to constant names for simpler grepping.
   var legacyKeys = {
-    fillSize: 'INITIAL_FILL_SIZE',
     days: 'INITIAL_SYNC_DAYS',
     growDays: 'INITIAL_SYNC_GROWTH_DAYS',
     wholeFolderSync: 'SYNC_WHOLE_FOLDER_AT_N_MESSAGES',
@@ -385,5 +354,4 @@ exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
     }
   }
 };
-
 }); // end define

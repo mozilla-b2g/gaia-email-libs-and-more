@@ -122,5 +122,4 @@ return TaskDefiner.defineSimpleTask([
     }),
   }
 ]);
-
 });
