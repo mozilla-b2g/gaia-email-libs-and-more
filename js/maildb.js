@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 109;
+const CUR_VERSION = 111;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -1027,7 +1027,7 @@ MailDB.prototype = evt.mix({
     .then(([wrappedTasks, complexTaskStateKeys, complexTaskStateValues]) => {
       return {
         wrappedTasks,
-        complexTaskState: [complexTaskStateKeys, complexTaskStateValues]
+        complexTaskStates: [complexTaskStateKeys, complexTaskStateValues]
       };
     });
   },

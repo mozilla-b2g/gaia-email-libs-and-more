@@ -342,11 +342,32 @@ function pickPartByRelId(parts, relId) {
   return parts.find(part => part.relId === relId);
 }
 
+/**
+ * Given a `MessageInfo` and (self-identifying for this reason) relId, pull the
+ * part out of the message or return null.
+ *
+ * This exists for similar reasons to `pickPartByRelId`.
+ */
+function pickPartFromMessageByRelId(messageInfo, relId) {
+  // Our part id scheme indicates the type of attachment it is for this
+  // specific reason.  Using charCodeAt here would be a little more
+  // efficient, but arguably uglier.
+  switch (relId[0]) {
+    case 'a':
+      return pickPartByRelId(messageInfo.attachments, relId);
+    case 'r':
+      return pickPartByRelId(messageInfo.relatedParts, relId);
+    default:
+      return null;
+  }
+}
+
 return {
   makeMessageInfo,
   makeDraftInfo,
   makeBodyPart,
   makeAttachmentPart,
-  pickPartByRelId
+  pickPartByRelId,
+  pickPartFromMessageByRelId
 };
 }); // end define

@@ -189,6 +189,7 @@ return TaskDefiner.defineSimpleTask([
 
           let messageInfo = chewMessageStructure(
             msg,
+            null, // we don't pre-compute the headers.
             folderIds,
             flags,
             convId
@@ -335,5 +336,4 @@ return TaskDefiner.defineSimpleTask([
     }
   }
 ]);
-
 });

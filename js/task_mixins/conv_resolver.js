@@ -1,9 +1,6 @@
 define(function(require) {
 'use strict';
 
-const { extractReferences, extractMessageIdHeader } =
-  require('../imap/imapchew');
-
 const { convIdFromMessageId, messageIdComponentFromUmid } =
   require('../id_conversions');
 
@@ -11,19 +8,10 @@ const { convIdFromMessageId, messageIdComponentFromUmid } =
  * Task helper to assist in establishing the conversation relationship for
  * a message given a BrowserBox-style raw message rep.
  */
-function* resolveConversationTaskHelper(ctx, msg, accountId, umid) {
+function* resolveConversationTaskHelper(ctx, msgOrHeaders, accountId, umid) {
   // -- Perform message-id header lookups
-  let msgIdHeader, references;
-  // Is this an already valid-ish MessageInfo from POP3?
-  if (msg.umid === 'stub') {
-    // XXX obviously, this is not a great place for the difference in inputs to
-    // be compensated for
-    msgIdHeader = msg.guid;
-    references = msg.references;
-  } else {
-    msgIdHeader = extractMessageIdHeader(msg);
-    references = extractReferences(msg, msgIdHeader);
-  }
+  let msgIdHeader = msgOrHeaders.guid;
+  let references = msgOrHeaders.references;
 
   let headerIdLookupRequests = new Map();
   for (let ref of references) {

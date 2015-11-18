@@ -1,20 +1,21 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let { shallowClone } = require('../../util');
-let { prioritizeNewer } = require('../../date_priority_adjuster');
+const co = require('co');
+const { shallowClone } = require('../../util');
+const { prioritizeNewer } = require('../../date_priority_adjuster');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let { resolveConversationTaskHelper } =
+const { resolveConversationTaskHelper } =
   require('../../task_mixins/conv_resolver');
 
-let { chewMessageStructure } = require('../imapchew');
+const { browserboxMessageToMimeHeaders, chewMessageStructure } =
+  require('../imapchew');
 
-let { conversationMessageComparator } = require('../../db/comparators');
+const { conversationMessageComparator } = require('../../db/comparators');
 
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
+const churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 /**
  * What to fetch.  Note that we currently re-fetch the flags even though they're
@@ -22,7 +23,7 @@ let churnConversation = require('../../churn_drivers/conv_churn_driver');
  * debugging right now and may end up being conditionally necessary in the
  * smarter CONDSTORE/QRESYNC cases.
  */
-let INITIAL_FETCH_PARAMS = [
+const INITIAL_FETCH_PARAMS = [
   'uid',
   'internaldate',
   'bodystructure',
@@ -86,12 +87,16 @@ return TaskDefiner.defineSimpleTask([
       );
       let msg = rawMessages[0];
 
+      let headers = browserboxMessageToMimeHeaders(msg);
+
       // -- Resolve the conversation this goes in.
       let { convId, existingConv, messageId, headerIdWrites, extraTasks } =
-        yield* resolveConversationTaskHelper(ctx, msg, req.accountId, req.umid);
+        yield* resolveConversationTaskHelper(
+          ctx, headers, req.accountId, req.umid);
 
       let messageInfo = chewMessageStructure(
         msg,
+        headers,
         [req.folderId],
         msg.flags,
         convId,
@@ -142,5 +147,4 @@ return TaskDefiner.defineSimpleTask([
     }),
   }
 ]);
-
 });

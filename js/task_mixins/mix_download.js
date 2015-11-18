@@ -3,7 +3,12 @@ define(function(require) {
 
 const co = require('co');
 
-const { pickPartByRelId } = require('../../db/mail_rep');
+const { convIdFromMessageId } = require('../../id_conversions');
+const { pickPartByRelId, pickPartFromMessageByRelId } =
+  require('../../db/mail_rep');
+
+const churnConversation = require('../churn_drivers/conv_churn_driver');
+
 
 /**
  * The heart of the attachment/related-part download task, with each engine
@@ -300,22 +305,7 @@ return {
       let messageReq = persistentState.get(messageId);
       for (let relId of messageReq.partDownloads.keys()) {
         activeRelIds.add(relId);
-        let part;
-        // Our part id scheme indicates the type of attachment it is for this
-        // specific reason.  Using charCodeAt here would be a little more
-        // efficient, but arguably uglier.
-        switch (relId[0]) {
-          case 'a':
-            part = pickPartByRelId(messageInfo.attachments, relId);
-            break;
-          case 'r':
-            part = pickPartByRelId(messageInfo.relatedParts, relId);
-            break;
-          default:
-            // impossible.
-            break;
-        }
-        parts.push(part);
+        parts.push(pickPartFromMessageByRelId(messageInfo, relId));
       }
     }
 
@@ -359,15 +349,92 @@ return {
         // - Yes, done.  Consolidate into super-blob if needed.
         // We only need to consolidate if there was more than one blob.
         if (blobCount > 1) {
-          ctx.spawnSimpleMutationSubtask(
+          yield ctx.spawnSimpleMutationSubtask(
             { namespace: 'complexTaskStates', id: messageTaskKey },
             (messageReq) => {
-
+              // NB: We consolidate into a single element array for consistency
+              // with the single-element case.
+              const multiBlobs = messageReq.partDownloads.get(relId);
+              const singleBlob =
+                new Blob(multiBlobs, { type: multiBlobs[0].type });
+              messageReq.partDownloads.set(relId, [singleBlob]);
+              persistentState.set(messageId, messageReq);
+              return messageReq;
             }
-          )
+          );
         }
+
+        // - Move the single Blob into the MessageInfo and update our messageReq
+        // This needs to be a full-blown subtask since we need to acquire two
+        // things: the MessageInfo and our fully-laundered messageReq.
+        yield ctx.spawnSubtask(co.wrap(function*(subctx) {
+          const fromDb = subctx.beginMutate({
+            messages: new Map([[[messageId, messageDate], null]]),
+            complexTaskStates: new Map([[messageTaskKey, null]])
+          });
+          const messageReq = fromDb.complexTaskStates.get(messageTaskKey);
+          const singleBlob = messageReq.partDownloads.get(relId)[0];
+
+          const mutateMessageInfo = fromDb.messages.get(messageId);
+
+          // Update the part's state to be a cached download.
+          const part = pickPartFromMessageByRelId(mutateMessageInfo, relId);
+          part.downloadState = 'cached';
+          part.file = singleBlob;
+
+          // Update our request to have finished downloading the given relId.
+          messageReq.partDownloads.delete(relId);
+          persistentState.set(messageId, messageReq);
+
+          // Write them out and be done.  Note that we do not update/re-churn
+          // the conversation until the very end of the execute().
+          yield subctx.finishTask({
+            mutations: {
+              complexTaskStates: new Map([[messageTaskKey, messageReq]]),
+              messages: new Map([[messageId, mutateMessageInfo]])
+            }
+          });
+        }));
       }
     }
+
+    // -- All downloads completed!
+    const convId = convIdFromMessageId(messageId);
+    const fromDb = yield ctx.beginMutate({
+      conversations: new Map([[convId, null]]),
+      messagesByConversation: new Map([[convId, null]]),
+      complexTaskStates: new Map([[messageTaskKey, null]])
+    });
+
+    // - Churn the conversation
+    // Note that even though we don't modify the messages at all, we needed
+    // write-locks on them.
+    const loadedMessages = fromDb.messagesByConversation.get(convId);
+    const oldConvInfo = fromDb.conversations.get(convId);
+    const convInfo = churnConversation(convId, oldConvInfo, loadedMessages);
+
+    const messageReq = fromDb.complexTaskStates.get(messageTaskKey);
+    let modifyComplexTaskStates;
+    let modifyTaskMarkers;
+    if (messageReq.partDownloads.size) {
+      // We still have more to do because another plan() must have happened.
+      // Reschedule our existing marker.
+      modifyTaskMarkers = new Map([[marker.id, marker]]);
+      // (and leave the task state as-is.)
+    } else {
+      // We have nothing more to do, we can delete the request.
+      modifyTaskMarkers = new Map([[messageId, null]]);
+      persistentState.delete(messageId);
+    }
+
+    // - Finish out the task/marker or re-enqueue as appropriate
+    yield ctx.finishTask({
+      mutations: {
+        conversations: new Map([[convId, convInfo]]),
+        complexTaskStates: modifyComplexTaskStates
+      },
+      taskMarkers: modifyTaskMarkers
+    });
   })
 };
 });

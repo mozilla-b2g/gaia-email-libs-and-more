@@ -139,6 +139,7 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
   }
   return headers;
 }
+exports.browserboxMessageToMimeHeaders = browserboxMessageToMimeHeaders;
 
 /**
  * Encode a header value (with parameters) into a parameter header.
@@ -185,12 +186,14 @@ function estimatePartSizeInBytes(encoding, size) {
  * Convert a BODYSTRUCTURE response containing MIME metadata into a format
  * suitable for a MailRep (`{ header, body }`).
  */
-exports.chewMessageStructure = function(msg, folderIds, flags, convId,
+exports.chewMessageStructure = function(msg, headers, folderIds, flags, convId,
                                         maybeUmid, explicitMessageId) {
-  var headers = browserboxMessageToMimeHeaders(msg);
+  if (!headers) {
+    headers = browserboxMessageToMimeHeaders(msg);
+  }
 
   var partBuilder = new PartBuilder(headers);
-  function chewStructureNode(snode, partNum, parentContentType) {
+  function chewStructureNode(snode, parentContentType) {
     var nodeHeaders = new MimeHeaderInfo({
       'content-id': snode.id ? [snode.id] : null,
       'content-transfer-encoding': snode.encoding ? [snode.encoding] : null,
@@ -200,7 +203,7 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
         [encodeHeaderValueWithParams(snode.type, snode.parameters)],
     }, { parentContentType });
 
-    var { rep } = partBuilder.addNode(partNum, nodeHeaders);
+    var { rep } = partBuilder.addNode(snode.part, nodeHeaders);
 
     if (rep && snode.encoding && snode.size) {
       rep.sizeEstimate = estimatePartSizeInBytes(snode.encoding, snode.size);
@@ -218,12 +221,12 @@ exports.chewMessageStructure = function(msg, folderIds, flags, convId,
     if (snode.childNodes) {
       for (var i = 0; i < snode.childNodes.length; i++) {
         chewStructureNode(
-          snode.childNodes[i], partNum + '.' + (i + 1), snode.type);
+          snode.childNodes[i], snode.part, snode.type);
       }
     }
   }
 
-  chewStructureNode(msg.bodystructure, '1', null);
+  chewStructureNode(msg.bodystructure, null);
 
   let { attachments, relatedParts, bodyReps } = partBuilder.finalize();
 
