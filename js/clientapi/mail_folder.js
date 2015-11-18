@@ -91,6 +91,8 @@ MailFolder.prototype = evt.mix({
 
     this.neededForHierarchy = !this.selectable;
 
+    this.fullySynced = wireRep.fullySynced;
+
     /**
      *  isValidMoveTarget denotes whether this folder is a valid
      *  place for messages to be moved into.
