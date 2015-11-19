@@ -220,8 +220,7 @@ exports.chewMessageStructure = function(msg, headers, folderIds, flags, convId,
 
     if (snode.childNodes) {
       for (var i = 0; i < snode.childNodes.length; i++) {
-        chewStructureNode(
-          snode.childNodes[i], snode.part, snode.type);
+        chewStructureNode(snode.childNodes[i], snode.type);
       }
     }
   }

@@ -44,13 +44,25 @@ PartBuilder.prototype = {
     // each compatible part, so we just need to remove the ones we don't want.
     this.alternativePartNumbers.forEach((altPart) => {
       var foundSuitableBody = false;
+      var altCheck;
+      if (altPart) {
+        altCheck = new RegExp('^' + altPart + '.' );
+      } else {
+        // A multipart/alternative root may have a part that was undefined,
+        // in which case our check should pass for all body parts.  Previously,
+        // as part of the initial streaming branch we were generating our own
+        // part numbers with the root being '1' which was probably sane, but
+        // broke IMAP and arguably there are sanity benefits to using the same
+        // names as the server.
+        altCheck = /^/;
+      }
       for (var i = this.bodyReps.length - 1; i >= 0; i--) {
         var rep = this.bodyReps[i];
         // Is this rep a suitable body for this multipart/alternative part?
         // If so, the multipart/alternative part will be an ancestor of it.
         // We just want the first one that matches, since we already filtered
         // out unacceptable bodies.
-        if (rep.part.indexOf(altPart + '.') === 0) {
+        if (altCheck.test(rep.part)) {
           if (!foundSuitableBody) {
             foundSuitableBody = true;
           } else {
@@ -105,16 +117,20 @@ PartBuilder.prototype = {
       if (headers.disposition === 'attachment') {
         rep = this._makePart(partNum, headers, 'a');
         this.attachments.push(rep);
-        return { type: 'attachment',
-                 rep: rep,
-                 index: this.attachments.length - 1 };
+        return {
+          type: 'attachment',
+          rep,
+          index: this.attachments.length - 1
+        };
       }
       else if (headers.mediatype === 'image') {
         rep = this._makePart(partNum, headers, 'r');
         this.relatedParts.push(rep);
-        return { type: 'related',
-                 rep: rep,
-                 index: this.relatedParts.length - 1 };
+        return {
+          type: 'related',
+          rep,
+          index: this.relatedParts.length - 1
+        };
       }
       else if (headers.mediatype === 'text' &&
                (headers.subtype === 'plain' || headers.subtype === 'html')) {
