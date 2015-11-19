@@ -1435,6 +1435,8 @@ MailDB.prototype = evt.mix({
     trans.objectStore(TBL_SYNC_STATES).delete(accountId);
     trans.objectStore(TBL_SYNC_STATES).delete(accountStringPrefix);
 
+    trans.objectStore(TBL_COMPLEX_TASKS).delete(accountArrayItemPrefix);
+
     // Folders: Just delete by accountId
     trans.objectStore(TBL_FOLDER_INFO).delete(accountStringPrefix);
 
@@ -1447,8 +1449,8 @@ MailDB.prototype = evt.mix({
     trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
 
     trans.objectStore(TBL_HEADER_ID_MAP).delete(accountArrayItemPrefix);
-    trans.objectStore(TBL_UMID_NAME).delete(accountStringPrefix);
     trans.objectStore(TBL_UMID_LOCATION).delete(accountStringPrefix);
+    trans.objectStore(TBL_UMID_NAME).delete(accountStringPrefix);
   },
 
   _addRawTasks: function(trans, wrappedTasks) {
