@@ -65,6 +65,10 @@ TaskPriorities.prototype = {
     return this._prioritizedTasks.isEmpty();
   },
 
+  get numTasksToExecute() {
+    return this._prioritizedTasks.nodeCount;
+  },
+
   /**
    * Retrieve a task for execution.  The task will no longer be tracked by
    * `TaskPriorities` at all; error handling logic at higher levels is
@@ -90,8 +94,10 @@ TaskPriorities.prototype = {
   _computePriorityForTags: function(priorityTags) {
     let summedPriorityTags = this._summedPriorityTags;
     let priority = 0;
-    for (let priorityTag of priorityTags) {
-      priority += (summedPriorityTags.get(priorityTag) || 0);
+    if (priorityTags) {
+      for (let priorityTag of priorityTags) {
+        priority += (summedPriorityTags.get(priorityTag) || 0);
+      }
     }
     return priority;
   },
@@ -151,13 +157,13 @@ TaskPriorities.prototype = {
     };
 
     // - Iterate over newValues for new/changed values.
-    for (let [priorityTag, newPriority] of newValues.items()) {
+    for (let [priorityTag, newPriority] of newValues.entries()) {
       let oldPriority = existingValues.get(priorityTag) || 0;
       let priorityDelta = newPriority - oldPriority;
       applyDelta(priorityTag, priorityDelta);
     }
     // - Iterate over existingValues for deletions
-    for (let [priorityTag, oldPriority] of existingValues.items()) {
+    for (let [priorityTag, oldPriority] of existingValues.entries()) {
       if (newValues.has(priorityTag)) {
         continue;
       }

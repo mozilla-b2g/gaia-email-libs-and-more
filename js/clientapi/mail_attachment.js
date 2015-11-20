@@ -12,9 +12,13 @@ function MailAttachment(_message, wireRep) {
   evt.Emitter.call(this);
 
   this._message = _message;
-  // Create an absolute
+  // Create an absolute id that uniquely identifies the attachment.  (There's
+  // no API that cares about this id yet, though.)
   this.id = _message.id + '.' + wireRep.relId;
+  // The unique id for the attachment on this message.  Not unique elsewhere.
   this.relId = wireRep.relId;
+  // The IMAP part number for this attachment.  If you need this for anything
+  // other than debugging, then it's a sad day for all.
   this.partId = wireRep.part;
   this.filename = wireRep.name;
   this.mimetype = wireRep.type;
@@ -46,12 +50,17 @@ MailAttachment.prototype = evt.mix({
    */
   __updateDownloadOverlay: function(info) {
     if (info) {
+      let changed = (this.downloadStatus !== info.status);
       this.downloadStatus = info.status;
-      this.downloadProgress = info.progress;
+      this.bytedDownloaded = info.bytesDownloaded;
     } else {
       this.downloadStatus = null;
-      this.downloadProgress = null;
+      this.bytesDownloaded = 0;
     }
+  },
+
+  get isDownloading() {
+    return !!this.downloadStatus;
   },
 
   get isDownloaded() {
@@ -82,7 +91,7 @@ MailAttachment.prototype = evt.mix({
    *     by GELAM.
    */
   download: function() {
-    if (this.isDownloaded) {
+    if (this.isDownloaded || this.isDownloading) {
       return;
     }
     this._message._api._downloadAttachments({

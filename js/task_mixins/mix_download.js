@@ -3,9 +3,9 @@ define(function(require) {
 
 const co = require('co');
 
-const { convIdFromMessageId } = require('../../id_conversions');
+const { convIdFromMessageId } = require('../id_conversions');
 const { pickPartByRelId, pickPartFromMessageByRelId } =
-  require('../../db/mail_rep');
+  require('../db/mail_rep');
 
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
@@ -140,6 +140,7 @@ return {
     return {
       type: this.name,
       id: 'download:' + messageId,
+      accountId,
       messageId
     };
   },
@@ -166,8 +167,8 @@ return {
     }
     let active = memoryState.activeDownloadsByMessageId.get(messageId);
     let overlay = new Map();
-    for (let [relId, blobs] of pending.partDownloads.items()) {
-      let isActive = active.has(relId);
+    for (let [relId, blobs] of pending.partDownloads.entries()) {
+      let isActive = active && active.has(relId);
       let bytesDownloaded =
         blobs ? blobs.reduce((sum, blob) => sum + blob.size, 0) : 0;
       if (!isActive) {
@@ -197,7 +198,8 @@ return {
     // NB: We could arguably just depend on the persistentState here and just
     // acquire the write-lock without the read.
     const messageTaskKey = [ctx.accountId, this.name, messageId];
-    let messageReq = ctx.mutateSingle('complexTaskStates', messageTaskKey);
+    let messageReq =
+      yield ctx.mutateSingle('complexTaskStates', messageTaskKey);
     if (!messageReq) {
       messageReq = {
         messageDate,
@@ -245,8 +247,8 @@ return {
       yield ctx.finishTask({
         mutations: {
           complexTaskStates: new Map([[messageTaskKey, messageReq]]),
-          taskMarkers: new Map([[marker.id, marker]])
-        }
+        },
+        taskMarkers: new Map([[marker.id, marker]])
       });
     }
 
@@ -282,7 +284,7 @@ return {
   execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
     const account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
     const { messageId } = marker;
-    const { messageDate } = persistentState.get(messageId).messageDate;
+    const { messageDate } = persistentState.get(messageId);
 
     let activeRelIds = new Set();
     memoryState.activeDownloadsByMessageId.set(messageId, activeRelIds);
@@ -291,8 +293,8 @@ return {
     // Get a copy of the message info for read-only purposes so we have the
     // per-part AttachmentInfo to provide with the request.  (The parts will
     // not disappear unless this is a draft, and we don't service drafts.)
-    let messageInfo = ctx.readSingle(
-      'messages', [messageId, messageDate], marker.messageId);
+    let messageInfo = yield ctx.readSingle(
+      'messages', [messageId, messageDate], messageId);
 
     // (it's safe to latch the parts/messageInfo for the duration of the task
     // because they will only ever contain disk-backed Blobs.)
@@ -328,7 +330,7 @@ return {
       let { relId, blobCount, blob, done } = value;
       if (!done) {
         // - Not done, do the append dance.
-        ctx.spawnSimpleMutationSubtask(
+        yield ctx.spawnSimpleMutationSubtask(
           { namespace: 'complexTaskStates', id: messageTaskKey },
           (messageReq) => {
             // If this is the first blob for the download, clobber-initialize so
@@ -368,7 +370,7 @@ return {
         // This needs to be a full-blown subtask since we need to acquire two
         // things: the MessageInfo and our fully-laundered messageReq.
         yield ctx.spawnSubtask(co.wrap(function*(subctx) {
-          const fromDb = subctx.beginMutate({
+          const fromDb = yield subctx.beginMutate({
             messages: new Map([[[messageId, messageDate], null]]),
             complexTaskStates: new Map([[messageTaskKey, null]])
           });

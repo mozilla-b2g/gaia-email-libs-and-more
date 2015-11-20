@@ -127,6 +127,12 @@ TaskManager.prototype = evt.mix({
     // -- Trigger processing when all initialization has completed.
     Promise.all(pendingInitPromises).then(() => {
       this._activePromise = null;
+      logic(
+        this, 'starting',
+        {
+          numTasksToPlan: this._tasksToPlan.length,
+          numPrioritizedTasks: this._priorities.numTasksToExecute
+        });
       this._maybeDoStuff();
     });
   }),

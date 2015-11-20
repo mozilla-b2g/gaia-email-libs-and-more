@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 111;
+const CUR_VERSION = 113;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -544,7 +544,7 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_CONFIG);
     db.createObjectStore(TBL_SYNC_STATES);
     db.createObjectStore(TBL_TASKS);
-    db.createObjectStore(TBL_COMPLEX_TASKS, { keyPath: 'key' });
+    db.createObjectStore(TBL_COMPLEX_TASKS);
     db.createObjectStore(TBL_FOLDER_INFO);
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
@@ -1419,9 +1419,27 @@ MailDB.prototype = evt.mix({
       accountId + '.',
       accountId + '.\ufff0',
       true, true);
+    // A key range where the key is an array and the first item is a string that
+    // is a namespaced-suffix of the accountId.  For example, FolderId and
+    // ConversationId and MessageId are all suffixes.  If the first item is
+    // *only* the accountId,
     let accountArrayItemPrefix = IDBKeyRange.bound(
       [accountId + '.'],
       [accountId + '.\ufff0'],
+      true, true);
+    // A key range where the key is an array and the first item is the
+    // AccountId.
+    let accountFirstElementArray = IDBKeyRange.bound(
+      [accountId],
+      // We use an array as the second element since arrays are greater than
+      // all other key values.  We do this instead of suffixing the (variable
+      // length) AccountId because although this way is slightly more magic,
+      // I believe it's significantly easier to intuitively understand as
+      // correct.  If only because everyone should be innately terrified of
+      // string comparisons and unicode.  (It does, however forbid any of our
+      // data types from using nested arrays as the second element.  This is
+      // currently the case.)
+      [accountId, []],
       true, true);
 
     // We handle the syncStates, folders, conversations, and message
@@ -1435,7 +1453,7 @@ MailDB.prototype = evt.mix({
     trans.objectStore(TBL_SYNC_STATES).delete(accountId);
     trans.objectStore(TBL_SYNC_STATES).delete(accountStringPrefix);
 
-    trans.objectStore(TBL_COMPLEX_TASKS).delete(accountArrayItemPrefix);
+    trans.objectStore(TBL_COMPLEX_TASKS).delete(accountFirstElementArray);
 
     // Folders: Just delete by accountId
     trans.objectStore(TBL_FOLDER_INFO).delete(accountStringPrefix);
@@ -1448,7 +1466,7 @@ MailDB.prototype = evt.mix({
     // Messages: string ordering unicode tricks
     trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
 
-    trans.objectStore(TBL_HEADER_ID_MAP).delete(accountArrayItemPrefix);
+    trans.objectStore(TBL_HEADER_ID_MAP).delete(accountFirstElementArray);
     trans.objectStore(TBL_UMID_LOCATION).delete(accountStringPrefix);
     trans.objectStore(TBL_UMID_NAME).delete(accountStringPrefix);
   },
@@ -1554,9 +1572,7 @@ MailDB.prototype = evt.mix({
 
       if (mutations.complexTaskStates) {
         for (let [key, complexTaskState] of mutations.complexTaskStates) {
-          complexTaskState.key = key;
-          logic(this, 'complexTaskStates', { complexTaskState });
-          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState);
+          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState, key);
         }
       }
     } else {

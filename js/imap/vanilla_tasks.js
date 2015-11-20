@@ -14,6 +14,8 @@ return [
   require('./vanilla_tasks/sync_body'),
   //require('./vanilla_tasks/merge_conversations'),
 
+  require('./vanilla_tasks/download'),
+
   require('./vanilla_tasks/store_flags'),
 
   require('../tasks/draft_save'),

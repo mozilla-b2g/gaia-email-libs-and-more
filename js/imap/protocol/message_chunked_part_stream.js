@@ -52,10 +52,11 @@ return function messageChunkedPartStream({
         downloadChunkSize,
         saveChunkSize
       });
+      let mimeReader = mimeStream.getReader();
 
       // (We do not need the headers since it's information sourced from the
       // partInfo and already known to our caller.)
-      let { value: { bodyStream } } = yield mimeStream.read();
+      let { value: { bodyStream } } = yield mimeReader.read();
       let bodyReader = bodyStream.getReader();
 
       for (;;) {
@@ -79,6 +80,7 @@ return function messageChunkedPartStream({
       }
 
       bodyReader.cancel();
+      mimeReader.cancel();
     })
   });
 };

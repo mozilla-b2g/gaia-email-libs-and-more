@@ -179,9 +179,23 @@ MailMessage.prototype = evt.mix({
 
   __updateOverlays: function(overlays) {
     let downloadMap = overlays.download;
+    // Loop over all attachments even if there isn't a download map; when the
+    // map gets retracted, that's still a notable change that we need to update
+    // for.
     for (let attachment of this.attachments) {
       let downloadOverlay = downloadMap && downloadMap.get(attachment.relId);
       attachment.__updateDownloadOverlay(downloadOverlay);
+      attachment.emit('change');
+    }
+
+    this.isDownloadingEmbeddedImages = false;
+    if (downloadMap) {
+      for (let relId of downloadMap.keys()) {
+        if (relId[0] === 'r') {
+          this.isDownloadingEmbeddedImages = true;
+          break;
+        }
+      }
     }
   },
 

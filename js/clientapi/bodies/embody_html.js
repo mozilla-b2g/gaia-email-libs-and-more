@@ -142,17 +142,22 @@ const DEFAULT_STYLE_TAG =
         }
       };
 
-      let loadHandler = (evt) => {
-        console.log('loadend!');
-        iframe.removeEventListener('load', loadHandler);
+      let initialLoadHandler = () => {
+        iframe.removeEventListener('load', initialLoadHandler);
         ownerDoc.defaultView.URL.revokeObjectURL(superBlobUrl);
         resolve();
         // load implies any images were loaded, so really just once is okay,
         // but just in case there are some instabilities, ensure we check at
         // least once more.
         pollForResize(3);
+        // Now listen as long as the iframe is alive for images showing up.  If
+        // they show up, do a resize check.  (We use capturing since the event
+        // does not bubble.)
+        iframe.contentDocument.body.addEventListener('load', () => {
+          pollForResize(2);
+        }, true);
       };
-      iframe.addEventListener('load', loadHandler);
+      iframe.addEventListener('load', initialLoadHandler);
     });
 
     return { iframe, loadedPromise };
