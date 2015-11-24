@@ -1,4 +1,5 @@
 define(function() {
+'use strict';
 
 var listeners = {};
 
@@ -6,8 +7,9 @@ function receiveMessage(evt) {
   var data = evt.data;
 //dump('\x1b[37mw <= M: recv: '+data.type+' '+data.uid+' '+data.cmd +'\x1b[0m\n');
   var listener = listeners[data.type];
-  if (listener)
+  if (listener) {
     listener(data);
+  }
 }
 
 window.addEventListener('message', receiveMessage);
@@ -29,31 +31,32 @@ function registerSimple(type, callback) {
 var callbackSenders = {};
 
 /**
- * Register a message type that allows sending messages that may expect a return
- * message that should trigger a callback.  Messages may not be received unless
- * they have an associated callback from a previous sendMessage.
+ * Register a message type that allows sending messages that expect a return
+ * message which should resolve the returned Promise.
  */
 function registerCallbackType(type) {
-  if (callbackSenders.hasOwnProperty(type))
+  if (callbackSenders.hasOwnProperty(type)) {
     return callbackSenders[type];
-  listeners[type] = function receiveCallbackMessage(data) {
-    var callback = callbacks[data.uid];
-    if (!callback)
-      return;
-    delete callbacks[data.uid];
-
-    callback.apply(callback, data.args);
-  };
+  }
   var callbacks = {};
   var uid = 0;
-
-  var sender = function sendCallbackMessage(cmd, args, callback) {
-    if (callback) {
-      callbacks[uid] = callback;
+  listeners[type] = function receiveCallbackMessage(data) {
+    var callback = callbacks[data.uid];
+    if (!callback) {
+      return;
     }
+    delete callbacks[data.uid];
 
-    //dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
-    window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
+    callback(data.args);
+  };
+
+  var sender = function sendCallbackMessage(cmd, args) {
+    return new Promise((resolve) => {
+      callbacks[uid] = resolve;
+
+      //dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
+      window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
+    });
   };
   callbackSenders[type] = sender;
   return sender;
@@ -68,8 +71,9 @@ function registerInstanceType(type) {
   var instanceMap = {};
   listeners[type] = function receiveInstanceMessage(data) {
     var instanceListener = instanceMap[data.uid];
-    if (!instanceListener)
+    if (!instanceListener) {
       return;
+    }
 
     instanceListener(data);
   };
@@ -107,5 +111,4 @@ return {
   unregister: unregister,
   shutdown: shutdown
 };
-
 }); // end define

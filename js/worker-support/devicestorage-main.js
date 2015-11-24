@@ -1,27 +1,31 @@
 define(function() {
   'use strict';
 
-  function debug(str) {
-    dump('DeviceStorage: ' + str + '\n');
-  }
+  var self;
 
-
+  // NB: This code works, avoiding refactor right now since we just want
+  // DeviceStorage to be available on the worker or normalize and move to
+  // bridge.js for this hacky stuff.
   function save(uid, cmd, storage, blob, filename, registerDownload) {
     // For the download manager, we want to avoid the composite storage
     var deviceStorage = navigator.getDeviceStorage(storage);
 
     if (!deviceStorage) {
+      console.warn('no device-storage available.');
       self.sendMessage(uid, cmd, [false, 'no-device-storage', null, false]);
       return;
     }
 
+    console.log('issuing addNamed req');
     var req = deviceStorage.addNamed(blob, filename);
 
     req.onerror = function() {
+      console.log('device-storage addNamed error, may be expected.', req.error);
       self.sendMessage(uid, cmd, [false, req.error.name, null, false]);
     };
 
     req.onsuccess = function(e) {
+      console.log('addName returned happy');
       var prefix = '';
 
       if (typeof window.IS_GELAM_TEST !== 'undefined') {
@@ -80,14 +84,17 @@ define(function() {
     };
   }
 
-  var self = {
+  self = {
     name: 'devicestorage',
     sendMessage: null,
     process: function(uid, cmd, args) {
-      debug('process ' + cmd);
+      console.log('devicestorage-main:', cmd);
       switch (cmd) {
         case 'save':
-          save(uid, cmd, args[0], args[1], args[2], args[3]);
+          save(uid, cmd, ...args);
+          break;
+        default:
+          // no other supported ops.
           break;
       }
     }

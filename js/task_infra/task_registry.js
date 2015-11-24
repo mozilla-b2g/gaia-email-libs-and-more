@@ -236,14 +236,31 @@ TaskRegistry.prototype = {
     }
 
     ctx.__taskInstance = taskMeta.impl;
-    if (taskMeta.impl.isComplex) {
-      return taskMeta.impl.plan(
-        ctx, taskMeta.persistentState, taskMeta.memoryState, rawTask);
-    } else {
-      // All tasks have a plan stage.  Even if it's only the default one that
-      // just chucks it in the priority bucket.
-      return taskMeta.impl.plan(ctx, rawTask);
+    let maybePromiseResult;
+    try {
+      if (taskMeta.impl.isComplex) {
+        maybePromiseResult = taskMeta.impl.plan(
+          ctx, taskMeta.persistentState, taskMeta.memoryState, rawTask);
+      } else {
+        // All tasks have a plan stage.  Even if it's only the default one that
+        // just chucks it in the priority bucket.
+        return taskMeta.impl.plan(ctx, rawTask);
+      }
+    } catch (ex) {
+      logic.fail(ex);
     }
+    // We need to force tasks to finalize if they don't do so themselves.  This
+    // is true for both rejections and returns without finalization.
+    if (maybePromiseResult.then) {
+      let doFinalize = () => { ctx.__failsafeFinalize(); };
+      // I'm intentionally not forcing the return to wait on the failsafe
+      // finalization to happen out of paranoia.  It might be a good idea,
+      // though.
+      maybePromiseResult.then(doFinalize, doFinalize);
+    } else {
+      ctx.__failsafeFinalize();
+    }
+    return maybePromiseResult;
   },
 
   executeTask: function(ctx, taskThing) {

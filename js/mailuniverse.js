@@ -752,22 +752,16 @@ MailUniverse.prototype = {
    * @param {Object} arg
    * @param {MessageId} messageId
    * @param {DateMS} messageDate
-   * @param {String[]} arg.relatedPartRelIds
-   *     The part identifiers of any related parts to be saved to IndexedDB.
-   * @param {String[]} arg.attachmentRelIds
-   *     The part identifiers of any attachment parts to be saved to
-   *     DeviceStorage.  For each entry in this array there should be a
-   *     corresponding boolean in registerWithDownloadManager.
+   * @param {Map<AttachmentRelId, AttachmentSaveTarget>} parts
    */
   downloadMessageAttachments: function({
-    messageId, messageDate, relatedPartRelIds, attachmentRelIds }) {
+    messageId, messageDate, parts }) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult({
       type: 'download',
       accountId: accountIdFromMessageId(messageId),
       messageId,
       messageDate,
-      relatedPartRelIds,
-      attachmentRelIds
+      parts
     });
   },
 

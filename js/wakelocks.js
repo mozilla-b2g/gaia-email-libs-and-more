@@ -4,7 +4,7 @@ define(function(require) {
   const logic = require('logic');
 
   const $router = require('./worker-router');
-  const sendMessage = $router.registerCallbackType('wakelocks');
+  const sendWakeLockMessage = $router.registerCallbackType('wakelocks');
 
   /**
    * SmartWakeLock: A renewable, failsafe Wake Lock manager.
@@ -41,12 +41,9 @@ define(function(require) {
     // under the hood.
     this._readyPromise = Promise.all(opts.locks.map((type) => {
       logic(this, 'requestLock', { type, durationMs: this.timeoutMs });
-      return new Promise((resolve) => {
-        sendMessage('requestWakeLock', [type], (lockId) => {
-          logic(this, 'locked', { type });
-          locks[type] = lockId;
-          resolve();
-        });
+      return sendWakeLockMessage('requestWakeLock', [type]).then((lockId) => {
+        logic(this, 'locked', { type });
+        locks[type] = lockId;
       });
     })).then(() => {
       // For simplicity of implementation, we reuse the `renew` method
@@ -105,10 +102,8 @@ define(function(require) {
 
         // Wait for all of them to successfully unlock.
         return Promise.all(Object.keys(locks).map((type) => {
-          return new Promise((resolve) => {
-            sendMessage('unlock', [locks[type]], () => {
-              resolve(type);
-            });
+          return sendWakeLockMessage('unlock', [locks[type]], () => {
+            return type;
           });
         })).then((type) => {
           logic(this, 'unlocked', { type, reason });

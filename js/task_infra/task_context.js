@@ -555,6 +555,17 @@ TaskContext.prototype = {
       }
     });
   },
+
+  __failsafeFinalize: function() {
+    // things are good if we finished automatically.
+    if (this.state === 'finishing') {
+      return;
+    }
+
+    logic(this, 'failsafeFinalize');
+    // empty object implies empty taskState.
+    this.finishTask({});
+  }
 };
 return TaskContext;
 });

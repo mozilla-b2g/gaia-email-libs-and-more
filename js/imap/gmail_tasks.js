@@ -15,6 +15,8 @@ return [
   require('./gmail_tasks/store_flags'),
   require('./gmail_tasks/store_labels'),
 
+  require('./gmail_tasks/download'),
+
   require('../tasks/draft_save'),
   require('../tasks/draft_attach'),
   require('../tasks/draft_detach'),

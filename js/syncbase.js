@@ -143,33 +143,19 @@ exports.BYTES_PER_BLOB_CHUNK = 1024 * 1024;
 exports.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST = 1024 * 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
-// Error / Retry Constants
+// Download Stuff
 
 /**
- * What is the maximum number of tries we should give an operation before
- * giving up on the operation as hopeless?  Note that in some suspicious
- * error cases, the try cont will be incremented by more than 1.
- *
- * This value is somewhat generous because we do assume that when we do
- * encounter a flakey connection, there is a high probability of the connection
- * being flakey in the short term.  The operations will not be excessively
- * penalized for this since IMAP connections have to do a lot of legwork to
- * establish the connection before we start the operation (CAPABILITY, LOGIN,
- * CAPABILITY).
+ * The device storage name to use when saving downloaded files.  It has always
+ * been 'sdcard', it will probably always be 'sdcard'.  The choice of which
+ * of internal/external storage is handled by DeviceStorage and the system
+ * itself, not us.  You probably don't want to be changing this unless we change
+ * on devices to store the other storage names in places that don't overlap with
+ * 'sdcard'.  (As of this writing, on desktop the hacky/unsupported
+ * devicestorage implementation does use disparate places unless in testing
+ * mode.)
  */
-exports.MAX_OP_TRY_COUNT = 10;
-
-/**
- * The value to increment the operation tryCount by if we receive an
- * unexpected error.
- */
-exports.OP_UNKNOWN_ERROR_TRY_COUNT_INCREMENT = 5;
-
-/**
- * If we need to defer an operation because the folder/resource was not
- * available, how long should we defer for?
- */
-exports.DEFERRED_OP_DELAY_MS = 30 * 1000;
+exports.DEVICE_STORAGE_NAME = 'sdcard';
 
 ////////////////////////////////////////////////////////////////////////////////
 // General defaults

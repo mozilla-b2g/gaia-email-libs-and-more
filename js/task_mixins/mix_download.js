@@ -2,13 +2,55 @@ define(function(require) {
 'use strict';
 
 const co = require('co');
+const logic = require('logic');
 
 const { convIdFromMessageId } = require('../id_conversions');
-const { pickPartByRelId, pickPartFromMessageByRelId } =
-  require('../db/mail_rep');
+const { pickPartFromMessageByRelId } = require('../db/mail_rep');
+
+const { NOW } = require('../date');
 
 const churnConversation = require('../churn_drivers/conv_churn_driver');
 
+// (DeviceStorage is not available here on the worker so we need to remote.)
+const router = require('../worker-router');
+const sendStorageMessage = router.registerCallbackType('devicestorage');
+
+const { DEVICE_STORAGE_NAME } = require('../syncbase');
+
+/**
+ * Save a file to DeviceStorage, retrying with a different name if it seems like
+ * we're experencing a name collision.  We do this here rather than in
+ * devicestorage-main because we will still want this logic even when we can
+ * directly access DeviceStorage from here in the worker.
+ */
+const uniqueifyingSaveHelper = co.wrap(
+    function*(ctx, blob, filename) {
+  /* always register with the download manager */
+  const register = true;
+
+  let result = yield sendStorageMessage(
+    'save', [DEVICE_STORAGE_NAME, blob, filename, register]);
+
+  let [initialSucesss] = result;
+  if (initialSucesss) {
+    return result;
+  }
+
+  // Retry by appending a super huge timestamp to the file before its
+  // extension.
+  let idxLastPeriod = filename.lastIndexOf('.');
+  if (idxLastPeriod === -1) {
+    idxLastPeriod = filename.length;
+  }
+  const retryFilename =
+    filename.substring(0, idxLastPeriod) + '-' + NOW() +
+    filename.substring(idxLastPeriod);
+
+  result = yield sendStorageMessage(
+    'save', [DEVICE_STORAGE_NAME, blob, retryFilename, register]);
+
+  return result;
+});
 
 /**
  * The heart of the attachment/related-part download task, with each engine
@@ -48,12 +90,14 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
  * for each of these messages we store:
  * - messageDate: for random access fetching of the message without fetching the
  *   rest of the conversation.
- * - partDownloads: A Map from part relId to an Array of Blobs storing the DL
- *   progress thus far.  We currently don't support resuming, the Blob storage
- *   here is just so we can launder the Blobs from memory-back to disk-backed.
- *   (We don't do this on the MessageInfo because sending references to the
- *   memory-backed Blobs to the front-end that we don't want anyone holding onto
- *   is not helpful.)
+ * - partDownloads: A Map from part relId to an object with the following keys:
+ *   - target: A string that is either 'cache' (store in IndexedDB) or 'save'
+ *     (save to DeviceStorage at /mnt/sdcard).
+ *   - blobs: An array of Blobs storing the DL progress thus far.  We currently
+ *     don't support resuming, the Blob storage here is just so we can launder
+ *     the Blobs from memory-back to disk-backed.  (We don't do this on the
+ *     MessageInfo because sending references to the memory-backed Blobs to the
+ *     front-end that we don't want anyone holding onto is not helpful.)
  *
  * Each of the per-message records is stored as a separate IndexedDB key/value
  * using our task storage support for this.  We use full write-locking on these
@@ -125,14 +169,8 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
 return {
   name: 'download',
 
-  /**
-   *
-   */
+  // See the block comment above.
   initPersistentState: function() {
-    /**
-     * A map from MessageId to objects of the form: { messageDate,
-     * partDownloads: Map<null|Blob[]> }.
-     */
     return new Map();
   },
 
@@ -167,7 +205,7 @@ return {
     }
     let active = memoryState.activeDownloadsByMessageId.get(messageId);
     let overlay = new Map();
-    for (let [relId, blobs] of pending.partDownloads.entries()) {
+    for (let [relId, { blobs }] of pending.partDownloads.entries()) {
       let isActive = active && active.has(relId);
       let bytesDownloaded =
         blobs ? blobs.reduce((sum, blob) => sum + blob.size, 0) : 0;
@@ -191,8 +229,7 @@ return {
   },
 
   plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
-    const { messageId, messageDate, relatedPartRelIds, attachmentRelIds } =
-      rawTask;
+    const { messageId, messageDate, parts: requestedParts } = rawTask;
     const groupPromise = ctx.trackMeInTaskGroup('download:' + messageId);
 
     // NB: We could arguably just depend on the persistentState here and just
@@ -211,28 +248,23 @@ return {
     const messageInfo =
       yield ctx.readSingle('messages', [messageId, messageDate], messageId);
 
-    const maybeTrack = (relId, attr) => {
+    for (let [relId, target] of requestedParts.entries()) {
       // Ignore if already tracked.
       if (relId in messageReq.partDownloads) {
-        return;
+        continue;
       }
-      const part = pickPartByRelId(messageInfo[attr], relId);
+
+      const part = pickPartFromMessageByRelId(messageInfo, relId);
       // If non-null, the part has already been downloaded somewhere and we
       // don't need to do anything.
       if (part.downloadState === null) {
         newlyRequestedCount++;
-        messageReq.partDownloads.set(relId, null);
-      }
-    };
-
-    if (relatedPartRelIds) {
-      for (let relId of relatedPartRelIds) {
-        maybeTrack(relId, 'relatedParts');
-      }
-    }
-    if (attachmentRelIds) {
-      for (let relId of attachmentRelIds) {
-        maybeTrack(relId, 'attachments');
+        messageReq.partDownloads.set(
+          relId,
+          {
+            target,
+            blobs: null
+          });
       }
     }
 
@@ -336,10 +368,11 @@ return {
             // If this is the first blob for the download, clobber-initialize so
             // that we clear out any partially completed downloads.  (We're not
             // clever enough yet to resume.)
+            const partReq = messageReq.partDownloads.get(relId);
             if (blobCount === 0) {
-              messageReq.partDownloads.set(relId, []);
+              partReq.blobs = [];
             }
-            messageReq.partDownloads.get(relId).push(blob);
+            partReq.blobs.push(blob);
             // Write-back our mutated object, and also update our
             // persistentState to reflect this.  This is okay because we have
             // the write-lock inside this function.
@@ -354,12 +387,13 @@ return {
           yield ctx.spawnSimpleMutationSubtask(
             { namespace: 'complexTaskStates', id: messageTaskKey },
             (messageReq) => {
+              const partReq = messageReq.partDownloads.get(relId);
               // NB: We consolidate into a single element array for consistency
               // with the single-element case.
-              const multiBlobs = messageReq.partDownloads.get(relId);
+              const multiBlobs = partReq.blobs;
               const singleBlob =
                 new Blob(multiBlobs, { type: multiBlobs[0].type });
-              messageReq.partDownloads.set(relId, [singleBlob]);
+              partReq.blobs = [singleBlob];
               persistentState.set(messageId, messageReq);
               return messageReq;
             }
@@ -375,14 +409,57 @@ return {
             complexTaskStates: new Map([[messageTaskKey, null]])
           });
           const messageReq = fromDb.complexTaskStates.get(messageTaskKey);
-          const singleBlob = messageReq.partDownloads.get(relId)[0];
+          const partReq = messageReq.partDownloads.get(relId);
+          const singleBlob = partReq.blobs[0];
 
           const mutateMessageInfo = fromDb.messages.get(messageId);
 
           // Update the part's state to be a cached download.
           const part = pickPartFromMessageByRelId(mutateMessageInfo, relId);
-          part.downloadState = 'cached';
-          part.file = singleBlob;
+          if (partReq.target === 'cache') {
+            part.downloadState = 'cached';
+            part.file = singleBlob;
+          } else { // must be 'save'
+            // NB: We could have avoided the single blob consolidation above
+            // (if it occurred in this target case), but massively erring on the
+            // side of simpler control flow for now.
+            // Use our save helper to avoid name collisions.
+            let [saveSuccess, saveError, savedFilename, registered] =
+              yield uniqueifyingSaveHelper(ctx, singleBlob, part.name);
+            if (saveSuccess) {
+              part.downloadState = 'saved';
+              part.file = [DEVICE_STORAGE_NAME, savedFilename];
+              console.log(
+                'saved attachment to', savedFilename, 'type:', singleBlob.type,
+                'registered:', registered);
+              logic(
+                ctx, 'savedAttachment',
+                {
+                  savedFilename,
+                  type: singleBlob.type,
+                  size: singleBlob.size
+                });
+            } else {
+              // A save failure sucks, but there's not much we can do at this
+              // time other than complete the request without saving.  The only
+              // user actionable possibility is a "disk full" scenario, and
+              // that's something that's already up to the system to handle.
+              // TODO: Explicit UX consideration of "disk full" from an email
+              // perspective.
+              console.warn(
+                'failed to save attachment to', part.name, 'type:',
+                singleBlob.type);
+              logic(
+                ctx,
+                'saveFailure',
+                {
+                  type: singleBlob.type,
+                  size: singleBlob.size,
+                  saveError,
+                  filename: savedFilename
+                });
+            }
+          }
 
           // Update our request to have finished downloading the given relId.
           messageReq.partDownloads.delete(relId);
