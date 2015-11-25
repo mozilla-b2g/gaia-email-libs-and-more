@@ -1,0 +1,12 @@
+{
+  "extends": "../.eslintrc",
+  "plugins": [
+    "import",
+    "react"
+  ],
+  "ecmaFeatures": {
+    "clases": true,
+    "jsx": true,
+    "modules": true
+  }
+}

@@ -1,3 +1,5 @@
+import React from 'react';
+
 /**
  * These classes control the display of the "test run index",
  * i.e. "index.html".

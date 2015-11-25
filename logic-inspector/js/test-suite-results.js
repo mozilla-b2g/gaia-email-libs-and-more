@@ -2,6 +2,9 @@
  * These classes control the display of an individual test suite's results.
  */
 
+import React from 'react';
+
+
 export class SuiteResults extends React.Component {
   render() {
     var { filename, variant, result, tests } = this.props;
@@ -15,7 +18,7 @@ export class SuiteResults extends React.Component {
           <span className="filename">{filename}</span>
         </h1>
         {tests.map((test, index) => {
-          return <TestResults test={test} key={index} />
+          return <TestResults test={test} key={index} />;
         })}
       </div>
     );
@@ -67,7 +70,7 @@ class EventList extends React.Component {
 
     var idToEvent = {};
     for (var i = 0; i < events.length; i++) {
-      var event = events[i];
+      let event = events[i];
       idToEvent[event.id] = event;
     }
 
@@ -147,7 +150,7 @@ class Event extends React.Component {
       classes.push('collapsed');
     }
 
-    for (var key in event) {
+    for (let key in event) {
       var value = event[key];
       if (typeof value === 'string' && value.length < 30) {
         classes.push( safeCss(key) + '-' + safeCss(event[key]));
@@ -178,7 +181,7 @@ class Event extends React.Component {
 
       if (event.details.error) {
         classes.push('error');
-      };
+      }
       return (
           <div className={classes.join(' ')}>
           <div className="header" onClick={this.toggleCollapsed.bind(this)}
@@ -242,7 +245,7 @@ function groupEvents(events, startFn, endFn) {
  * What color should we render a given log? We can also style things with CSS,
  * but for more complex heuristics, we must peek into the event.
  */
-var getEventColor = function({ namespace, type, details }) {
+function getEventColor({ namespace, type }) {
   namespace = namespace || '';
   type = type || '';
 
@@ -279,7 +282,7 @@ var getEventColor = function({ namespace, type, details }) {
   }
   var hue = ((hash & 0x0000FF) / 256) * 360 | 0;
   return 'hsl(' + hue + ', 80%, 40%)';
-};
+}
 
 function safeCss(str) {
   return str.replace(/[^a-z0-9-_]/ig, '');

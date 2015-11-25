@@ -7,8 +7,12 @@
  * one test suite.
  */
 
-import { SuiteResults } from "./test-suite-results";
-import { TestRunList } from "./index";
+
+import React from 'react';
+import ReactDOM from 'react-dom';
+
+import { SuiteResults } from './test-suite-results';
+import { TestRunList } from './index';
 
 class LogicInspector extends React.Component {
   constructor(props) {
@@ -120,10 +124,11 @@ class LogicInspector extends React.Component {
       req.open('GET', url, true);
       req.responseType = 'json';
       req.addEventListener('load', function() {
-        if (req.status == 200 || req.status == 0)
+        if (req.status === 200 || req.status === 0) {
           resolve(req.response);
-        else
+        } else {
           reject(req.status);
+        }
       }, false);
       req.addEventListener('timeout', function() {
         reject('timeout');
@@ -169,4 +174,4 @@ class LogicInspector extends React.Component {
 
 }
 
-React.render(<LogicInspector />, document.body);
+ReactDOM.render(<LogicInspector />, document.body);
