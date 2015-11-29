@@ -11,8 +11,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 
-import { SuiteResults } from './test-suite-results';
-import { TestRunList } from './index';
+import { SuiteResults, EventList } from './components/test-suite-results';
+import { TestRunList } from './components/test-runs-index';
+
+import { JsonIndexPoller } from './log_sourcers/json_index_poller';
+import { fetchDetectExtract } from './log_extractors/fetch_detect_extract';
 
 class LogicInspector extends React.Component {
   constructor(props) {
@@ -24,6 +27,8 @@ class LogicInspector extends React.Component {
       autoReload: true,
       data: null
     };
+
+    this.poller = null;
   }
 
   onClick(event) {
@@ -52,38 +57,56 @@ class LogicInspector extends React.Component {
   }
 
   componentWillMount() {
-    var updateIndex = () => {
-      this.fetch('test-logs/index.json').then((indexData) => {
-        this.setState({ indexData: indexData });
-
-        // If we're viewing test suite results, maybe reload it.
-        if (this.state.href && this.state.data && this.state.autoReload) {
-          var latestHref = null;
-          indexData.some((testRunSummary) => {
-            return testRunSummary.suites.some((result) => {
-              if (result.filename === this.state.data.filename &&
-                  result.variant === this.state.data.variant) {
-                latestHref = result.href;
-                return true; // break out!
-              }
-            });
-          });
-          if (latestHref !== this.state.href) {
-            console.log('Loading new results:', latestHref);
-            this.navigate('?href=' + latestHref, /* isRefresh: */ true);
-          }
-        }
-      });
-    };
-
-    setInterval(updateIndex, 1000);
-    updateIndex();
+    // TODO: better handle the multiple potential modes of operation.
+    this.poller = new JsonIndexPoller({
+      // This will fire at least once even if we don't make it active.
+      onNewData: this._indexUpdated.bind(this),
+      active: this.state.autoReload
+    });
 
     window.onpopstate = () => {
       this.navigate(document.location.href);
     };
 
     this.navigate(document.location.href, /* isRefresh: */ true);
+  }
+
+  _indexUpdated(indexData) {
+    this.setState({ indexData: indexData });
+
+    // If we're viewing test suite results, maybe reload it.
+    if (this.state.href && this.state.data && this.state.autoReload) {
+      var latestHref = null;
+      indexData.some((testRunSummary) => {
+        return testRunSummary.suites.some((result) => {
+          if (result.filename === this.state.data.filename &&
+              result.variant === this.state.data.variant) {
+            latestHref = result.href;
+            return true; // break out!
+          }
+        });
+      });
+      if (latestHref !== this.state.href) {
+        console.log('Loading new results:', latestHref);
+        this.navigate('?href=' + latestHref, /* isRefresh: */ true);
+      }
+    }
+  }
+
+  componentDidUpdate() {
+    if (this.state.autoReload && !this.poller) {
+      this.poller = new JsonIndexPoller(this._indexUpdated.bind(this));
+    }
+    if (!this.state.autoReload && this.poller) {
+      this.poller.stop();
+      this.poller = null;
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.poller) {
+      this.poller.stop();
+    }
   }
 
   navigate(url, isReload) {
@@ -104,8 +127,8 @@ class LogicInspector extends React.Component {
     }
 
     if (href) {
-      this.fetch(href).then((data) => {
-        this.setState({ data: data });
+      fetchDetectExtract(href).then(({ data, dataType }) => {
+        this.setState({ data, dataType });
       });
     }
   }
@@ -117,61 +140,71 @@ class LogicInspector extends React.Component {
     return (href.match(name) || ['', ''])[1];
   }
 
-  fetch(url) {
-    return new Promise(function(resolve, reject) {
-      var req = new XMLHttpRequest();
-      console.log('want to load', url);
-      req.open('GET', url, true);
-      req.responseType = 'json';
-      req.addEventListener('load', function() {
-        if (req.status === 200 || req.status === 0) {
-          resolve(req.response);
-        } else {
-          reject(req.status);
-        }
-      }, false);
-      req.addEventListener('timeout', function() {
-        reject('timeout');
-      });
-      req.timeout = 30 * 1000;
-      req.send(null);
-    });
-  }
-
   render() {
     if (this.state.href) {
-      var data = this.state.data;
-      if (!data) {
-        return null; // wait for it to load
-      }
-      var variant = data.tests[0] && data.tests[0].variant;
-      var result = data.tests.every((t) => t.result === 'pass') ? 'pass' : 'fail';
-      return (
-        <div onClick={this.onClick.bind(this)}>
-          <div className={['autoreload-info',
-                          this.state.autoReload ? 'reload' : 'noreload'].join(' ')}></div>
-
-          <a className="index-link" href="?">
-          &larr; All Test Results</a>
-          <SuiteResults filename={data.filename}
-                        variant={variant}
-                        result={result}
-                        tests={data.tests}/>
-        </div>
-      );
+      // -- Displaying a specific log
+      return this.renderLog();
     } else {
-      var items = this.state.indexData;
-      return (
-        <div onClick={this.onClick.bind(this)}>
-          <div className="index-header">
-            <strong>Recent GELAM Test Runs</strong> <em>(Automatically reloads.)</em>
-          </div>
-          <TestRunList items={items} />
-        </div>
-      );
+      // -- Want an index
+      return this.renderIndex();
     }
   }
 
+  renderLog() {
+    let { data, dataType } = this.state;
+    if (!data) {
+      return null; // wait for it to load
+    }
+
+    switch (dataType) {
+      case 'gelam-test':
+        return this.renderTestLog();
+      case 'raw-events':
+        return this.renderRawEvents();
+      default:
+        return (
+          <div>Unknown data type: { dataType }</div>
+        );
+    }
+  }
+
+  renderTestLog(data) {
+    var data = this.state.data;
+    var variant = data.tests[0] && data.tests[0].variant;
+    var result = data.tests.every((t) => t.result === 'pass') ? 'pass' : 'fail';
+    return (
+      <div onClick={this.onClick.bind(this)}>
+        <div className={['autoreload-info',
+                        this.state.autoReload ? 'reload' : 'noreload'].join(' ')}></div>
+
+        <a className="index-link" href="?">
+        &larr; All Test Results</a>
+        <SuiteResults filename={data.filename}
+                      variant={variant}
+                      result={result}
+                      tests={data.tests}/>
+      </div>
+    );
+  }
+
+  renderRawEvents() {
+    let data = this.state.data;
+    return (
+      <EventList events={ data } />
+    );
+  }
+
+  renderIndex() {
+    var items = this.state.indexData;
+    return (
+      <div onClick={this.onClick.bind(this)}>
+        <div className="index-header">
+          <strong>Recent GELAM Test Runs</strong> <em>(Automatically reloads.)</em>
+        </div>
+        <TestRunList items={items} />
+      </div>
+    );
+  }
 }
 
-ReactDOM.render(<LogicInspector />, document.body);
+ReactDOM.render(<LogicInspector />, document.getElementById('content'));

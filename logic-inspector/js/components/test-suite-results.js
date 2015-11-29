@@ -5,6 +5,10 @@
 import React from 'react';
 
 
+/**
+ * Display the contents of a test JS file run with a single variant.  One or
+ * more tests may exist in the file and are each displayed as TestResults.
+ */
 export class SuiteResults extends React.Component {
   render() {
     var { filename, variant, result, tests } = this.props;
@@ -25,6 +29,10 @@ export class SuiteResults extends React.Component {
   }
 }
 
+/**
+ * Display the results of a single test run in a log file.  (A log may consist
+ * of multiple tests.)
+ */
 class TestResults extends React.Component {
   constructor(props) {
     super(props);
@@ -54,7 +62,18 @@ class TestResults extends React.Component {
   }
 }
 
-class EventList extends React.Component {
+/**
+ * Given a (flat) list of events, hierarchically nest the events based on
+ * (legacy) test steps and test groups.  This mechanism reconstructs the
+ * hierarchy that loggest achieved by explicit parent relationships from the
+ * (exclusively) flat stream approach used by logic.js.
+ *
+ * TODO: the re-establishment of hierarchy inside a render() function that is
+ * not guarded by any use of shouldComponentUpdate seems a bit sketchy and a
+ * case where some minimal level of optimization wouldn't be a bad idea when
+ * it comes time to optimize something.
+ */
+export class EventList extends React.Component {
   render() {
     let eventsByNamespace = this.props.events.reduce((map, evt) => {
       if (!map[evt.namespace]) {
@@ -96,6 +115,9 @@ class EventList extends React.Component {
   }
 }
 
+/**
+ * Somehwat hardcoded-specialized hierarchical log event rendering.
+ */
 class Event extends React.Component {
 
   constructor(props) {

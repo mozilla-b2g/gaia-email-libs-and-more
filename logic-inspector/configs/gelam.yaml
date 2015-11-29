@@ -1,0 +1,102 @@
+# always nest things under a task if there's a ctxId in there.
+WILDCARD:
+  rules:
+    - has-prop: $ctxId
+      nest-under: [task, $ctxId]
+
+MailBridge:
+  WILDCARD:
+    # this wants to be parameterized by a unique id somehow
+    lane: Bridge
+BatchManager:
+  META:
+    lane: Bridge
+
+MailDB:
+  WILDCARD:
+    lane: DB
+
+
+AccountsTOC:
+  WILDCARD:
+    lane: TOCs
+FoldersTOC:
+  META:
+    lane: TOCs
+
+TaskRegistry:
+  WILDCARD:
+    lane: TaskInfra
+
+TaskManager:
+  WILD:
+    lane: TaskInfra
+  # The task life-cycles are only fully known to the TaskManager (not the
+  # TaskContext) because only it has access to the returned promise and waits on
+  # it.  These create hierarchical nesting contexts.  For simplicity, we use
+  # the same id for the plan and execute stages.  This is not a problem because
+  # they cannot overlap.
+  planning:begin:
+    nest-start: [task, $id]
+  planning:end:
+    nest-end: [task, $id]
+  executing:begin:
+    nest-start: [task, $id]
+  executing:end:
+    nest-end: [task, $id]
+
+Task:
+  WILDCARD:
+    lane: tasks
+    # cause our Task
+    nest-under: [task, $id]
+  begin:
+  end:
+
+ParallelIMAP:
+  WILDCARD:
+    lane: IMAP
+
+# BrowserBox uses an unstructured warn/error/etc. logger idiom where we may the
+# level to the event name.  So its debug("blah") comes through as a "debug"
+# event with a msg property of "blah".
+#
+# Since what's going on at a low IMAP level is pretty interesting
+#
+# NB: Raw protocol stuff currently does not nest correctly owing to a lack of
+# context.
+BrowserBox:
+  WILDCARD:
+    # by default just put things under IMAP.
+    lane: [IMAP]
+    rules:
+      - one-of: # give per-connection lanes differentiated by client / server
+        - match: [$msg, "^\[(\d+\)] C:"]
+          lane: [IMAP, $1, Client]
+        - match: [$msg, "^\[(\d+\)] S:"]
+          lane: [IMAP, $1, Server]
+ImapClient:
+  WILDCARD:
+    lane: [IMAP]
+
+SmtpClient:
+  WILDCARD:
+    lane: [SMTP]
+
+SmartWakeLock:
+  WILDCARD:
+    lane: Wakelocks
+    life-under: [wakelock, $unique]
+  requestLock:
+    life-start: [$types]
+    life-phase: "request"
+    coalesce-barrier: wakelock
+  locked:
+    life-phase: "locked"
+  renew:
+    # uh, not sure what to do for this quite yet. speculative.
+    life-mark: '!'
+  unlock:
+    life-phase: "unlocking"
+  unlocked:
+    life-end: true

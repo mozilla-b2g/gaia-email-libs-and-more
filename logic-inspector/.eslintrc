@@ -4,6 +4,9 @@
     "import",
     "react"
   ],
+  "env": {
+    "node": true,
+  },
   "ecmaFeatures": {
     "clases": true,
     "jsx": true,

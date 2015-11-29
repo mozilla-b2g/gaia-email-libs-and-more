@@ -11,7 +11,7 @@ $(OUT): node_modules $(SRC)
 
 .PHONY: watchify
 watchify:
-	node_modules/.bin/watchify -v -t $(BROWSERIFY_TRANSFORM) js/main.js  --outfile $(OUT)
+	node_modules/.bin/watchify -v --debug -t $(BROWSERIFY_TRANSFORM) js/main.js  --outfile $(OUT)
 
 # If our package.json has been updated, run npm install
 node_modules: package.json
