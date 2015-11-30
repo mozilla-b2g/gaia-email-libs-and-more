@@ -80,6 +80,7 @@ return TaskDefiner.defineSimpleTask([
       let folderInfo = account.getFolderById(req.folderId);
 
       let { result: rawMessages } = yield account.pimap.listMessages(
+        ctx,
         folderInfo,
         [req.uid],
         INITIAL_FETCH_PARAMS,

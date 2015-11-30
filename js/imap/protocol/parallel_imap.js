@@ -10,12 +10,11 @@ const mimefuncs = require('mimefuncs');
  * connection method.
  */
 function simpleWithConn(methodName) {
-  return function() {
-    let calledArgs = arguments;
+  return function(taskCtx, ...bbArgs) {
     return this._gimmeConnection().then((conn) => {
-      logic(this, methodName + ':begin', {});
-      return conn[methodName].apply(conn, calledArgs).then((value) => {
-        logic(this, methodName + ':end', { _result: value });
+      logic(this, methodName + ':begin', { ctxId: taskCtx.id });
+      return conn[methodName].apply(conn, bbArgs).then((value) => {
+        logic(this, methodName + ':end', { ctxId: taskCtx.id, _result: value });
         // NB: if we were going to return the connection, this is where we would
         // do it.
         return value;
@@ -34,10 +33,9 @@ function simpleWithConn(methodName) {
  * the folder.  (And/or perform a NOOP.)
  */
 function inFolderWithConn(methodName, optsArgIndexPerCaller) {
-  return function(folderInfo) {
-    let calledArgs = arguments;
+  return function(taskCtx, folderInfo, ...bbArgs) {
     return this._gimmeConnection().then((conn) => {
-      let opts = calledArgs[optsArgIndexPerCaller];
+      let opts = bbArgs[optsArgIndexPerCaller];
       if (!opts) {
         throw new Error('provide the options dictionary so we can mutate it.');
       }
@@ -49,11 +47,13 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
           next();
         }
       };
-      logic(this, methodName + ':begin', { folderId: folderInfo.id });
-      return conn[methodName].apply(
-        conn, Array.prototype.slice.call(calledArgs, 1)
-      ).then((value) => {
-        logic(this, methodName + ':end', { _result: value });
+      logic(
+        this, methodName + ':begin',
+        { ctxId: taskCtx.id, folderId: folderInfo.id });
+      return conn[methodName].apply(conn, bbArgs).then((value) => {
+        logic(
+          this, methodName + ':end',
+          { ctxId: taskCtx.id, _result: value });
         // NB: if we were going to return the connection, this is where we would
         // do it.
         return {
@@ -73,8 +73,7 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
  * used.
  */
 function customFuncInFolderWithConn(implFunc) {
-  return function(folderInfo) {
-    let calledArgs = arguments;
+  return function(taskCtx, folderInfo, ...bbArgs) {
     let methodName = implFunc.name;
     return this._gimmeConnection().then((conn) => {
       let precheck = function(ctx, next) {
@@ -85,12 +84,16 @@ function customFuncInFolderWithConn(implFunc) {
           next();
         }
       };
-      logic(this, methodName + ':begin', { folderId: folderInfo.id });
+      logic(
+        this, methodName + ':begin',
+        { ctxId: taskCtx.id, folderId: folderInfo.id });
       return implFunc.apply(
         this,
-        [conn, precheck].concat(Array.prototype.slice.call(calledArgs, 1))
+        [conn, precheck].concat(bbArgs)
       ).then((value) => {
-        logic(this, methodName + ':end', { _result: value });
+        logic(
+          this, methodName + ':end',
+          { ctxId: taskCtx.id, _result: value });
         return {
           mailboxInfo: conn.selectedMailboxInfo,
           result: value
@@ -172,13 +175,13 @@ ParallelIMAP.prototype = {
   },
 
   listMailboxes: simpleWithConn('listMailboxes'),
-  listMessages: inFolderWithConn('listMessages', 3),
+  listMessages: inFolderWithConn('listMessages', 2),
   listNamespaces: simpleWithConn('listNamespaces'),
-  search: inFolderWithConn('search', 2),
+  search: inFolderWithConn('search', 1),
 
   // Select the mailbox returning the mailboxInfo directly (not nested in an
   // object).  If the mailbox is already selected, just return it.
-  selectMailbox: function(folderInfo) {
+  selectMailbox: function(taskCtx, folderInfo) {
     return this._gimmeConnection().then((conn) => {
       if (folderInfo.path === conn.selectedMailboxPath) {
         return Promise.resolve(conn.selectedMailboxInfo);
@@ -189,7 +192,7 @@ ParallelIMAP.prototype = {
     });
   },
 
-  store: inFolderWithConn('store', 4),
+  store: inFolderWithConn('store', 3),
 
   // APPEND does not require being in a folder, it just wants the path, so the
   // caller does need to manually specify it.

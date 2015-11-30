@@ -22,6 +22,7 @@ const syncbase = require('../../syncbase');
 
 /**
  * Expand the date-range of known messages for the given folder/label.
+ * See sync.md for detailed documentation on our algorithm/strategy.
  */
 return TaskDefiner.defineSimpleTask([
   {
@@ -52,7 +53,7 @@ return TaskDefiner.defineSimpleTask([
 
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
-      let labelMapper = new GmailLabelMapper(foldersTOC);
+      let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
       // - sync_folder_list dependency-failsafe
       if (foldersTOC.items.length <= 3) {
@@ -92,10 +93,11 @@ return TaskDefiner.defineSimpleTask([
       let allMailFolderInfo = account.getFirstFolderWithType('all');
       // Find out new UIDs covering the range in question.
       let { mailboxInfo, result: uids } = yield account.pimap.search(
-        allMailFolderInfo, searchSpec, { byUid: true });
+        ctx, allMailFolderInfo, searchSpec, { byUid: true });
 
       if (uids.length) {
         let { result: messages } = yield account.pimap.listMessages(
+          ctx,
           allMailFolderInfo,
           uids,
           [

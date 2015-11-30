@@ -27,7 +27,9 @@ define(function(require) {
    *   you wish to acquire.
    */
   function SmartWakeLock(opts) {
-    logic.defineScope(this, 'SmartWakeLock', { unique: Date.now() });
+    logic.defineScope(
+      this, 'SmartWakeLock',
+      { unique: Date.now(), types: opts.locks });
     this.timeoutMs = opts.timeout || SmartWakeLock.DEFAULT_TIMEOUT_MS;
     var locks = this.locks = {}; // map of lockType -> wakeLockInstance
 
@@ -39,13 +41,13 @@ define(function(require) {
     // the methods on this class) ensures that folks can ignore the
     // ugly asynchronous parts and not worry about when things happen
     // under the hood.
+    logic(this, 'requestLock', { durationMs: this.timeoutMs });
     this._readyPromise = Promise.all(opts.locks.map((type) => {
-      logic(this, 'requestLock', { type, durationMs: this.timeoutMs });
       return sendWakeLockMessage('requestWakeLock', [type]).then((lockId) => {
-        logic(this, 'locked', { type });
         locks[type] = lockId;
       });
     })).then(() => {
+      logic(this, 'locked', {});
       // For simplicity of implementation, we reuse the `renew` method
       // here to add the initial `opts.timeout` to the unlock clock.
       this.renew(); // Start the initial timeout.
@@ -100,13 +102,14 @@ define(function(require) {
         clearTimeout(this._timeout);
         this._timeout = null;
 
+        logic(this, 'unlock', { reason });
         // Wait for all of them to successfully unlock.
         return Promise.all(Object.keys(locks).map((type) => {
           return sendWakeLockMessage('unlock', [locks[type]], () => {
             return type;
           });
-        })).then((type) => {
-          logic(this, 'unlocked', { type, reason });
+        })).then(() => {
+          logic(this, 'unlocked', { reason });
         });
       });
     },

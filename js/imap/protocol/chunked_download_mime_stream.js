@@ -25,7 +25,7 @@ const MimeNodeTransformStream =
  *   tradeoffs.
  */
 return function chunkedDownloadMimeStream(
-  { pimap, folderInfo, uid, partInfo, downloadChunkSize, saveChunkSize }) {
+  { ctx, pimap, folderInfo, uid, partInfo, downloadChunkSize, saveChunkSize }) {
   let byteIndex = 0;
 
   let byteStream = new ReadableStream({
@@ -38,6 +38,7 @@ return function chunkedDownloadMimeStream(
     },
     pull(out) {
       return pimap.fetchBody(
+        ctx,
         folderInfo,
         {
           uid,

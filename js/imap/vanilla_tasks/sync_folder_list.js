@@ -18,8 +18,8 @@ return TaskDefiner.defineSimpleTask([
     syncFolders: function*(ctx, account) {
       let { imapAccount, foldersTOC } = account;
 
-      let boxesRoot = yield imapAccount.pimap.listMailboxes();
-      let namespaces = yield imapAccount.pimap.listNamespaces();
+      let boxesRoot = yield imapAccount.pimap.listMailboxes(ctx);
+      let namespaces = yield imapAccount.pimap.listNamespaces(ctx);
 
       if (!namespaces) {
         namespaces = {

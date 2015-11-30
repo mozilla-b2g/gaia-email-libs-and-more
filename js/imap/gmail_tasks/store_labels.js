@@ -22,7 +22,7 @@ return TaskDefiner.defineComplexTask([
     prepNormalizationLogic: co.wrap(function*(ctx, accountId) {
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, accountId);
-      return new GmailLabelMapper(foldersTOC);
+      return new GmailLabelMapper(ctx, foldersTOC);
     }),
 
     /**

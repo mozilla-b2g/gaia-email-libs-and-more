@@ -24,6 +24,7 @@ const { accountIdFromFolderId } = require('../../id_conversions');
 
 /**
  * This is the steady-state sync task that drives all of our gmail sync.
+ * See sync.md for detailed documentation on our algorithm/strategy.
  */
 return TaskDefiner.defineAtMostOnceTask([
   {
@@ -137,7 +138,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
-      let labelMapper = new GmailLabelMapper(foldersTOC);
+      let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
       // - sync_folder_list dependency-failsafe
       if (foldersTOC.items.length <= 3) {
@@ -154,6 +155,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       logic(ctx, 'syncStart', { modseq: syncState.modseq });
       let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
+        ctx,
         allMailFolderInfo,
         '1:*',
         [
@@ -190,7 +192,7 @@ return TaskDefiner.defineAtMostOnceTask([
         // Unwrap the imap-parser tagged { type, value } objects.  (If this
         // were a singular value that wasn't a list it would automatically be
         // unwrapped.)
-        let rawLabels = msg['x-gm-labels'].map(x => x.value);
+        let rawLabels = msg['x-gm-labels'];
         let flags = msg.flags;
 
         highestModseq = a64.maxDecimal64Strings(highestModseq, msg.modseq);

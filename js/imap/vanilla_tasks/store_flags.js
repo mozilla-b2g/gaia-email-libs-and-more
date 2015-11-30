@@ -34,6 +34,7 @@ return TaskDefiner.defineComplexTask([
       // -- Issue the manipulations to the server
       if (changes.add && changes.add.length) {
         yield account.pimap.store(
+          ctx,
           folderInfo,
           [uid],
           '+' + this.imapDataName,
@@ -42,6 +43,7 @@ return TaskDefiner.defineComplexTask([
       }
       if (changes.remove && changes.remove.length) {
         yield account.pimap.store(
+          ctx,
           folderInfo,
           [uid],
           '-' + this.imapDataName,

@@ -15,8 +15,8 @@ let logic = require('logic');
  * - "INBOX" is \Inbox
  * - "[Gmail]/Sent Mail" is \Sent
  */
-function GmailLabelMapper(foldersTOC) {
-  logic.defineScope(this, 'GmailLabelMapper');
+function GmailLabelMapper(ctx, foldersTOC) {
+  logic.defineScope(this, 'GmailLabelMapper', { ctxId: ctx.id });
 
   this._labelToFolderId = new Map();
   this._folderIdToLabel = new Map();
@@ -68,8 +68,10 @@ GmailLabelMapper.prototype = {
       this._labelToFolderId.set(label, folderInfo.id);
       this._folderIdToLabel.set(folderInfo.id, label);
       // Useful but too chatty right now.
-      //logic(this, 'mapping', { id: folderInfo.id, label: label });
     }
+    // Labels may be user-authored with privacy implications, so use an
+    // underscore to indicate the data is private.
+    logic(this, 'mapEstablished', { _labelToFolderId: this._labelToFolderId });
   },
 
   /**
@@ -85,8 +87,11 @@ GmailLabelMapper.prototype = {
     for (let gmailLabel of gmailLabels) {
       let folderId = this._labelToFolderId.get(gmailLabel);
       if (!folderId) {
+        // This is a serious invariant violation, so do report the specific
+        // missing label as non-private, but keep the others private unless
+        // they also fail.
         logic(this, 'missingLabelMapping',
-              { label: gmailLabel, allLabels: gmailLabels });
+              { label: gmailLabel, _allLabels: gmailLabels });
       } else {
         folderIds.push(folderId);
       }

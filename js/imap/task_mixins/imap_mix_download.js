@@ -16,6 +16,7 @@ return {
 
     // - Create and return the stream.
     return messageChunkedPartStream({
+      ctx,
       pimap: account.pimap,
       folderInfo,
       uid,

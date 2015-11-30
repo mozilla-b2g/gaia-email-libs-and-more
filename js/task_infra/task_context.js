@@ -8,9 +8,6 @@ const logic = require('logic');
  * Provides helpers and standard arguments/context for tasks.
  */
 function TaskContext(taskThing, universe) {
-  // We are used as the scope for all logging by the task, so just call
-  // ourselves "Task".
-  logic.defineScope(this, 'Task', { id: taskThing.id });
   this.id = taskThing.id;
   this._taskThing = taskThing;
   // The TaskRegistry will clobber this onto us so we can know the `this` to
@@ -27,6 +24,23 @@ function TaskContext(taskThing, universe) {
   // If it's a marker, we're executing, otherwise it depends on the state.
   this.isPlanning = this.isMarker ? false : (taskThing.state === null);
   this.universe = universe;
+
+  // We define the scope after the init above because we want to be able to
+  // use our getters that tell us what is up.  However, this should always
+  // precede any method calls.
+  logic.defineScope(
+    // We are used as the scope for all logging by the task, so call ourselves
+    // "Task" instead of TaskContext.  We leave it to the logger UI to be
+    // configured to extract the `taskType` and show that with more
+    // significance.  This is somewhat arbitrary and roundabout, but it seems
+    // desirable to have our logging namespaces have a strong static correlation
+    // to what is instantiating them.
+    this, 'Task',
+    {
+      id: taskThing.id,
+      taskType: this.taskType,
+      accountId: this.accountId
+    });
 
   this._stuffToRelease = [];
   this._preMutateStates = null;

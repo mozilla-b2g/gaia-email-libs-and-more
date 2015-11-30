@@ -14,7 +14,7 @@ let expandGmailConvId = a64.decodeUI64;
 
 let { encodedGmailConvIdFromConvId } = require('../../id_conversions');
 
-let { valuesOnly, chewMessageStructure, parseImapDateTime } =
+let { chewMessageStructure, parseImapDateTime } =
   require('../imapchew');
 
 let { conversationMessageComparator } = require('../../db/comparators');
@@ -140,9 +140,10 @@ return TaskDefiner.defineSimpleTask([
       if (uids && uids.length) {
         let foldersTOC =
           yield ctx.universe.acquireAccountFoldersTOC(ctx, account.id);
-        let labelMapper = new GmailLabelMapper(foldersTOC);
+        let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
         let { result: rawMessages } = yield account.pimap.listMessages(
+          ctx,
           allMailFolderInfo,
           uids,
           INITIAL_FETCH_PARAMS,
@@ -150,11 +151,7 @@ return TaskDefiner.defineSimpleTask([
         );
 
         for (let msg of rawMessages) {
-          // Convert the imap-parser tagged { type: STRING, value } for to just
-          // values.
-          // (Note this is a different set of types from the header parser, and
-          // different from flags which are automatically normalized.)
-          let rawGmailLabels = valuesOnly(msg['x-gm-labels']);
+          let rawGmailLabels = msg['x-gm-labels'];
           let flags = msg.flags || [];
           let uid = msg.uid;
 
@@ -223,7 +220,7 @@ return TaskDefiner.defineSimpleTask([
         'x-gm-thrid': convIdToGmailThreadId(req.convId)
       };
       let { result: uids } = yield account.pimap.search(
-        allMailFolderInfo, searchSpec, { byUid: true });
+        ctx, allMailFolderInfo, searchSpec, { byUid: true });
       logic(ctx, 'search found uids', { uids });
 
       let messages = yield* this._fetchAndChewUids(

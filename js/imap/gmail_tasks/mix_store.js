@@ -411,6 +411,7 @@ let GmailStoreTaskMixin = {
     // -- Issue the manipulations to the server
     if (changes.add && changes.add.length) {
       yield account.pimap.store(
+        ctx,
         allMailFolderInfo,
         uidSet,
         '+' + this.imapDataName,
@@ -419,6 +420,7 @@ let GmailStoreTaskMixin = {
     }
     if (changes.remove && changes.remove.length) {
       yield account.pimap.store(
+        ctx,
         allMailFolderInfo,
         uidSet,
         '-' + this.imapDataName,

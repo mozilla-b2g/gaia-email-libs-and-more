@@ -93,6 +93,7 @@ return TaskDefiner.defineSimpleTask([
       }
 
       let { result: messages } = yield account.pimap.listMessages(
+        ctx,
         folderInfo,
         seqs,
         [
@@ -159,7 +160,7 @@ return TaskDefiner.defineSimpleTask([
       // -- Enter the folder to get an estimate of the number of messages
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
-      let mailboxInfo = yield account.pimap.selectMailbox(folderInfo);
+      let mailboxInfo = yield account.pimap.selectMailbox(ctx, folderInfo);
 
       // Figure out an upper bound on the number of messages in the folder that
       // we have not synchronized.
@@ -196,7 +197,7 @@ return TaskDefiner.defineSimpleTask([
       logic(ctx, 'searching', { searchSpec: searchSpec });
       // Find out new UIDs covering the range in question.
       let { result: uids } = yield account.pimap.search(
-        folderInfo, searchSpec, { byUid: true });
+        ctx, folderInfo, searchSpec, { byUid: true });
 
       // -- Fetch flags and the dates for the new messages
       // We want the date so we can prioritize the synchronization of the
@@ -206,6 +207,7 @@ return TaskDefiner.defineSimpleTask([
         let newUids = syncState.filterOutKnownUids(uids);
 
         let { result: messages } = yield account.pimap.listMessages(
+          ctx,
           folderInfo,
           newUids,
           [

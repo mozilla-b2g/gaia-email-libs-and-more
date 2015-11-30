@@ -123,6 +123,7 @@ return {
         let { folderInfo, uid } = this.getFolderAndUidForMesssage(
           prepared, account, message);
         let rawBody = yield account.pimap.fetchBody(
+          ctx,
           folderInfo,
           {
             uid,
