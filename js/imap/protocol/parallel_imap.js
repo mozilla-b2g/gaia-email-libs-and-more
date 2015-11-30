@@ -205,7 +205,7 @@ ParallelIMAP.prototype = {
    * In the future, with changes to browserbox, we may be able to return a
    * stream instead of delivering the data all at once.
    */
-  fetchBody: co.wrap(function*(folderInfo, request) {
+  fetchBody: co.wrap(function*(taskCtx, folderInfo, request) {
     let conn = yield this._gimmeConnection();
 
     let precheck = function(ctx, next) {
@@ -217,6 +217,7 @@ ParallelIMAP.prototype = {
       }
     };
 
+    logic(this, 'fetchBody:begin', { ctxId: taskCtx.id });
     let messages = yield conn.listMessages(
       request.uid,
        [
@@ -239,6 +240,9 @@ ParallelIMAP.prototype = {
     if (!body) {
       throw new Error('no body returned!');
     }
+    logic(
+      this, 'fetchBody:end',
+      { ctxId: taskCtx.id, bodyLength: body.length });
     // browserbox traffics in 'binary' strings; convert this back to a
     // TypedArray.
     return mimefuncs.toTypedArray(body);
