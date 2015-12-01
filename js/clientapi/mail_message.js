@@ -103,9 +103,6 @@ function MailMessage(api, wireRep, overlays, slice) {
   this.bcc = ContactCache.resolvePeeps(wireRep.bcc);
   this.replyTo = wireRep.replyTo;
 
-  this.date = new Date(wireRep.date);
-
-
   this._relatedParts = wireRep.relatedParts;
   this.bodyReps = wireRep.bodyReps;
   // references is included for debug/unit testing purposes, hence is private
@@ -136,6 +133,8 @@ MailMessage.prototype = evt.mix({
     if (wireRep.snippet !== null) {
       this.snippet = wireRep.snippet;
     }
+
+    this.date = new Date(wireRep.date);
 
     this.isRead = wireRep.flags.indexOf('\\Seen') !== -1;
     this.isStarred = wireRep.flags.indexOf('\\Flagged') !== -1;
