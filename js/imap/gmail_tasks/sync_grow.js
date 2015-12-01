@@ -18,13 +18,17 @@ const parseGmailConvId = a64.parseUI64;
 const GmailLabelMapper = require('../gmail/gmail_label_mapper');
 const SyncStateHelper = require('../gmail/sync_state_helper');
 
-const syncbase = require('../../syncbase');
+const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+        GROWTH_MESSAGE_COUNT_TARGET } =
+  require('../../syncbase');
+
 
 /**
  * Expand the date-range of known messages for the given folder/label.
  * See sync.md for detailed documentation on our algorithm/strategy.
  */
 return TaskDefiner.defineSimpleTask([
+  require('../task_mixins/imap_mix_probe_for_date'),
   {
     name: 'sync_grow',
     args: ['accountId', 'folderId', 'minDays'],
@@ -63,6 +67,25 @@ return TaskDefiner.defineSimpleTask([
         throw new Error('moot');
       }
 
+      // -- Enter the label's folder for estimate and heuristic purposes
+      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let folderInfo = account.getFolderById(req.folderId);
+      let labelMailboxInfo = yield account.pimap.selectMailbox(ctx, folderInfo);
+
+      // Unlike vanilla IMAP, our sync state does not track exactly how many
+      // messages are known to be in each folder.  As things are currently
+      // implemented, we unfortunately could since we do lock our sync state
+      // more often than we want to.  However, with the introduction of
+      // sub-tasks, it makes it possible for us to only acquire the sync-state
+      // as needed on sync_conv, so that's the opposite direction we want to go.
+      // (Also, we might be able to have sync_conv implement some scatter-write
+      // that sync_refresh could slurp up when it next runs.)
+      //
+      // However, we maintain a trigger-based count of the locally known
+      // messages in each folder.
+      let estimatedUnsyncedMessages =
+        labelMailboxInfo.exists - folderInfo.localMessageCount;
+
       // NB: Gmail auto-expunges by default, but it can be turned off.  Which is
       // an annoying possibility.
       let searchSpec = { not: { deleted: true } };
@@ -71,21 +94,26 @@ return TaskDefiner.defineSimpleTask([
 
       let existingSinceDate = syncState.getFolderIdSinceDate(req.folderId);
       let newSinceDate;
-      let firstInboxSync = false;
-      if (existingSinceDate) {
-        searchSpec.before = new Date(quantizeDate(existingSinceDate));
-        newSinceDate = makeDaysBefore(existingSinceDate,
-                                      syncbase.INITIAL_SYNC_GROWTH_DAYS);
-        searchSpec.since = new Date(newSinceDate);
+      let firstInboxSync = !existingSinceDate && folderInfo.type === 'inbox';
+
+      // If there are fewer messages left to sync than our constant for this
+      // purpose, then just set the date range to our oldest sync date.
+      if (!isNaN(estimatedUnsyncedMessages) &&
+          estimatedUnsyncedMessages < Math.max(SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+                                             GROWTH_MESSAGE_COUNT_TARGET)) {
+        newSinceDate = OLDEST_SYNC_DATE;
       } else {
-        // It's the first sync for this folder, but is this folder the inbox?
-        firstInboxSync =
-          foldersTOC.foldersById.get(req.folderId).type === 'inbox';
-        newSinceDate = makeDaysAgo(syncbase.INITIAL_SYNC_DAYS);
-        searchSpec.since = new Date(newSinceDate);
+        newSinceDate = yield this._probeForDateUsingSequenceNumbers({
+          ctx, account, folderInfo,
+          startSeq: labelMailboxInfo.exists - folderInfo.localMessageCount,
+          curDate: existingSinceDate || quantizeDate(NOW())
+        });
       }
 
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      if (existingSinceDate) {
+       searchSpec.before = new Date(quantizeDate(existingSinceDate));
+      }
+      searchSpec.since = new Date(newSinceDate);
 
       let syncDate = NOW();
 
@@ -131,7 +159,7 @@ return TaskDefiner.defineSimpleTask([
 
       syncState.setFolderIdSinceDate(req.folderId, newSinceDate.valueOf());
       logic(ctx, 'mailboxInfo', { existingModseq: syncState.modseq,
-        newModseq: mailboxInfo.highestModseq, mailboxInfo: mailboxInfo });
+        newModseq: mailboxInfo.highestModseq, _mailboxInfo: mailboxInfo });
       if (!syncState.modseq) {
         syncState.modseq = mailboxInfo.highestModseq;
         syncState.lastHighUid = mailboxInfo.uidNext - 1;
@@ -140,7 +168,7 @@ return TaskDefiner.defineSimpleTask([
       }
       syncState.finalizePendingRemovals();
 
-      let atomicClobbers;
+      let atomicClobbers = {};
       // Treat our first inbox sync as a full sync.  This is true for gaia mail,
       // this is potentially less true for other UIs, but it's true enough.
       if (firstInboxSync) {
@@ -158,6 +186,17 @@ return TaskDefiner.defineSimpleTask([
             ]])
         };
       }
+
+      atomicClobbers.folders = new Map([
+        [
+          req.folderId,
+          {
+            fullySynced: newSinceDate.valueOf() === OLDEST_SYNC_DATE.valueOf(),
+            estimatedUnsyncedMessages,
+            syncedThrough: newSinceDate.valueOf()
+          }
+        ]
+      ]);
 
       yield ctx.finishTask({
         mutations: {

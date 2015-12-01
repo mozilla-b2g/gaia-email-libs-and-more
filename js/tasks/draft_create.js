@@ -81,7 +81,7 @@ return TaskDefiner.defineSimpleTask([
       let allMessages;
       let oldConvInfo;
       let messageInfo;
-      let folderIds = [draftFolderInfo.id];
+      let folderIds = new Set([draftFolderInfo.id]);
       // - Blank Compose
       if (req.draftType === 'blank') {
         // No need for a body, just generate it up.

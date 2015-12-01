@@ -43,10 +43,11 @@ define(function() {
  * @property {NameAddressPair[]} bcc
  * @property {NameAddressPair[]} replyTo
  * @property {String[]} flags
- * @property {String[]} folderIds
- *   Gmail labels applied to the message.  These may or may not be the same as
- *   what is applied to the rest of the conversation.  Gmail tracks labels on a
- *   per-message basis, at least for IMAP purposes.
+ * @property {Set} folderIds
+ *   Folders this message belongs to.  For Gmail IMAP these correspond to
+ *   applied labels and may or may not be the same as what is applied to the
+ *   rest of the conversation.  (Gmail tracks labels on a per-message basis, at
+ *   least for IMAP purposes.)
  * @property {Boolean} hasAttachments
  *   Does the message potentially have attachments?
  *   XXX This is potentially moot since headers/bodies got merged, but this
@@ -115,7 +116,7 @@ function makeMessageInfo(raw) {
     bcc: raw.bcc || null,
     replyTo: raw.replyTo || null,
     flags: raw.flags || [],
-    folderIds: raw.folderIds || [],
+    folderIds: raw.folderIds || new Set(),
     hasAttachments: raw.hasAttachments || false,
     // These can be empty strings which are falsey, so no ||
     subject: (raw.subject != null) ? raw.subject : null,

@@ -98,6 +98,47 @@ return {
   ]),
 
   /**
+   * In those cases where there's something that we need to hack because of
+   * current engine limitations, put it here.  All the guilt in one place.
+   */
+  engineHacks: new Map([
+    [
+      'gmailImap',
+      {
+        // For various reasons of things not exploding, we are disabling
+        // certain folder types.  See below for details.
+        unselectableFolderTypes: new Set([
+          // Currently if the user ever enters the "all mail" folder, we will
+          // end up synchronizing every new message the user ever receives after
+          // this point.  This will turn out badly.
+          'all',
+          // The sync engine doesn't know how to deal with folders that aren't
+          // covered by all mail.
+          'junk', 'trash'
+        ])
+      }
+    ],
+    [
+      'vanillaImap',
+      {
+        unselectableFolderTypes: new Set()
+      }
+    ],
+    [
+      'activesync',
+      {
+        unselectableFolderTypes: new Set()
+      }
+    ],
+    [
+      'pop3',
+      {
+        unselectableFolderTypes: new Set()
+      }
+    ]
+  ]),
+
+  /**
    * Maps engine id's to metadata about engines to tell the front-end by
    * annotating stuff onto the account wire rep.  This was brought into
    * existence for syncGranularity purposes, but the idea is that anything that

@@ -25,7 +25,7 @@ const chunkedDownloadMimeStream = require('./chunked_download_mime_stream');
  *   is split over multiple chunks.
  */
 return function messageChunkedPartStream({
-    pimap, folderInfo, uid, parts, downloadChunkSize, saveChunkSize }) {
+    ctx, pimap, folderInfo, uid, parts, downloadChunkSize, saveChunkSize }) {
   // Pull the parts off as we go.
   let remainingPartsToFetch = parts.slice();
 
@@ -45,6 +45,7 @@ return function messageChunkedPartStream({
       let blobIndex = 0;
       let partInfo = remainingPartsToFetch.shift();
       let mimeStream = chunkedDownloadMimeStream({
+        ctx,
         pimap,
         folderInfo,
         uid,

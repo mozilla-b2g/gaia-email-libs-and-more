@@ -29,11 +29,11 @@ return TaskDefiner.defineComplexTask([
     saveSentMessage: function({ messageInfo, account }) {
       // Put it in the sent folder.
       let sentFolder = account.getFirstFolderWithType('sent');
-      messageInfo.folderIds = [sentFolder.id];
+      messageInfo.folderIds = new Set([sentFolder.id]);
 
       // Mark the message as read.  We are clobbering other flags, but we don't
       // currently support a way for them to exist.
-      attachment.flags = ['\\Seen'];
+      messageInfo.flags = ['\\Seen'];
       for (let attachment of messageInfo.attachments) {
         attachment.type = 'application/x-gelam-no-download';
         // bye-bye Blob!

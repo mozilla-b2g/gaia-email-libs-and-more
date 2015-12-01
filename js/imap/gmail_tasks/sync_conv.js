@@ -75,7 +75,15 @@ let INITIAL_FETCH_PARAMS = [
  *
  * For a new conversation, in the execution phase, do a SEARCH to find all the
  * headers, FETCH all their envelopes, and add the headers/bodies to the
- * database.  This requires loading and mutating the syncState.
+ * database.  This requires loading and mutating the syncState.  TODO: But we
+ * want this to either avoid doing this or minimize what it gets up to.  One
+ * possibility is to use a locking construct that allows multiple sync_conv
+ * tasks such as ourselves to operate in parallel but block sync_refresh from
+ * operating until all of us have completed.  This would allow us to do
+ * scattered writes that the sync_conv would slurp up and integrate into the
+ * sync state when it starts.  This would accomplish our goals of 1) letting us
+ * being parallelized and 2) keeping sync_refresh smaller/simpler so it doesn't
+ * need to do this too.
  *
  * For a non-new conversation where we are told newUids, in the execution
  * phase, FETCH their envelopes and add the headers/bodies to the database.

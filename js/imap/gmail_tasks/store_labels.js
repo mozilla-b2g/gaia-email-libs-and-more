@@ -1,11 +1,11 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
+const co = require('co');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let GmailLabelMapper = require('../gmail/gmail_label_mapper');
+const GmailLabelMapper = require('../gmail/gmail_label_mapper');
 
 return TaskDefiner.defineComplexTask([
   require('./mix_store'),
@@ -40,5 +40,4 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-
 });

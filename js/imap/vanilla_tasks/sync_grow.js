@@ -1,21 +1,20 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
 
-let TaskDefiner = require('../../task_infra/task_definer');
+const TaskDefiner = require('../../task_infra/task_definer');
 
-let { makeDaysBefore, quantizeDate, NOW, DAY_MILLIS } = require('../../date');
+const { quantizeDate, NOW } = require('../../date');
 
-let imapchew = require('../imapchew');
-let parseImapDateTime = imapchew.parseImapDateTime;
+const imapchew = require('../imapchew');
+const parseImapDateTime = imapchew.parseImapDateTime;
 
+const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 
-let FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
-
-const { INITIAL_SYNC_GROWTH_DAYS, OLDEST_SYNC_DATE,
-        SYNC_WHOLE_FOLDER_AT_N_MESSAGES, GROWTH_MESSAGE_COUNT_TARGET } =
+const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+        GROWTH_MESSAGE_COUNT_TARGET } =
   require('../../syncbase');
 
 /**
@@ -33,6 +32,7 @@ const { INITIAL_SYNC_GROWTH_DAYS, OLDEST_SYNC_DATE,
  *   gaps between messages.
  */
 return TaskDefiner.defineSimpleTask([
+  require('../task_mixins/imap_mix_probe_for_date'),
   {
     name: 'sync_grow',
     args: ['accountId', 'folderId', 'minDays'],
@@ -49,103 +49,6 @@ return TaskDefiner.defineSimpleTask([
         `view:folder:${args.folderId}`
       ];
     },
-
-
-    /**
-     * Figure out the right date to use for date-based sync by investigating
-     * the INTERNALDATEs of messages that we ostensibly have not yet
-     * synchronized.  This will err on the side of synchronizing fewer messages.
-     *
-     * The underlying assumption is that messages with higher sequence numbers
-     * are more recent.  While this is generally true, there will also be
-     * exceptions due to messages being moved between folders.  We want to
-     * avoid being tricked into synchronizing way more messages than desired by
-     * the presence of a bunch of recently added (to the folder) OLD messages.
-     * We also want to minimize traffic and server burden while being fairly
-     * simple.
-     *
-     * Our approach is to build a list of sequence numbers using an
-     * exponentially growing step size, starting with a step size related to
-     * our target growth size.  This gives us a number of data points from
-     * messages that should be recent, plus a bounded number of points from
-     * messages that should be old.  This lets us test our hypothesis that this
-     * is a folder where message sequence numbers correlate with recent
-     * messages.  If this does not appear to be the case, we are able to fall
-     * back to just growing our sync range by a fixed time increment.
-     *
-     * We do not use UIDs because they have the same correlation but due to
-     * numeric gaps and it being an error to explicitly reference a nonexistent
-     * UID, it's not a viable option.
-     */
-    _probeForDateUsingSequenceNumbers: co.wrap(function*({
-        ctx, account, folderInfo, startSeq, curDate }) {
-      let probeStep = Math.ceil(GROWTH_MESSAGE_COUNT_TARGET / 4);
-      // Scale factor for the step size after each step.  This must be an
-      // integer or we need to add rounding logic in the loop.
-      const PROBE_STEP_SCALE = 2;
-
-      // - Generate the list of message sequences to probe.
-      let seqs = [];
-      for (let curSeq = startSeq;
-           curSeq >= 1;
-           curSeq -= probeStep, probeStep *= PROBE_STEP_SCALE) {
-        seqs.push(curSeq);
-      }
-
-      let { result: messages } = yield account.pimap.listMessages(
-        ctx,
-        folderInfo,
-        seqs,
-        [
-          'INTERNALDATE',
-        ],
-        {}
-      );
-
-      // sort the messages by descending sequence number so our iteration path
-      // should be backwards into time.
-      messages.sort((a, b) => {
-        return b['#'] - a['#'];
-      });
-
-      // In our loop we ratchet the checkDate past-wards as we find older
-      // messages.  If we find a newer message as we move backwards, it's a
-      // violation and we add the time-difference to our violationsDelta.  We
-      // do this rather than just incrementing a violation count because small
-      // regions of low-delta homogeneity at the beginning of the range are not
-      // a huge problem.  It might make sense to scale this by the sequence
-      // number distance, but the goal here is to know when to bail, not create
-      // an awesome stastical model.
-      let violationsDelta = 0;
-      let checkDate = 0;
-      for (let msg of messages) {
-        let msgDate = parseImapDateTime(msg.internaldate);
-        if (!checkDate) {
-          checkDate = msgDate;
-        } else if (msgDate > checkDate) {
-          violationsDelta += msgDate - checkDate;
-        } else {
-          checkDate = msgDate;
-        }
-      }
-
-      logic(
-        ctx, 'dateProbeResults',
-        { violationDays: Math.floor(violationsDelta / DAY_MILLIS) });
-
-      // 100% arbitrary.  But obviously if the folder is 10,000 messages all
-      // from the same week, we're screwed no matter what.
-      if (violationsDelta > 7 * DAY_MILLIS) {
-        // The folder's no good!  We can't do any better than just a fixed
-        // time adjustment.
-        return makeDaysBefore(curDate, INITIAL_SYNC_GROWTH_DAYS);
-      }
-      // Woo, the folder is consistent with our assumptions and highly dubious
-      // tests!
-      return quantizeDate(
-        parseImapDateTime(
-          messages[Math.min(messages.length - 1, 2)].internaldate));
-    }),
 
     execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
@@ -164,7 +67,7 @@ return TaskDefiner.defineSimpleTask([
 
       // Figure out an upper bound on the number of messages in the folder that
       // we have not synchronized.
-      let unsyncedMessageEstimate =
+      let estimatedUnsyncedMessages =
         mailboxInfo.exists - syncState.knownMessageCount;
 
       // -- Issue a search for the new date range we're expanding to cover.
@@ -175,9 +78,9 @@ return TaskDefiner.defineSimpleTask([
 
       // If there are fewer messages left to sync than our constant for this
       // purpose, then just set the date range to our oldest sync date.
-      if (!isNaN(unsyncedMessageEstimate) &&
-          unsyncedMessageEstimate < Math.max(SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
-                                             GROWTH_MESSAGE_COUNT_TARGET)) {
+      if (!isNaN(estimatedUnsyncedMessages) &&
+          estimatedUnsyncedMessages < Math.max(SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+                                               GROWTH_MESSAGE_COUNT_TARGET)) {
         newSinceDate = OLDEST_SYNC_DATE;
       } else {
         newSinceDate = yield this._probeForDateUsingSequenceNumbers({
@@ -261,8 +164,7 @@ return TaskDefiner.defineSimpleTask([
               req.folderId,
               {
                 fullySynced: syncState.sinceDate === OLDEST_SYNC_DATE.valueOf(),
-                estimatedUnsyncedMessages:
-                  mailboxInfo.exists - syncState.knownMessageCount,
+                estimatedUnsyncedMessages,
                 syncedThrough: syncState.sinceDate,
                 lastSuccessfulSyncAt: syncDate,
                 lastAttemptedSyncAt: syncDate,

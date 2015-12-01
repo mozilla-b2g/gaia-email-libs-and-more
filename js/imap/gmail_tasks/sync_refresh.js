@@ -110,7 +110,7 @@ return TaskDefiner.defineAtMostOnceTask([
       });
       let rawSyncState = fromDb.syncStates.get(req.accountId);
 
-      // -- Check to see if we need to spin-off a sync_grow instead
+      // -- Check to see if we need to spin-off the first-ever sync_grow
       if (!rawSyncState) {
         return {
           // we ourselves are done
@@ -136,6 +136,25 @@ return TaskDefiner.defineAtMostOnceTask([
         throw new Error('missing modseq');
       }
 
+      // -- Check to see if this is the first sync for this folder
+      // (The above check was the first check ever for anyone.)
+      if (!syncState.getFolderIdSinceDate(req.folderId)) {
+        return {
+          // we ourselves are done
+          taskState: null,
+          newData: {
+            tasks: [
+              {
+                type: 'sync_grow',
+                accountId: req.accountId,
+                folderId: req.folderId
+              }
+            ]
+          }
+        };
+      }
+
+      // -- Okay, we're going to go through with this sync directly
       let foldersTOC =
         yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
@@ -147,6 +166,7 @@ return TaskDefiner.defineAtMostOnceTask([
         // make sure we avoid going into this sync in a broken way.
         throw new Error('moot');
       }
+
 
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');

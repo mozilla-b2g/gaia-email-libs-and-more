@@ -30,6 +30,50 @@ from our previous purely date-based sync algorithm, sync_refresh now just does
 UIDNEXT based detection of new messages.  sync_grow, which also handles the base
 case, is the only one that cares about date-ranges.
 
+### Sync Growing Strategy ###
+
+When the user wants to see more messages in a vanilla IMAP server, our goal is
+to grow the synced time range by an amount that gives us a reasonable amount of
+messages.  Not too many, not too few.
+
+Pre-convoy our heuristics were:
+1. See if the number of messages in this folder that we don't know about is
+   small.  If it is, just sync them all by moving our date window all the way
+   back to our oldest sync date, 1990.
+2. Too many messages, eh?  Well then, let's pick a time window covering a small
+   number of days.  Did we get too many?  Let's shrink the window and try again.
+   Did we not get any?  Let's grow the window and try again.  If we got some,
+   process them, but then also try again if we still don't have as many messages
+   as we want.
+
+It should be noted that the latter approach was really just our initial attempt
+that sort of got stuck in time.  It was naive in terms of assuming it was
+possible for us to save the server from the horrors of sequence numbers.  That's
+not something we can save servers from.
+
+In convoy, we still have the first heuristic, but we've modified the second one
+to instead be informed by the actual dates of messages in the folder.  The
+basic idea is that most of the time, the messages in the folder will have a
+strong correlation such that as the message sequence number and UID increase,
+the date associated with messages will increase too.  This will not always be
+true, and when it's not true, it will be catastrophically not true.
+
+Our approach is to issue a FETCH for message INTERNALDATEs using some
+statistical sampling.  Our goals are to:
+1. Try and pick a good date for us to use for growing, assuming that the
+   correlation holds true.
+2. Try and sample enough message dates spread throughout the folder so that we
+   can ensure that the correlation does hold true.  Note that we don't need to
+   figure out the actual distribution of message, just validate our assumption.
+
+In the event our assumption is not validated, we fall back to advancing
+backwards into time using a fixed window.  We do not do any adaptive growing,
+etc.  There is definitely future work here, but this is a huuuuuge improvement
+over the iterative deepening strategy we used previously.
+
+Please see ../task_mixins/imap_mix_probe_for_date.js for the implementation
+nitty-gritty and all the important hand-waving we do.
+
 ### Conversation Mapping ###
 
 Vanilla IMAP servers by definition have no awareness of conversations.  They may

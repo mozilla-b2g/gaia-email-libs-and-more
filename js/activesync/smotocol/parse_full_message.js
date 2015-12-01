@@ -39,7 +39,7 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
     replyTo: null,
     date: null,
     flags: [],
-    folderIds: [folderId],
+    folderIds: new Set([folderId]),
     hasAttachments: false,
     subject: null,
     snippet: null,

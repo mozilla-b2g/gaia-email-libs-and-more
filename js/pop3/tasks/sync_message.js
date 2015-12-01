@@ -78,7 +78,7 @@ return TaskDefiner.defineSimpleTask([
       let inboxInfo = account.getFirstFolderWithType('inbox');
       messageInfo.id = messageId;
       messageInfo.umid = req.umid;
-      messageInfo.folderIds.push(inboxInfo.id);
+      messageInfo.folderIds = new Set([inboxInfo.id]);
 
       // -- If the conversation existed, load it for re-churning
       let oldConvInfo;

@@ -9,7 +9,7 @@ const { bsearchForInsert } = require('../util');
 const { encodeInt: encodeA64Int } = require('../a64');
 const { decodeSpecificFolderIdFromFolderId } = require('../id_conversions');
 
-const { engineFrontEndFolderMeta } = require('../engine_glue');
+const { engineFrontEndFolderMeta, engineHacks } = require('../engine_glue');
 
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
@@ -56,6 +56,7 @@ function FoldersTOC({ db, accountDef, folders, dataOverlayManager }) {
 
   this.accountDef = accountDef;
   this.engineFolderMeta = engineFrontEndFolderMeta.get(accountDef.engine);
+  this.engineHacks = engineHacks.get(accountDef.engine);
   this.accountId = accountDef.id;
   this._dataOverlayManager = dataOverlayManager;
 
@@ -311,6 +312,11 @@ FoldersTOC.prototype = evt.mix({
       {},
       folder,
       this.engineFolderMeta,
+      // engine hack contributions.
+      {
+        engineSaysUnselectable:
+          this.engineHacks.unselectableFolderTypes.has(folder.type)
+      },
       mixFromAccount
     );
   }

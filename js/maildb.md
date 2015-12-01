@@ -180,9 +180,11 @@ These events provide the maximum amount of information possible to the listener.
 
 - `conv!*!add`: The conversation came into existence.  Arguments: [convInfo]
 - `conv!*!change`: The conversation was modified.  Arguments: [convId, preInfo,
-  convInfo, added, kept, removed].
+  convInfo, foldersAdded, foldersKept, foldersRemoved].
+- `msg!*!add`: The message came into existence.  Arguments: [message]
 - `msg!*!change`: The message was changed or removed.  Arguments: [messageId,
-  message].  In the case of removal, the message argument will be null.
+  preInfo, message, foldersAdded, foldersKept, foldersRemoved].  In the case of
+  removal, the message argument will be null.
 - `msg!*!remove`: The message was removed.  Note that if you want changes too,
   the change event already covers removal.  Use this is you only want removal.
   Arguments: [messageId].

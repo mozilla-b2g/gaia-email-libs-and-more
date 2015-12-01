@@ -83,7 +83,7 @@ GmailLabelMapper.prototype = {
    * @return {FolderId[]}
    */
   labelsToFolderIds: function(gmailLabels) {
-    let folderIds = [];
+    let folderIds = new Set();
     for (let gmailLabel of gmailLabels) {
       let folderId = this._labelToFolderId.get(gmailLabel);
       if (!folderId) {
@@ -93,7 +93,7 @@ GmailLabelMapper.prototype = {
         logic(this, 'missingLabelMapping',
               { label: gmailLabel, _allLabels: gmailLabels });
       } else {
-        folderIds.push(folderId);
+        folderIds.add(folderId);
       }
     }
     return folderIds;
@@ -115,7 +115,11 @@ GmailLabelMapper.prototype = {
    * Given an array of `FolderId`s, return an array of gmail label strings that
    * X-GM-LABELS understands.  The values should never be exposed to the user.
    *
-   * @param {FolderId[]} folderIds
+   * Note that even though we have transitioned to always storing folder id's
+   * in a Set, we continue to return an array because we pass these to
+   * browserbox and it still wants an Array.
+   *
+   * @param {Set<FolderId>} folderIds
    * @return {String[]}
    */
   folderIdsToLabels: function(folderIds) {

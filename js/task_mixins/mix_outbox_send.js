@@ -148,7 +148,7 @@ return {
     let foldersToc =
       yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
     let outboxFolder = foldersToc.getCanonicalFolderByType('outbox');
-    messageInfo.folderIds = [outboxFolder.id];
+    messageInfo.folderIds = new Set([outboxFolder.id]);
     // Reset the sending problems; we'll assume the user fixed things.
     messageInfo.draftInfo.sendProblems = {
       error: null,
@@ -234,7 +234,7 @@ return {
     let foldersToc =
       yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
     let draftsFolder = foldersToc.getCanonicalFolderByType('localdrafts');
-    messageInfo.folderIds = [draftsFolder.id];
+    messageInfo.folderIds = new Set([draftsFolder.id]);
     // Note that we do not zero out the sendProblems because anything in there
     // is still going to be accurate.  Triggering the abort is just moving
     // the message back into the drafts folder so the user can edit the

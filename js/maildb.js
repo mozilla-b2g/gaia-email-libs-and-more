@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 113;
+const CUR_VERSION = 116;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -964,8 +964,7 @@ MailDB.prototype = evt.mix({
       // (nothing to do for "accounts")
       // (nothing to do for "folders")
 
-      // Right now we only care about conversations because all other data types
-      // have no complicated indices to maintain.
+      // - conversations
       if (mutateRequests.conversations) {
         let preConv = preMutateStates.conversations = new Map();
         for (let conv of mutateRequests.conversations.values()) {
@@ -979,7 +978,10 @@ MailDB.prototype = evt.mix({
             conv.id,
             {
               date: conv.date,
-              folderIds: conv.folderIds,
+              // A well-behaved mutation will not mutate the list an instead
+              // replace it with a new one, but we are not so naive as to
+              // have our correctness depend on that.
+              folderIds: new Set(conv.folderIds),
               hasUnread: conv.hasUnread,
               height: conv.height
             });
@@ -997,13 +999,23 @@ MailDB.prototype = evt.mix({
           for (let convMessages of
                mutateRequests.messagesByConversation.values()) {
             for (let message of convMessages) {
-              preMessages.set(message.id, message.date);
+              preMessages.set(
+                message.id,
+                {
+                  date: message.date,
+                  folderIds: new Set(message.folderIds)
+                });
             }
           }
         }
         if (mutateRequests.messages) {
           for (let message of mutateRequests.messages.values()) {
-            preMessages.set(message.id, message.date);
+            preMessages.set(
+              message.id,
+              {
+                date: message.date,
+                folderIds: new Set(message.folderIds)
+              });
           }
         }
       }
@@ -1263,6 +1275,7 @@ MailDB.prototype = evt.mix({
       store.add(message, key);
       messageCache.set(message.id, message);
 
+      this.emit('msg!*!add', message);
       let eventId = 'conv!' + convId + '!messages!tocChange';
       this.emit(eventId, message.id, null, message.date, message, true);
     }
@@ -1276,7 +1289,8 @@ MailDB.prototype = evt.mix({
     let messageCache = this.messageCache;
     for (let [messageId, message] of messages) {
       let convId = convIdFromMessageId(messageId);
-      let preDate = preStates.get(messageId);
+      let preInfo = preStates.get(messageId);
+      let preDate = preInfo.date;
       let postDate = message && message.date;
       let preKey = [
         convId,
@@ -1303,11 +1317,17 @@ MailDB.prototype = evt.mix({
         messageCache.set(messageId, message);
       }
 
+      let { added, kept, removed } =
+        computeSetDelta(
+          preInfo.folderIds, message ? message.folderIds : new Set());
+
       let convEventId = 'conv!' + convId + '!messages!tocChange';
       this.emit(convEventId, messageId, preDate, postDate, message, false);
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
-      this.emit('msg!*!change', messageId, message);
+
+      this.emit(
+        'msg!*!change', messageId, preInfo, message, added, kept, removed);
       if (!message) {
         this.emit('msg!' + messageId + '!remove', messageId);
         this.emit('msg!*!remove', messageId);

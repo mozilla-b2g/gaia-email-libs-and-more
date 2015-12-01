@@ -16,9 +16,19 @@ predicate to get the equivalent (from our perspective) of performing the search
 in a folder.  (Note that it's conceivable we may be imposing a greater cost
 on Gmail, depending on how their IMAP backend is implemented and optimized.)
 
-To this end we only ever do synchronization in "All Mail".  For date-range
-deepening for a label, we can do our standard date-range source filtered down
-to the labels we care about for that date range.
+To this end we only ever do synchronization in "All Mail".  HOWEVER, when we
+are doing sync_grow to grow our synchronized time period for a label/folder,
+we do enter the folder because it lets us do sequence number tricks that are
+not something we could do as efficiently in All Mail.  (Because in order to
+get a similar view in all mail, we would have to issue a SEARCH over the entire
+folder.  While it's possible gmail could cache this the same way it's compelled
+to build and cache the sequence number tables for folders, we would not get
+the same "address space" as we do by entering the folder.  Specifically,
+the message sequence numbers in the "foo" folder will continuously cover
+[1, EXISTS] whereas in All Mail both UIDs and sequence numbers would be sparse
+and so we'd have to hear them all from SEARCH.)  Please see the vanilla imap
+sync.md's description of growing and ../task_mixins/imap_mix_probe_for_date.js
+for more informatio.
 
 For CONDSTORE steady-state things are somewhat trickier but CONDSTORE is
 powerful enough that we can pick trade-offs that still work out quite well for
