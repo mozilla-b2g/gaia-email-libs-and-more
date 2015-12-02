@@ -134,7 +134,8 @@ return {
         memoryState.remainInProgressBins.add(binId);
         rval.remainInProgressUntil.then(() => {
           memoryState.remainInProgressBins.delete(binId);
-          this.helped_progress_completed(binId, ctx.universe.dataOverlayManager);
+          this.helped_progress_completed(
+            binId, ctx.universe.dataOverlayManager);
         });
       }
 

@@ -4,9 +4,11 @@ define(function(require) {
 const co = require('co');
 const logic = require('logic');
 
+const { shallowClone } = require('../../util');
+
 const TaskDefiner = require('../../task_infra/task_definer');
 
-const { makeDaysAgo, makeDaysBefore, quantizeDate, NOW } = require('../../date');
+const { quantizeDate, NOW } = require('../../date');
 
 const imapchew = require('../imapchew');
 const parseImapDateTime = imapchew.parseImapDateTime;
@@ -27,26 +29,57 @@ const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
  * Expand the date-range of known messages for the given folder/label.
  * See sync.md for detailed documentation on our algorithm/strategy.
  */
-return TaskDefiner.defineSimpleTask([
+return TaskDefiner.defineAtMostOnceTask([
   require('../task_mixins/imap_mix_probe_for_date'),
   {
     name: 'sync_grow',
-    args: ['accountId', 'folderId', 'minDays'],
+    // Note that we are tracking grow status on folders while we track refresh
+    // status on the account as a whole.
+    binByArg: 'folderId',
 
-    exclusiveResources: function(args) {
-      return [
-        // Only one of us/sync_refresh is allowed to be active at a time.
-        `sync:${args.accountId}`,
-      ];
+    helped_overlay_folders: function(folderId, marker, inProgress) {
+      if (!marker) {
+        return null;
+      } else if (inProgress) {
+        return 'active';
+      } else {
+        return 'pending';
+      }
     },
 
-    priorityTags: function(args) {
-      return [
-        `view:folder:${args.folderId}`
-      ];
+    helped_invalidate_overlays: function(folderId, dataOverlayManager) {
+      dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
     },
 
-    execute: co.wrap(function*(ctx, req) {
+    helped_already_planned: function(ctx, rawTask) {
+      // The group should already exist; opt into its membership to get a
+      // Promise
+      return Promise.resolve({
+        result: ctx.trackMeInTaskGroup('sync_grow:' + rawTask.folderId)
+      });
+    },
+
+    helped_plan: function(ctx, rawTask) {
+      let plannedTask = shallowClone(rawTask);
+      plannedTask.exclusiveResources = [
+        `sync:${rawTask.folderId}`
+      ];
+      plannedTask.priorityTags = [
+        `view:folder:${rawTask.folderId}`
+      ];
+
+      // Create a task group that follows this task and all its offspring.  This
+      // will define the lifetime of our overlay as well.
+      let groupPromise =
+        ctx.trackMeInTaskGroup('sync_grow:' + rawTask.folderId);
+      return Promise.resolve({
+        taskState: plannedTask,
+        remainInProgressUntil: groupPromise,
+        result: groupPromise
+      });
+    },
+
+    helped_execute: co.wrap(function*(ctx, req) {
       // -- Exclusively acquire the sync state for the account
       let fromDb = yield ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
@@ -198,7 +231,7 @@ return TaskDefiner.defineSimpleTask([
         ]
       ]);
 
-      yield ctx.finishTask({
+      return {
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
         },
@@ -206,7 +239,7 @@ return TaskDefiner.defineSimpleTask([
           tasks: syncState.tasksToSchedule
         },
         atomicClobbers
-      });
+      };
     })
   }
 ]);

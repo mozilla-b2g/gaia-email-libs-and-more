@@ -1,3 +1,8 @@
+## Moving Pieces ##
+
+* Front-End
+
+
 ## Task Hierarchy ##
 
 Cronsync relies on the following tasks:

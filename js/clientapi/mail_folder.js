@@ -116,12 +116,18 @@ MailFolder.prototype = evt.mix({
 
   __updateOverlays: function(overlays) {
     /**
-     * syncStatus is defined to be one of: null/'pending'/'active'.
+     * syncStatus is defined to be one of: null/'pending'/'active' and reflects
+     * both sync_refresh and sync_grow status.
+     *
      * Eventually, sync_refresh will also provide syncBlocked which will be
      * one of: null/'offline/'bad-auth'/'unknown'.  This is per discussion
      * with :jrburke on IRC.
      */
-    this.syncStatus = overlays.sync_refresh ? overlays.sync_refresh : null;
+    this.syncStatus = overlays.sync_refresh || overlays.sync_grow || null;
+
+    /**
+     * TODO: implement syncBlocked, extracted from the sync_refresh overlay.
+     */
   },
 
   release: function() {

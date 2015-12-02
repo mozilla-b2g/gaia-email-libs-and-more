@@ -542,26 +542,33 @@ MailUniverse.prototype = {
     ], why);
   },
 
+  /**
+   * Schedule a sync for the given folder, returning a promise that will be
+   * resolved when the task group associated with the request completes.
+   */
   syncGrowFolder: function(folderId, why) {
     let accountId = folderId.split(/\./g)[0];
-    return this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'sync_grow',
         accountId: accountId,
         folderId: folderId
-      }
-    ], why);
+      }, why);
   },
 
+  /**
+   * Schedule a sync for the given folder, returning a promise that will be
+   * resolved when the task group associated with the request completes.
+   */
   syncRefreshFolder: function(folderId, why) {
     let accountId = folderId.split(/\./g)[0];
-    return this.taskManager.scheduleTasks([
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'sync_refresh',
         accountId: accountId,
         folderId: folderId
-      }
-    ], why);
+      },
+      why);
   },
 
   fetchConversationSnippets: function(convIds, why) {
