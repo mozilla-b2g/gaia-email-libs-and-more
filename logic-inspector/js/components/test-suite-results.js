@@ -144,17 +144,39 @@ class Event extends React.Component {
       return details.string;
     } else if (typeof details === 'object') {
       return Object.keys(details).map((key, index) => {
+        var val = details[key];
+        var showVal = null;
+        if (val === null) {
+          // - Null gets to be null
+          showVal = 'null';
+        } else if (typeof(val) !== 'object') {
+          // - Directly stringify primitives
+          showVal = val + '';
+          // too long?
+          if (showVal.length > 80) {
+            showVal = null;
+          }
+        } else if (Array.isArray(val) && val.length <= 3 &&
+                   val.every(x => typeof(x) !== 'object')) {
+          // - Show simple arrays as simple arrays
+          showVal = JSON.stringify(val);
+          // too long?
+          if (showVal.length > 80) {
+            showVal = null;
+          }
+        }
+        if (showVal === null) {
+          showVal = (
+            <span className="complex"
+                title={JSON.stringify(val, null, ' ')}>
+              [...]
+            </span>
+          );
+        }
         return (
             <span className="event-detail" key={index}>
               <span className="event-detail-key">{key}</span>
-              <span className="event-detail-value">
-                {(details[key] === null || (typeof details[key] !== 'object' && (details[key]+'').length < 80)) ?
-                 (details[key] + '') :
-                 <span className="complex"
-                     title={JSON.stringify(details[key], null, ' ')}>
-                   [...]
-                 </span>}
-              </span>
+              <span className="event-detail-value">{showVal}</span>
             </span>
         );
       });
