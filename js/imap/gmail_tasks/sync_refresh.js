@@ -32,12 +32,12 @@ return TaskDefiner.defineAtMostOnceTask([
     binByArg: 'accountId',
 
     helped_overlay_accounts: function(accountId, marker, inProgress) {
-      if (!marker) {
-        return null;
-      } else if (inProgress) {
+      if (inProgress) {
         return 'active';
-      } else {
+      } else if (marker) {
         return 'pending';
+      } else {
+        return null;
       }
     },
 
@@ -51,12 +51,12 @@ return TaskDefiner.defineAtMostOnceTask([
     helped_prefix_overlay_folders: [
       accountIdFromFolderId,
       function(folderId, accountId, marker, inProgress) {
-        if (!marker) {
-          return null;
-        } else if (inProgress) {
+        if (inProgress) {
           return 'active';
-        } else {
+        } else if (marker) {
           return 'pending';
+        } else {
+          return null;
         }
       }
     ],

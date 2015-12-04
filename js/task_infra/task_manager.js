@@ -455,10 +455,11 @@ TaskManager.prototype = evt.mix({
     let ctx = new TaskContext(wrappedTask, this._universe);
     let planResult = this._registry.planTask(ctx, wrappedTask);
     if (planResult) {
-      planResult.then((returnedResult) => {
+      planResult.then((maybeResult) => {
+        let result = maybeResult && maybeResult.wrappedResult || undefined;
         logic(this, 'planning:end', { task: wrappedTask });
-        this.emit('planned:' + wrappedTask.id, returnedResult);
-        this.emit('planned', wrappedTask.id, returnedResult);
+        this.emit('planned:' + wrappedTask.id, result);
+        this.emit('planned', wrappedTask.id, result);
       });
     } else {
       logic(this, 'planning:end', { moot: true, task: wrappedTask });
@@ -475,10 +476,11 @@ TaskManager.prototype = evt.mix({
     let ctx = new TaskContext(taskThing, this._universe);
     let execResult = this._registry.executeTask(ctx, taskThing);
     if (execResult) {
-      execResult.then((returnedResult) => {
+      execResult.then((maybeResult) => {
+        let result = maybeResult && maybeResult.wrappedResult || undefined;
         logic(this, 'executing:end', { task: taskThing });
-        this.emit('executed:' + taskThing.id, returnedResult);
-        this.emit('executed', taskThing.id, returnedResult);
+        this.emit('executed:' + taskThing.id, result);
+        this.emit('executed', taskThing.id, result);
       });
     } else {
       logic(this, 'executing:end', { moot: true, task: taskThing });

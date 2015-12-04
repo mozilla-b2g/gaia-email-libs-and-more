@@ -173,7 +173,7 @@ TaskContext.prototype = {
    * last task in the group completes.
    */
   trackMeInTaskGroup: function(groupName) {
-    this._taskGroupTracker.ensureNamedTaskGroup(groupName, this.id);
+    return this._taskGroupTracker.ensureNamedTaskGroup(groupName, this.id);
   },
 
   /**
@@ -568,6 +568,16 @@ TaskContext.prototype = {
           wrappedTasks, this.id);
       }
     });
+  },
+
+  /**
+   * We need to wrap return values that are Promises because otherwise automatic
+   * promise chaining gets us.  So we create an explicit wrapper to conceal the
+   * hacky convention.  Also, when we come up with a better way to handle this,
+   * this might be easier to search and replace.
+   */
+  returnValue: function(value) {
+    return null; // { wrappedResult: value };
   },
 
   __failsafeFinalize: function() {

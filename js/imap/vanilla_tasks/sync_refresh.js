@@ -22,12 +22,12 @@ return TaskDefiner.defineAtMostOnceTask([
     binByArg: 'folderId',
 
     helped_overlay_folders: function(folderId, marker, inProgress) {
-      if (!marker) {
-        return null;
-      } else if (inProgress) {
+      if (inProgress) {
         return 'active';
-      } else {
+      } else if (marker) {
         return 'pending';
+      } else {
+        return null;
       }
     },
 

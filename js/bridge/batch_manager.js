@@ -75,7 +75,8 @@ BatchManager.prototype = {
         // TODO: this is arguably expensive; investigate logic on-demand funcs
         tocTypes: Array.from(this._pendingProxies).map((proxy) => {
           return proxy.toc.type;
-        })
+        }),
+        timerFired
       });
     for (let proxy of this._pendingProxies) {
       let payload = proxy.flush();

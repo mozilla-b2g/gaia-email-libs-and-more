@@ -1,5 +1,7 @@
-define(function() {
+define(function(require) {
 'use strict';
+
+const logic = require('logic');
 
 /**
  * Tracks groups of one or more tasks and their spinoff tasks to provide higher
@@ -23,6 +25,7 @@ define(function() {
  * accomplish this by having groups be aware of their parent groups
  */
 function TaskGroupTracker(taskManager) {
+  logic.defineScope(this, 'TaskGroupTracker');
   this._groupsByName = new Map();
   this._taskIdsToGroups = new Map();
   // All task id's in this set are a case of a simple task reusing its id and
@@ -49,6 +52,9 @@ TaskGroupTracker.prototype = {
     let group = this._groupsByName.get(groupName);
     if (!group) {
       group = this._makeTaskGroup(groupName);
+      logic(this, 'createGroup', { groupName, taskId });
+    } else {
+      logic(this, 'reuseGroup', { groupName, taskId });
     }
 
     let existingOwningGroup = this._taskIdsToGroups.get(taskId);
@@ -60,6 +66,7 @@ TaskGroupTracker.prototype = {
       // our group is assuming the pendingCount of the task.
     }
     group.pendingCount++;
+    group.totalCount++;
     this._taskIdsToGroups.set(taskId, group);
     return group.promise;
   },
@@ -69,6 +76,9 @@ TaskGroupTracker.prototype = {
       groupName,
       // The number of tasks or groups that have yet to complete.
       pendingCount: 0,
+      // Debugging support: track the number of things this group ever wanted to
+      // wait on.
+      totalCount: 0,
       parentGroup: null,
       promise: null,
       resolve: null
@@ -93,6 +103,7 @@ TaskGroupTracker.prototype = {
     let sourceGroup = this._taskIdsToGroups.get(sourceId);
     if (sourceGroup) {
       sourceGroup.pendingCount++;
+      sourceGroup.totalCount++;
       this._taskIdsToGroups.set(taskThing.id, sourceGroup);
     }
   },
@@ -115,14 +126,24 @@ TaskGroupTracker.prototype = {
       // confusing in the debugger.
       if (sourceId === taskThing.id) {
         this._pendingTaskIdReuses.add(sourceId);
+        // And we don't bump the pending count because we fast-path out when we
+        // see the above set entry.
+      } else {
+        sourceGroup.pendingCount++;
       }
-      sourceGroup.pendingCount++;
+      sourceGroup.totalCount++;
       this._taskIdsToGroups.set(taskThing.id, sourceGroup);
     }
   },
 
   _decrementGroupPendingCount(group) {
     if (--group.pendingCount === 0) {
+      logic(
+        this, 'resolveGroup',
+        {
+          groupName: group.groupName,
+          totalCount: group.totalCount
+        });
       group.resolve();
       this._groupsByName.delete(group.groupName);
       if (group.parentGroup) {
