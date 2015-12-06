@@ -32,7 +32,7 @@ return TaskDefiner.defineSimpleTask([
       // Formally complete the task.
       yield ctx.finishTask({});
       // Return the autoconfig result.
-      return result;
+      return ctx.returnValue(result);
     })
   }
 ]);

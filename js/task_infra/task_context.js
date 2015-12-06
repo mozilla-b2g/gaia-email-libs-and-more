@@ -577,7 +577,7 @@ TaskContext.prototype = {
    * this might be easier to search and replace.
    */
   returnValue: function(value) {
-    return null; // { wrappedResult: value };
+    return { wrappedResult: value };
   },
 
   __failsafeFinalize: function() {

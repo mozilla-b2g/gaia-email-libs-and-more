@@ -195,7 +195,7 @@ return {
       taskMarkers: modifyTaskMarkers,
       complexTaskState: persistentState
     });
-    return reportProblem;
+    return ctx.returnValue(reportProblem);
   }),
 
 

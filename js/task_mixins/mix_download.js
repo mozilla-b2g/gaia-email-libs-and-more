@@ -284,7 +284,7 @@ return {
       });
     }
 
-    return groupPromise;
+    return ctx.returnValue(groupPromise);
   }),
 
   /**

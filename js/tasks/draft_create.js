@@ -170,7 +170,7 @@ return TaskDefiner.defineSimpleTask([
       // this info (versus having something notice for out-of-band side-effects)
       // is the only sane way to convey this information.  (Even though in
       // general we don't want tasks to directly return information.)
-      return { messageId, messageDate: date };
+      return ctx.returnValue({ messageId, messageDate: date });
     }),
 
     execute: null
