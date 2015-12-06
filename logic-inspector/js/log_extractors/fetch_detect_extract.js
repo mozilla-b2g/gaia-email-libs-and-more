@@ -1,3 +1,5 @@
+'use strict';
+
 import { extractSimpleLogicPrefixedEvents } from './simple_logic_prefixed';
 
 export function fetchDetectExtract(urlStr) {
@@ -19,7 +21,7 @@ export function fetchDetectExtract(urlStr) {
           };
         }
       });
-    } else if (/\.log$/.test(parsedUrl.pathname)) {
+    } else if (/log$/.test(parsedUrl.pathname)) {
       // - Text log file, assume simple "logic: " prefixed JSON
       return response.text().then((str) => {
         return {
