@@ -2304,8 +2304,13 @@ var TestCommonAccountMixins = {
         }
       }
 
+      var eAdd = self.T.actor('async addMessagesToFolder');
+      eAdd.expect('done');
+
       self.testServer.addMessagesToFolder(testFolder.serverFolder,
-                                          messageBodies);
+                                          messageBodies)
+        .then(() => eAdd.log('done'));
+
     }).timeoutMS = 1000 + 600 * messageCount; // appending can take a bit.
   },
 

@@ -628,13 +628,14 @@
 
             // decode "binary" string to an unicode string
             if (!/^utf[\-_]?8$/i.test(this.charset)) {
-                this.content = mimefuncs.charset.convert(mimefuncs.toTypedArray(this._bodyBuffer), this.charset || 'iso-8859-1');
+              this.content = mimefuncs.charset.convert(mimefuncs.toTypedArray(this._bodyBuffer), this.charset || 'iso-8859-1');
             }
 
             // override charset for text nodes
             this.charset = this.contentType.params.charset = 'utf-8';
         }
         this._bodyBuffer = '';
+
 
         this._parser.onbody(this, this.content);
     };
