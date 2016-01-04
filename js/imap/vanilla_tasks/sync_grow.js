@@ -19,6 +19,10 @@ const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
         GROWTH_MESSAGE_COUNT_TARGET } =
   require('../../syncbase');
 
+const { syncNormalOverlay } =
+  require('../../task_helpers/sync_overlay_helpers');
+
+
 /**
  * Expand the date-range of known messages for the given folder.
  *
@@ -39,15 +43,7 @@ return TaskDefiner.defineAtMostOnceTask([
     name: 'sync_grow',
     binByArg: 'folderId',
 
-    helped_overlay_folders: function(folderId, marker, inProgress) {
-      if (inProgress) {
-        return 'active';
-      } else if (marker) {
-        return 'pending';
-      } else {
-        return null;
-      }
-    },
+    helped_overlay_folders: syncNormalOverlay,
 
     helped_invalidate_overlays: function(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
@@ -63,8 +59,10 @@ return TaskDefiner.defineAtMostOnceTask([
 
     helped_plan: function(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
-      plannedTask.exclusiveResources = [
-        `sync:${rawTask.folderId}`
+      plannedTask.resources = [
+        'online',
+        `credentials!${rawTask.accountId}`,
+        `happy!${rawTask.accountId}`
       ];
       plannedTask.priorityTags = [
         `view:folder:${rawTask.folderId}`

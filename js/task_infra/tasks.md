@@ -185,8 +185,22 @@ Our core use cases are as follows:
 Some enhancements we could use resources for in the future:
 - Defer heavier-weight attachment downloads to wi-fi.
 
+### Resource Naming Conventions and Priorities ###
 
-### Per-account online resources ###
+We name resources consistent with how we report problems to the user.  We could
+define fewer resources if we conflated a lot of things just into "is this
+account happy or not?", but that doesn't help us explain to the front-end and
+the user what the problem is.
+
+For accounts, we have the following resources defined in order of severity:
+- 'online': We have a global concept of being online.  In order to do things
+  like sync an account, we need to be online. Sync-related tasks will report they are syncBlocked because they are
+  'offline' if this resource is not available for their account.
+- 'credentials!<AccountId>'': To do anything online with an account, we need to
+  believe we have valid credentials for the account.  Sync-related tasks will
+  report 'bad-auth' if this resource is not available for their account.
+- 'happy!<AccountId>':
+
 
 To simplify the number of resource dependencies each task needs, although we
 have an "online" resource for catch-all purposes, we all have each account
@@ -196,7 +210,15 @@ password.
 
 ### Timeouts ###
 
-Our timeouts are simple setTimeout affairs handled
+TaskResources provides a restoreResourceAfterTimeout method to automatically put
+a resource back in place after some delay.
+
+Currently this is implemented as a naive setTimeout, but in the future it could
+end up with (optional) mozAlarm support which could re-trigger the app.  We need
+more explicit use-cases and rationale before we add this complexity.  In many
+cases it's possible that emerging APIs like BackgroundSync or requestsync may
+satisfy our wakeup needs more appropriately and they should just be Integrated
+instead.
 
 ## Wake-Locks ##
 

@@ -1,136 +1,26 @@
-/*global define, console */
-/**
- * Drives periodic synchronization, covering the scheduling, deciding what
- * folders to sync, and generating notifications to relay to the UI.  More
- * specifically, we have two goals:
- *
- * 1) Generate notifications about new messages.
- *
- * 2) Cause the device to synchronize its offline store periodically with the
- *    server for general responsiveness and so the user can use the device
- *    offline.
- *
- * We use mozAlarm to schedule ourselves to wake up when our next
- * synchronization should occur.
- *
- * All synchronization occurs in parallel because we want the interval that we
- * force the device's radio into higher power modes to be as short as possible.
- *
- * This logic is part of the back-end, not the front-end.  We want to notify
- * the front-end of new messages, but we want the front-end to be the one that
- * displays and services them to the user.
- **/
-
-define(function(require, exports) {
+define(function(require) {
 'use strict';
 
-var logic = require('logic'),
-    router = require('./worker-router'),
-    mailslice = require('./mailslice'),
-    syncbase = require('./syncbase'),
-    allback = require( './allback');
+const logic = require('logic');
+const router = require('../worker-router');
+const syncbase = require('../syncbase');
 
-function debug(str) {
-  console.log('cronsync: ' + str + '\n');
-}
-
-var SliceBridgeProxy = require('./slice_bridge_proxy').SliceBridgeProxy;
 
 /**
- * Create a specialized sync slice via clobbering that accumulates a list of
- * new headers and invokes a callback when the sync has fully completed.
+ * Support logic for cronsync/periodic sync to deal with the fact that the
+ * mozAlarms control API and the notifications it generates can only occur in a
+ * document context and not here on the worker.  Our counterpart in the document
+ * context is cronsync-main.js.
  *
- * Fully completed includes:
- * - The account update has been fully saved to disk.
+ * We:
+ * - expose ensureSync that verifies that sync intervals are appropriately set
+ *   for the given account id's.  The acutal logic happens in the document
+ *   context, we're just RPC ships.
+ * - handle messages from the document context that mozAlarms fired and we
+ *   translate that into calls on
  *
- * New header semantics are:
- * - Header is as new or newer than the newest header we previously knew about.
- *   Specifically we're using SINCE which is >=, so a message that arrived at
- *   the same second as the other message still counts as new.  Because the new
- *   message will inherently have a higher id than the other message, this
- *   meets with our other ordering semantics, although I'm thinking it wasn't
- *   totally intentional.
- * - Header is unread.  (AKA Not \Seen)
- *
- * "Clobbering" in this case means this is a little hacky.  What we do is:
- * - Take a normal slice and hook it up to a normal SliceBridgeProxy, but
- *   give the proxy a fake bridge that never sends any data anywhere.  This
- *   is reasonably future-proof/safe.
- *
- * - Put an onNewHeader method on the slice to accumulate the new headers.
- *   The new headers are all we care about.  The rest of the headers loaded/etc.
- *   are boring to us and do not matter.  However, there's relatively little
- *   memory or CPU overhead to letting that stuff get populated/retained since
- *   it's in memory already anyways and at worst we're only delaying the GC by
- *   a little bit.  (This is not to say there aren't pathological situations
- *   possible, but they'd be largely the same if the user triggered the sync.
- *   The main difference cronsync currently will definitely not shrink the
- *   slice.
- *
- * - Clobber proy.sendStatus to know when the sync has completed via the
- *   same signal the front-end uses to know when the sync is over.
- *
- * You as the caller need to:
- * - Make sure to kill the slice in a timely fashion after we invoke the
- *   callback.  Since killing the slice can result in the connection immediately
- *   being closed, you want to make sure that if you're doing anything like
- *   scheduling snippet downloads that you do that first.
  */
-function makeHackedUpSlice(storage, callback) {
-  var fakeBridgeThatEatsStuff = {
-        __sendMessage: function() {}
-      },
-      proxy = new SliceBridgeProxy(fakeBridgeThatEatsStuff, 'cron'),
-      slice = new mailslice.MailSlice(proxy, storage),
-      oldStatusMethod = proxy.sendStatus,
-      newHeaders = [];
-
-  slice.onNewHeader = function(header) {
-    console.log('onNewHeader: ' + header);
-    newHeaders.push(header);
-  };
-
-  proxy.sendStatus = function(status, requested, moreExpected,
-                              progress, newEmailCount) {
-    // (maintain normal behaviour)
-    oldStatusMethod.apply(this, arguments);
-
-    // We do not want to declare victory until the sync process has fully
-    // completed which (significantly!) includes waiting for the save to have
-    // completed.
-    // (Only fire completion once.)
-    if (callback) {
-      switch (status) {
-        // normal success and failure
-        case 'synced':
-        case 'syncfailed':
-        // ActiveSync specific edge-case where syncFolderList has not yet
-        // completed.  If the slice is still alive when syncFolderList completes
-        // the slice will auto-refresh itself.  We don't want or need this,
-        // which is fine since we kill the slice in the callback.
-        case 'syncblocked':
-          try {
-            callback(newHeaders);
-          }
-          catch (ex) {
-            console.error('cronsync callback error:', ex, '\n', ex.stack);
-            callback = null;
-            throw ex;
-          }
-          callback = null;
-          break;
-      }
-    }
-  };
-
-  return slice;
-}
-
-/**
- * The brains behind periodic account synchronization; only created by the
- * universe once it has loaded its configuration and accounts.
- */
-function CronSync(universe) {
+function CronSyncSupport(universe) {
   this._universe = universe;
 
   logic.defineScope(this, 'CronSync');
@@ -139,14 +29,15 @@ function CronSync(universe) {
 
   this.sendCronSync = router.registerSimple('cronsync', (data) => {
     var args = data.args;
+    logic(this, 'message', { cmd: data.cmd });
     switch (data.cmd) {
       case 'alarm':
-        debug('received an alarm via a message handler');
         this.onAlarm.apply(this, args);
         break;
       case 'syncEnsured':
-        debug('received an syncEnsured via a message handler');
         this.onSyncEnsured.apply(this, args);
+        break;
+      default:
         break;
     }
   });
@@ -154,9 +45,7 @@ function CronSync(universe) {
 
   this.ensureSync();
 }
-
-exports.CronSync = CronSync;
-CronSync.prototype = {
+CronSyncSupport.prototype = {
   /**
    * Makes sure there is a sync timer set up for all accounts.
    */
@@ -175,7 +64,7 @@ CronSync.prototype = {
       this._ensureSyncResolve = resolve;
     });
 
-    debug('ensureSync called');
+    logic(this, 'ensureSync called');
 
     var accounts = this._universe.accounts,
         syncData = {};
@@ -336,8 +225,12 @@ CronSync.prototype = {
     });
   },
 
-  onAlarm: function(accountIds) {
-    logic(this, 'alarmFired', { accountIds: accountIds });
+  /**
+   * Triggered by an 'alarm' system message firing in the document context and
+   * remoted to us.
+   */
+  onAlarm: function(accountIds, interval, wakelockId) {
+    logic(this, 'alarmFired', { accountIds, interval, wakelockId });
 
     if (!accountIds) {
       return;
@@ -347,7 +240,11 @@ CronSync.prototype = {
         targetAccounts = [],
         ids = [];
 
-    logic(this, 'cronSync_begin');
+    logic(this, 'cronSync:begin');
+    // - Issue a log write to the 
+    this._universe.cronsyncAccounts({
+      accountIds
+    });
     this._universe.__notifyStartedCronSync(accountIds);
 
     // Make sure the acount IDs are still valid. This is to protect against an
@@ -416,4 +313,5 @@ CronSync.prototype = {
   }
 };
 
+return CronSyncSupport;
 }); // end define

@@ -4,6 +4,11 @@ define(function(require) {
 const { decodeA64Int } = require('./a64');
 
 return {
+  // From Identity Id's
+  accountIdFromIdentityId: function(identityId) {
+    return identityId.split(/\./g, 1)[0];
+  },
+
   // From Folder Id's
   accountIdFromFolderId: function(folderId) {
     return folderId.split(/\./g, 1)[0];

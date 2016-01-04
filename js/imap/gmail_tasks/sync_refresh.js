@@ -22,6 +22,9 @@ const parseGmailMsgId = a64.parseUI64;
 
 const { accountIdFromFolderId } = require('../../id_conversions');
 
+const { syncNormalOverlay, syncPrefixOverlay } =
+  require('../../task_helpers/sync_overlay_helpers');
+
 /**
  * This is the steady-state sync task that drives all of our gmail sync.
  * See sync.md for detailed documentation on our algorithm/strategy.
@@ -31,15 +34,7 @@ return TaskDefiner.defineAtMostOnceTask([
     name: 'sync_refresh',
     binByArg: 'accountId',
 
-    helped_overlay_accounts: function(accountId, marker, inProgress) {
-      if (inProgress) {
-        return 'active';
-      } else if (marker) {
-        return 'pending';
-      } else {
-        return null;
-      }
-    },
+    helped_overlay_accounts: syncNormalOverlay,
 
     /**
      * We will match folders that belong to our account, allowing us to provide
@@ -50,15 +45,7 @@ return TaskDefiner.defineAtMostOnceTask([
      */
     helped_prefix_overlay_folders: [
       accountIdFromFolderId,
-      function(folderId, accountId, marker, inProgress) {
-        if (inProgress) {
-          return 'active';
-        } else if (marker) {
-          return 'pending';
-        } else {
-          return null;
-        }
-      }
+      syncPrefixOverlay
     ],
 
     helped_invalidate_overlays: function(accountId, dataOverlayManager) {
@@ -83,8 +70,10 @@ return TaskDefiner.defineAtMostOnceTask([
     helped_plan: function(ctx, rawTask) {
       // - Plan!
       let plannedTask = shallowClone(rawTask);
-      plannedTask.exclusiveResources = [
-        `sync:${rawTask.accountId}`
+      plannedTask.resources = [
+        'online',
+        `credentials!${rawTask.accountId}`,
+        `happy!${rawTask.accountId}`
       ];
       // Let our triggering folder's viewing give us a priority boost, Although
       // perhaps this should just be account granularity?

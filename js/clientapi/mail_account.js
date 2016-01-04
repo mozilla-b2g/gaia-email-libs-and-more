@@ -124,17 +124,7 @@ MailAccount.prototype = evt.mix({
   },
 
   /**
-   * @args[
-   *   @param[mods @dict[
-   *     @key[password String]
-   *     @key[incomingPassword String]
-   *     @key[outgoingPassword String]
-   *     @key[username String]
-   *     @key[incomingUsername String]
-   *     @key[outgoingUsername String]
-   *   ]]
-   *   @param[callback function]
-   * ]{
+   * @param {Object} mods
    *   Modify properties on the account.
    *
    *   In addition to regular account property settings,
@@ -161,10 +151,20 @@ MailAccount.prototype = evt.mix({
    *   passwords/usernames should match when they actually should
    *   differ, we'll safely recover becuase we'll then ask for a
    *   corrected SMTP password.
-   * }
+   * @param {String} [mods.password]
+   * @param {String} [mods.incomingPassword]
+   * @param {String} [mods.outgoingPassword]
+   * @param {String} [mods.username]
+   * @param {String} [mods.incomingUsername]
+   * @param {String} [mods.outgoingUsername]
+   * @param {Boolean} [mods.setAsDefault]
+   *
+   * @return {Promise}
+   *   A promise that is resolved when the back-end has applied the changes to
+   *   the account and propagated them.
    */
-  modifyAccount: function(mods, callback) {
-    this._api._modifyAccount(this, mods, callback);
+  modifyAccount: function(mods) {
+    return this._api._modifyAccount(this, mods);
   },
 
   /**

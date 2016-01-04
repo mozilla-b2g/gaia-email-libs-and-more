@@ -13,6 +13,9 @@ const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
 const imapchew = require('../imapchew');
 const parseImapDateTime = imapchew.parseImapDateTime;
 
+const { syncNormalOverlay } =
+  require('../../task_helpers/sync_overlay_helpers');
+
 /**
  * Steady state vanilla IMAP folder sync.
  */
@@ -21,15 +24,7 @@ return TaskDefiner.defineAtMostOnceTask([
     name: 'sync_refresh',
     binByArg: 'folderId',
 
-    helped_overlay_folders: function(folderId, marker, inProgress) {
-      if (inProgress) {
-        return 'active';
-      } else if (marker) {
-        return 'pending';
-      } else {
-        return null;
-      }
-    },
+    helped_overlay_folders: syncNormalOverlay,
 
     helped_invalidate_overlays: function(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
@@ -68,8 +63,10 @@ return TaskDefiner.defineAtMostOnceTask([
 
       // - Plan!
       let plannedTask = shallowClone(rawTask);
-      plannedTask.exclusiveResources = [
-        `sync:${rawTask.folderId}`
+      plannedTask.resources = [
+        'online',
+        `credentials!${rawTask.accountId}`,
+        `happy!${rawTask.accountId}`
       ];
       plannedTask.priorityTags = [
         `view:folder:${rawTask.folderId}`

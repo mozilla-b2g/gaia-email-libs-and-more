@@ -13,10 +13,11 @@ const logic = require('logic');
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
  */
-function TaskRegistry({ dataOverlayManager }) {
+function TaskRegistry({ dataOverlayManager, taskResources }) {
   logic.defineScope(this, 'TaskRegistry');
 
   this._dataOverlayManager = dataOverlayManager;
+  this._taskResources = taskResources;
 
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();
@@ -114,6 +115,9 @@ TaskRegistry.prototype = {
   _registerComplexTaskImplWithDataOverlayManager: function(accountId, meta) {
     let taskImpl = meta.impl;
 
+    let blockedTaskChecker =
+      this._taskResources.whatIsTaskBlockedBy.bind(this._taskResources);
+
     // (Tasks are strictly mix-in based and do not use the prototype chain.
     // Obviously, if this changes, this traversal needs to change.)
     for (let key of Object.keys(taskImpl)) {
@@ -132,7 +136,8 @@ TaskRegistry.prototype = {
           taskImpl[key].bind(
             taskImpl,
             meta.persistentState,
-            meta.memoryState)
+            meta.memoryState,
+            blockedTaskChecker)
         );
       }
     }

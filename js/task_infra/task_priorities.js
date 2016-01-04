@@ -18,7 +18,7 @@ function TaskPriorities() {
   /**
    * Heap tracking our prioritized tasks/markers by priority.  This only
    * includes tasks/priorities that are not deferred awaiting the availability
-   * of a resource or a timeout.
+   * of a resource or a timeout; those are tracked/held by TaskResources.
    */
   this._prioritizedTasks = new FibonacciHeap();
 
@@ -234,6 +234,9 @@ TaskPriorities.prototype = {
     this._setupTaskPriorityTracking(taskThing, priorityNode);
   },
 
+  /**
+   * Helper for prioritizeTaskThing to add _priorityTagToHeapNodes mappings.
+   */
   _setupTaskPriorityTracking: function(taskThing, priorityNode) {
     let isTask = !taskThing.type;
     let priorityTags = isTask ? taskThing.plannedTask.priorityTags
@@ -251,6 +254,10 @@ TaskPriorities.prototype = {
     }
   },
 
+  /**
+   * Shared logic for prioritizeTaskThing and removeTaskThing to remove
+   * _priorityTagToHeapNodes mappings.
+   */
   _cleanupTaskPriorityTracking: function(taskThing, priorityNode) {
     let isTask = !taskThing.type;
     let priorityTags = isTask ? taskThing.plannedTask.priorityTags
@@ -275,9 +282,16 @@ TaskPriorities.prototype = {
 
   /**
    * Remove the TaskThing with the given id.
+   *
+   * @param {TaskId} taskId
+   * @param {PriorityNode} [priorityNode]
+   *   Priority node, to be provided if available, or automatically retrieved if
+   *   not.
    */
-  removeTaskThing: function(taskId) {
-    let priorityNode = this._taskIdToHeapNode.get(taskId);
+  removeTaskThing: function(taskId, priorityNode) {
+    if (!priorityNode) {
+      priorityNode = this._taskIdToHeapNode.get(taskId);
+    }
     if (priorityNode) {
       let taskThing = priorityNode.value;
       this._prioritizedTasks.delete(priorityNode);
@@ -285,6 +299,27 @@ TaskPriorities.prototype = {
       this._cleanupTaskPriorityTracking(taskThing, priorityNode);
     }
   },
+
+  /**
+   * Iterate over all taskThings known to us, invoking `shouldRemove` on each
+   * taskThing and removing it if the function returns true.  Note that this is
+   * the opposite behaviour of Array.filter functions.
+   *
+   * This is an O(n) traversal which has been deemed acceptable for the
+   * following use-cases, but for new purposes, please consider whether
+   * additional data structures are merited for your use-case or not:
+   * - TaskResources.resourceNoLongerAvailable moving tasks to be blocking when
+   *   a resource is revoked.
+   * - TODO: Removing outstanding tasks by accountId when an account is deleted.
+   */
+  removeTasksUsingFilter: function(shouldRemove) {
+    for (const priorityNode of this._taskIdToHeapNode.values()) {
+      const taskThing = priorityNode.value;
+      if (shouldRemove(taskThing)) {
+        this.removeTaskThing(taskThing.id, priorityNode);
+      }
+    }
+  }
 };
 return TaskPriorities;
 });

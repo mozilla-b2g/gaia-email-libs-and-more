@@ -19,6 +19,9 @@ return [
   require('../tasks/draft_attach'),
   require('../tasks/draft_detach'),
   require('../tasks/draft_delete'),
-  require('./tasks/outbox_send')
+  require('./tasks/outbox_send'),
+
+  require('../tasks/account_modify'),
+  require('../tasks/identity_modify'),
 ];
 });

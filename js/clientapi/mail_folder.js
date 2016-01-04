@@ -116,14 +116,49 @@ MailFolder.prototype = evt.mix({
 
   __updateOverlays: function(overlays) {
     /**
-     * syncStatus is defined to be one of: null/'pending'/'active' and reflects
-     * both sync_refresh and sync_grow status.
+     * Is a sync pending or actively being performed?  If truthy, one of these
+     * things is happening.  Also check syncBlockedwhich indicates if the sync
+     * is blocked by networking issues or account issues.
+     *
+     * Specific values syncStatus can take and their meanings:
+     * - pending: A request has been issued but has yet to be processed.
+     * - active: We are actively in the process of trying to do this thing.
+     *   Once active, we should usually stay active, but in the event of
+     *   connection loss we will return to the 'pending' state.
+     *
      *
      * Eventually, sync_refresh will also provide syncBlocked which will be
      * one of: null/'offline/'bad-auth'/'unknown'.  This is per discussion
      * with :jrburke on IRC.
      */
     this.syncStatus = overlays.sync_refresh || overlays.sync_grow || null;
+
+
+    /**
+     * Is the sync blocked by something which prevents us from performing a
+     * sync, this value will be truthy.
+     *
+     * Specific values and their meaning are:
+     * - offline: Our device lacks usable network connectivity at this time.
+     *   The operating system is likely to be example to express to the user
+     *   that they are not connected to a network or need to take some further
+     *   action like logging into a captive network portal.
+     * - bad-auth: We think the user's credentials are incorrect and need to be
+     *   updated.  More details will likely be provided on the MailAccount
+     *   if we can provide them, but generally the idea is that the user is
+     *   going to need to re-authenticate or take some other proactive action.
+     *   Specifically:
+     *   - If authenticating by password, the user may need to re-enter their
+     *     password or the server may simply be suspicious of the user's login
+     *     and some action needs to be taken via the web interface to make the
+     *     server not suspicious.
+     *   - If using oauth/similar, our auth tokens were likely revoked via
+     *     some automatic or explicit process and the auth dance needs to be
+     *     re-run.
+     * - unknown: Something weird is wrong with the server/account that we don't
+     *   understand.
+     */
+    this.syncBlocked = null;
 
     /**
      * TODO: implement syncBlocked, extracted from the sync_refresh overlay.

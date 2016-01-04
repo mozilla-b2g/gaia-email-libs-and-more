@@ -255,7 +255,14 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyAccount: function(msg) {
-    // TODO: implement; existing logic has been moved to tasks/modify_account.js
+    this.universe.modifyAccount(msg.accountId, msg.mods, 'bridge')
+      .then(() => {
+        this.__sendMessage({
+          type: 'promisedResult',
+          handle: msg.handle,
+          data: null
+        });
+      });
   },
 
   _cmd_recreateAccount: function(msg) {
@@ -267,7 +274,14 @@ MailBridge.prototype = {
   },
 
   _cmd_modifyIdentity: function(msg) {
-    // TODO: implement; existing logic moved to tasks/modify_identity.js
+    this.universe.modifyIdentity(msg.identityId, msg.mods, 'bridge')
+    .then(() => {
+      this.__sendMessage({
+        type: 'promisedResult',
+        handle: msg.handle,
+        data: null
+      });
+    });
   },
 
   /**

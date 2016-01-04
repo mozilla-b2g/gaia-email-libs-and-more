@@ -6,18 +6,19 @@ const co = require('co');
 // (this is broken out into a helper for clarity and to avoid temporary gecko
 // "let" issues.)
 const makeWrappedOverlayFunc = function(helpedOverlayFunc) {
-  return function(persistentState, memoryState, id) {
+  return function(persistentState, memoryState, id, blockedTaskChecker) {
     return helpedOverlayFunc.call(
       this,
       id,
       persistentState.binToMarker.get(id),
       memoryState.inProgressBins.has(id) ||
-        memoryState.remainInProgressBins.has(id));
+        memoryState.remainInProgressBins.has(id),
+      blockedTaskChecker(this.name + ':' + id));
   };
 };
 
 const makeWrappedPrefixOverlayFunc = function([extractor, helpedOverlayFunc]) {
-  return function(persistentState, memoryState, fullId) {
+  return function(persistentState, memoryState, fullId, blockedTaskChecker) {
     // use the provided extractor to get the id for the bin.
     let binId = extractor(fullId);
     return helpedOverlayFunc.call(
@@ -26,7 +27,8 @@ const makeWrappedPrefixOverlayFunc = function([extractor, helpedOverlayFunc]) {
       binId,
       persistentState.binToMarker.get(binId),
       memoryState.inProgressBins.has(binId) ||
-        memoryState.remainInProgressBins.has(binId));
+        memoryState.remainInProgressBins.has(binId),
+      blockedTaskChecker(this.name + ':' + binId));
   };
 };
 

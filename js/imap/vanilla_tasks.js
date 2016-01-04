@@ -25,5 +25,8 @@ return [
   require('./vanilla_tasks/outbox_send'),
 
   require('./vanilla_tasks/append_message'),
+
+  require('../tasks/account_modify'),
+  require('../tasks/identity_modify'),
 ];
 });

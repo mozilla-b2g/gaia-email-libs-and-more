@@ -1,4 +1,4 @@
-define(function(require) {
+define(function() {
 'use strict';
 
 /**
@@ -22,7 +22,6 @@ function MailSenderIdentity(api, wireRep) {
   this.replyTo = wireRep.replyTo;
   this.signature = wireRep.signature;
   this.signatureEnabled = wireRep.signatureEnabled;
-
 }
 MailSenderIdentity.prototype = {
   toString: function() {
@@ -41,13 +40,16 @@ MailSenderIdentity.prototype = {
     this.signatureEnabled = wireRep.signatureEnabled;
   },
   /**
-   * Modifies the identity. Applies all of the changes in mods
-   * and leaves all other values the same.
+   * Modifies the identity. Applies all of the changes in mods and leaves all
+   * other values the same.
    *
    * @param  {Object}   mods     The changes to be applied
-   * @param  {Function} callback
+   *
+   * @return {Promise}
+   *   A promise that will be resolved when the back-end has applied the changes
+   *   to the identity and the changes have been propagated.
    */
-  modifyIdentity: function(mods, callback) {
+  modifyIdentity: function(mods) {
     // These update signature data immediately, so that the UI
     // reflects the changes properly before the backend properly
     // updates the data
@@ -57,7 +59,7 @@ MailSenderIdentity.prototype = {
     if (typeof mods.signatureEnabled !== 'undefined') {
       this.signatureEnabled = mods.signatureEnabled;
     }
-    this._api._modifyIdentity(this, mods, callback);
+    return this._api._modifyIdentity(this, mods);
   },
 
   release: function() {

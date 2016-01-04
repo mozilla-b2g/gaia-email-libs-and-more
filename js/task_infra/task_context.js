@@ -100,7 +100,9 @@ TaskContext.prototype = {
    * Returns whether we think the account associated with this task is currently
    * experiencing problems.
    *
-   * TODO: Actually make this do something.
+   * TODO: Actually make this do something or remove it.  This was speculatively
+   * introduced in keeping with the pre-convoy implementation, but we've now
+   * begun to use resources to track more of this.
    */
   get accountProblem() {
     return false;

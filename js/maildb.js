@@ -21,7 +21,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 116;
+const CUR_VERSION = 117;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -195,6 +195,44 @@ const TBL_UMID_LOCATION = 'umidLocationMap';
 const TBL_UMID_NAME = 'umidNameMap';
 
 /**
+ * Log records for extremely significant events.  The first component of the
+ * composite key is a timestamp so that we can easily reap logs older than a
+ * given time-horizon.
+ *
+ * While logs may be added and/or updated as part of a task, we also support an
+ * API for writing these logs outside of a task for paranoia/failsafe reasons.
+ *
+ * key: [timestamp, type, id]
+ * - timestamp: Date.now() when whatever we're logging about was started.
+ * - type: The record type like 'cronsync'.  This is used in conjunction with
+ *   the id by the creator of the log entry to provide uniqueness while also
+ *   allowing easy fire-and-forget updates.  (AKA we could have IndexedDB
+ *   allocate id's to provide uniqueness, but then we have to wait around to
+ *   hear what id was issued, plus it complicates time-based reaping.)
+ * - id: An id allocated by the logger that should be unique for the given
+ *   timestamp and type.
+ *
+ * Examples of extremely significant events:
+ * - cronsync attempts/results.  We've had a history of our periodic sync not
+ *   being reliable.  To this end it's vital for us to know when we actually
+ *   woke up to try and periodically sync, whether we had the network access
+ *   we desired, what type of failures we encountered, if any, etc.  We perform
+ *   initial writes as part of cronsync outside the task infrastructure because
+ *   the task infrastructure may hang.
+ */
+const TBL_BOUNDED_LOGS = 'logs';
+
+/**
+ * How long should we keep circular logs around for?  Right now we're
+ * arbitrarily going with two weeks because:
+ * - The amount of data is not insane.
+ * - This should cover cases of dogfooders going on vacation for a week and
+ *   noticing something's not working, getting home, getting back in the groove,
+ *   and then pulling the logs off.
+ */
+const BOUNDED_LOG_KEEP_TIME_MILLIS = 14 * 24 * 60 * 60 * 1000;
+
+/**
  * The set of all object stores our tasks can mutate.  Which is all of them.
  * It's not worth it for us to actually figure the subset of these that's the
  * truth.
@@ -206,7 +244,8 @@ const TASK_MUTATION_STORES = [
   TBL_FOLDER_INFO,
   TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
   TBL_MESSAGES,
-  TBL_HEADER_ID_MAP, TBL_UMID_LOCATION, TBL_UMID_NAME
+  TBL_HEADER_ID_MAP, TBL_UMID_LOCATION, TBL_UMID_NAME,
+  TBL_BOUNDED_LOGS
 ];
 
 
@@ -285,12 +324,27 @@ const applyDeltasToObj = function(deltas, obj) {
 };
 
 /**
- * Given a dictionary of clobbers whose keys are fields and values are values
- * to clobber onto the provided object.  Helper for atomicClobbers logic.
+ * Helper for atomicClobbers.
+ *
+ * We support two clobber styles:
+ * 1. Object with keys as simple string key names.
+ * 2. Map with keys as list of traversal keys for nested manipulation.
  */
 const applyClobbersToObj = function(clobbers, obj) {
-  for (var key of Object.keys(clobbers)) {
-    obj[key] = clobbers[key];
+  // -- Complex case, map whose keys are paths and values are values.
+  if (clobbers instanceof Map) {
+    for (let [keyPath, value] of clobbers) {
+      let effObj = obj;
+      for (let keyPart of keyPath.slice(0, -1)) {
+        effObj = effObj[keyPart];
+      }
+      effObj[keyPath.slice(-1)[0]] = value;
+    }
+  } else {
+    // -- Simple case: object with single string key and value.
+    for (let key of Object.keys(clobbers)) {
+      obj[key] = clobbers[key];
+    }
   }
 };
 
@@ -552,6 +606,7 @@ MailDB.prototype = evt.mix({
     db.createObjectStore(TBL_HEADER_ID_MAP);
     db.createObjectStore(TBL_UMID_NAME);
     db.createObjectStore(TBL_UMID_LOCATION);
+    db.createObjectStore(TBL_BOUNDED_LOGS);
   },
 
   close: function() {
@@ -644,6 +699,55 @@ MailDB.prototype = evt.mix({
         callback();
       };
     }
+  },
+
+  /**
+   * Add one or more new bounded-log entries to disk outside of a task.  Entries
+   * should take the form of { timestamp, type, id, entry }.
+   */
+  addBoundedLogs: function(entries) {
+    let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
+    let store = trans.objectStore(TBL_BOUNDED_LOGS);
+
+    for (let entry of entries) {
+      store.add(entry.entry, [entry.timestamp, entry.type, entry.id]);
+    }
+
+    return wrapTrans(trans);
+  },
+
+  /**
+   * Update one or more existing bounded-log entries to disk.  Entries should
+   * take the form of { timestamp, type, id, entry }.
+   */
+  updateBoundedLogs: function(entries) {
+    let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
+    let store = trans.objectStore(TBL_BOUNDED_LOGS);
+
+    for (let entry of entries) {
+      store.put(entry.entry, [entry.timestamp, entry.type, entry.id]);
+    }
+
+    return wrapTrans(trans);
+  },
+
+  /**
+   * Reap bounded logs beyond our keep time horizon.
+   */
+  reapOldBoundedLogs: function() {
+    let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
+    let store = trans.objectStore(TBL_BOUNDED_LOGS);
+
+    let deleteRange = IDBKeyRange.bound(
+      // Start at the dawn of time.
+      [0],
+      // And delete through 2 weeks ago or whatever or constant is.
+      [Date.now() - BOUNDED_LOG_KEEP_TIME_MILLIS, []],
+      true, true);
+
+      store.delete(deleteRange);
+
+    return wrapTrans(trans);
   },
 
   /**
@@ -1352,6 +1456,7 @@ MailDB.prototype = evt.mix({
    * @param {Object} [atomics.atomicDeltas.accounts]
    * @param {Object} [atomics.atomicDeltas.folders]
    * @param {Object} [atomics.atomicClobbers]
+   * @param {Object} [atomics.atomicClobbers.config]
    * @param {Object} [atomics.atomicClobbers.accounts]
    * @param {Object} [atomics.atomicClobbers.folders]
    * @param {Object} rootMutations

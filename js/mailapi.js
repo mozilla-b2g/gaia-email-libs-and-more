@@ -46,7 +46,7 @@ let normalizeFoldersToIds = (folders) => {
 // For testing
 exports._MailFolder = MailFolder;
 
-var LEGAL_CONFIG_KEYS = [];
+const LEGAL_CONFIG_KEYS = ['debugLogging'];
 
 /**
  * The public API exposed to the client via the MailAPI global.
@@ -691,25 +691,14 @@ MailAPI.prototype = evt.mix({
     req.callback && req.callback();
   },
 
-  _modifyAccount: function ma__modifyAccount(account, mods, callback) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'modifyAccount',
-      callback: callback,
-    };
-    this.__bridgeSend({
+  _modifyAccount: function(account, mods) {
+    return this._sendPromisedRequest({
       type: 'modifyAccount',
       accountId: account.id,
-      mods: mods,
-      handle: handle
-    });
+      mods
+    }).then(() => null);
   },
 
-  _recv_modifyAccount: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    delete this._pendingRequests[msg.handle];
-    req.callback && req.callback();
-  },
 
   _recreateAccount: function(account) {
     this.__bridgeSend({
@@ -725,24 +714,12 @@ MailAPI.prototype = evt.mix({
     });
   },
 
-  _modifyIdentity: function ma__modifyIdentity(identity, mods, callback) {
-    var handle = this._nextHandle++;
-    this._pendingRequests[handle] = {
-      type: 'modifyIdentity',
-      callback: callback,
-    };
-    this.__bridgeSend({
+  _modifyIdentity: function(identity, mods) {
+    return this._sendPromisedRequest({
       type: 'modifyIdentity',
       identityId: identity.id,
-      mods: mods,
-      handle: handle
-    });
-  },
-
-  _recv_modifyIdentity: function(msg) {
-    var req = this._pendingRequests[msg.handle];
-    delete this._pendingRequests[msg.handle];
-    req.callback && req.callback();
+      mods
+    }).then(() => null);
   },
 
   /**
@@ -1268,10 +1245,10 @@ MailAPI.prototype = evt.mix({
         throw new Error(key + ' is not a legal config key!');
       }
     }
-    this.__bridgeSend({
+    return this._sendPromisedRequest({
       type: 'modifyConfig',
-      mods: mods
-    });
+      mods
+    }).then(() => null);
   },
 
   _recv_config: function(msg) {
@@ -1321,12 +1298,10 @@ MailAPI.prototype = evt.mix({
   debugSupport: function(command, argument) {
     if (command === 'setLogging') {
       this.config.debugLogging = argument;
+      return this.modifyConfig({
+        debugLogging: argument
+      });
     }
-    this.__bridgeSend({
-      type: 'debugSupport',
-      cmd: command,
-      arg: argument
-    });
   }
 
   //////////////////////////////////////////////////////////////////////////////

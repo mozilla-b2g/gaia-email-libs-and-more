@@ -22,13 +22,22 @@ function TaskResources(priorities) {
 
   /**
    * @type {Map<ResourceId, TaskThing[]>}
+   *
+   * Tracks tasks blocked on the given resouce.
    */
   this._blockedTasksByResource = new Map();
 
   /**
-   * The set of currently blocked tasks.
+   * @type{Map<TaskId, TaskThing>}
+   *
+   * A map of blocked TaskThings with their TaskId as the key.
    */
   this._blockedTasksById = new Map();
+
+  /**
+   * @type{Map<ResourceId, TimerId>}
+   */
+  this._resourceTimeouts = new Map();
 }
 TaskResources.prototype = {
   /**
@@ -50,10 +59,18 @@ TaskResources.prototype = {
    *   available.
    */
   resourceAvailable: function(resourceId) {
+    // bail if the resource is already available; no changes.
+    if (this._availableResources.has(resourceId)) {
+      logic(this, 'resourceAlreadyAvailable', { resourceId });
+      return 0;
+    }
+
     logic(this, 'resourceAvailable', { resourceId });
     this._availableResources.add(resourceId);
 
-    if (!this._blockedTasksByResource.has(resource)) {
+    this._clearResourceTimeouts(resourceId);
+
+    if (!this._blockedTasksByResource.has(resourceId)) {
       return 0;
     }
 
@@ -72,8 +89,8 @@ TaskResources.prototype = {
   },
 
   /**
-   * Tells us that a resource is now gone, which means that we may potentially
-   * need to block a ton of tasks.
+   * Tells us that one or more resources are now gone, which means that we may
+   * potentially need to block a ton of tasks.
    *
    * Because we aren't expecting resource transitions to happen all that
    * frequently and we expect the number of outstanding tasks to be rather low,
@@ -82,8 +99,94 @@ TaskResources.prototype = {
    * we do expect to change at higher rates and during high levels of task
    * churn.)
    */
-  resourceNoLongerAvailable: function(resourceId) {
-    logic(this, 'resourceNoLongerAvailable', { resourceId });
+  resourcesNoLongerAvailable: function(removedResourceIds) {
+    // - Remove the resources
+    let removedCount = 0;
+    for (const removedResourceId of removedResourceIds) {
+      if (this._availableResources.has(removedResourceId)) {
+        this._availableResources.delete(removedResourceId);
+        removedCount++;
+      }
+    }
+
+    if (removedCount === 0) {
+      logic(this, 'resourcesAlreadyUnavailable', { removedResourceIds });
+      return;
+    }
+
+    logic(this, 'resourcesNoLongerAvailable', { removedResourceIds });
+
+    // - Remove already-prioritized tasks that depend on these resources
+    const nowBlocked = [];
+    this._priorities.removeTasksUsingFilter((taskThing) => {
+      // If the thing has resources at all and one of those resources is one we
+      // just removed, then tell priorities to stop tracking it.
+      if (taskThing.resources) {
+        for (const resourceId of taskThing.resources) {
+          if (removedResourceIds.indexOf(resourceId) !== -1) {
+            nowBlocked.push(taskThing);
+            return true; // (do remove)
+          }
+        }
+      }
+      return false;
+    });
+
+    // - Reschedule all of these blocked tasks
+    // (We know they will end up blocked rather than re-prioritized because we
+    // removed one of the resources they depend on above.)
+    for (const taskThing of nowBlocked) {
+      this.ownOrRelayTaskThing(taskThing);
+    }
+  },
+
+  /**
+   * Shared helper for resourceAvailable and restoreResourceAfterTimeout to
+   * clear a pending timeout request issued by restoreResourceAfterTimeout.
+   */
+  _clearResourceTimeouts: function(resourceId) {
+    if (this._resourceTimeouts.has(resourceId)) {
+      clearTimeout(this._resourceTimeouts.get(resourceId));
+      this._resourceTimeouts.delete(resourceId);
+    }
+  },
+
+  /**
+   * Automatically re-add the given resourceId after timeoutMillis milliseconds.
+   * This is expected to be used in conjunction with resourceNoLongerAvailable
+   * to implement simple back-off based retry mechanisms.
+   *
+   * If the resource is explicitly added via resourceAvailable, then this
+   * timeout will automatically be cleared.
+   */
+  restoreResourceAfterTimeout: function(resourceId, timeoutMillis) {
+    this._clearResourceTimeouts();
+    let timeoutId = setTimeout(
+      () => { this.resourceAvailable(resourceId); }, timeoutMillis);
+    this._resourceTimeouts.set(resourceId, timeoutId);
+  },
+
+  /**
+   * Given a task id, if it is blocked, return the list of resources it requires
+   * that are not currently available, otherwise returns null.  The resources
+   * are returned in the order that they are listed on the taskThing, so if the
+   * task orders them with some meaning, it can leverage this to easily
+   * determine the most significant missing resource, etc.
+   */
+  whatIsTaskBlockedBy: function(taskId) {
+    const taskThing = this._blockedTasksById.get(taskId);
+    if (!taskThing) {
+      return null;
+    }
+    // (we are blocked by something if we're here)
+
+    const blockedBy = [];
+    for (let resource of taskThing.resources) {
+      if (!this._availableResources.has(resource)) {
+        blockedBy.push(resource);
+      }
+    }
+    return blockedBy;
   },
 
   /**

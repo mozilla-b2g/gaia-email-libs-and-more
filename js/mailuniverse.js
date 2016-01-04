@@ -21,7 +21,8 @@ const dbTriggerDefs = require('./db_triggers/all');
 
 const globalTasks = require('./global_tasks');
 
-const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId } =
+const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId,
+        accountIdFromIdentityId } =
   require('./id_conversions');
 
 /**
@@ -51,11 +52,12 @@ function MailUniverse(online, testOptions) {
 
   this.dataOverlayManager = new DataOverlayManager();
 
-  this.taskRegistry = new TaskRegistry({
-    dataOverlayManager: this.dataOverlayManager
-  });
   this.taskPriorities = new TaskPriorities();
   this.taskResources = new TaskResources(this.taskPriorities);
+  this.taskRegistry = new TaskRegistry({
+    dataOverlayManager: this.dataOverlayManager,
+    taskResources: this.taskResources
+  });
 
   this.accountManager = new AccountManager({
     db: this.db,
@@ -268,30 +270,13 @@ MailUniverse.prototype = {
     // useful for our console.log debug spew.
     console.log('Email knows that it is:', this.online ? 'online' : 'offline',
                 'and previously was:', wasOnline ? 'online' : 'offline');
-    /**
-     * Do we want to minimize network usage?  Right now, this is the same as
-     * metered, but it's conceivable we might also want to set this if the
-     * battery is low, we want to avoid stealing network/cpu from other
-     * apps, etc.
-     *
-     * NB: We used to get this from navigator.connection.metered, but we can't
-     * depend on that.
-     */
-    this.minimizeNetworkUsage = true;
-    /**
-     * Is there a marginal cost to network usage?  This is intended to be used
-     * for UI (decision) purposes where we may want to prompt before doing
-     * things when bandwidth is metered, but not when the user is on comparably
-     * infinite wi-fi.
-     *
-     * NB: We used to get this from navigator.connection.metered, but we can't
-     * depend on that.
-     */
-    this.networkCostsMoney = true;
 
-    // - Transition to online
-    if (!wasOnline && this.online) {
-      // XXX put stuff back in here
+    if (wasOnline !== this.online) {
+      if (this.online) {
+        this.taskResources.resourceAvailable('online');
+      } else {
+        this.taskResources.resourcesNoLongerAvailable(['online']);
+      }
     }
   },
 
@@ -493,6 +478,27 @@ MailUniverse.prototype = {
         });
       }
     }
+  },
+
+  modifyAccount: function(accountId, mods, why) {
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult(
+      {
+        type: 'account_modify',
+        accountId,
+        mods
+      },
+      why);
+  },
+
+  modifyIdentity: function(identityId, mods, why) {
+    const accountId = accountIdFromIdentityId(identityId);
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult(
+      {
+        type: 'identity_modify',
+        accountId,
+        mods
+      },
+      why);
   },
 
   //////////////////////////////////////////////////////////////////////////////

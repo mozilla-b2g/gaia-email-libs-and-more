@@ -23,6 +23,8 @@ const churnConversation = require('../../churn_drivers/conv_churn_driver');
 
 const { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } = require('../../syncbase');
 
+const { syncNormalOverlay } =
+  require('../../task_helpers/sync_overlay_helpers');
 
 /**
  * Sync a folder for the first time and steady-state.  (Compare with our IMAP
@@ -33,15 +35,7 @@ return TaskDefiner.defineAtMostOnceTask([
     name: 'sync_refresh',
     binByArg: 'folderId',
 
-    helped_overlay_folders: function(folderId, marker, inProgress) {
-      if (inProgress) {
-        return 'active';
-      } else if (marker) {
-        return 'pending';
-      } else {
-        return null;
-      }
-    },
+    helped_overlay_folders: syncNormalOverlay,
 
     helped_invalidate_overlays: function(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
@@ -81,8 +75,10 @@ return TaskDefiner.defineAtMostOnceTask([
         plannedTask = null;
       } else {
         plannedTask = shallowClone(rawTask);
-        plannedTask.exclusiveResources = [
-          `sync:${rawTask.folderId}`
+        plannedTask.resources = [
+          'online',
+          `credentials!${rawTask.accountId}`,
+          `happy!${rawTask.accountId}`
         ];
         plannedTask.priorityTags = [
           `view:folder:${rawTask.folderId}`
