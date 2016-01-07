@@ -98,7 +98,7 @@ return TaskDefiner.defineSimpleTask([
       let messageInfo = chewMessageStructure(
         msg,
         headers,
-        [req.folderId],
+        new Set([req.folderId]),
         msg.flags,
         convId,
         req.umid,
