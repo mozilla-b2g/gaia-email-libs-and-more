@@ -101,6 +101,10 @@ function makeMessageInfo(raw) {
   if (!raw.attachments || !raw.bodyReps) {
     throw new Error('No attachments / bodyReps?!');
   }
+  if (Array.isArray(raw.folderIds)) {
+    throw new Error('raw.folderIds must be a Set, not an Array');
+  }
+
   // We also want/require a valid id, but we check that at persistence time
   // since POP3 assigns the id/suid slightly later on.  We check the suid at
   // that point too.  (Checked in FolderStorage.addMessageHeader.)
