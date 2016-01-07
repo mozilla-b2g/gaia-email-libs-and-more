@@ -4,6 +4,7 @@ define(function(require) {
 const jsmime = require('jsmime');
 const dateMod = require('date');
 const util = require('util');
+const { generateMessageIdHeaderValue } = require('../bodies/mailchew');
 
 /**
  * Given a message extract and normalize the references header into a list of
@@ -88,6 +89,14 @@ function MimeHeaderInfo(rawHeaders, opts) {
   this.delsp = this.getParameterHeader('content-type', 'delsp');
   this.encoding = this.getStringHeader('content-transfer-encoding', 'binary');
   this.guid = util.stripArrows(this.getStringHeader('message-id'));
+
+  // If we did not have a message-id header (as is the case with Outlook's
+  // welcome message), generate a dummy value. Without a guid, we can't track
+  // a message as part of a conversation. Thunderbird used to hash the message
+  // or something, but with just the headers we risk hash collisions.
+  if (!this.guid) {
+    this.guid = generateMessageIdHeaderValue();
+  }
 
   this.references =
     extractReferences(this.getStringHeader('references'), this.guid);
