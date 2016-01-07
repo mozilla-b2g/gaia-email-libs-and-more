@@ -1295,13 +1295,59 @@ MailAPI.prototype = evt.mix({
     req.callback();
   },
 
+  /**
+   * Legacy means of setting the debug logging level.  Probably wants to go away
+   * in favor of just using modifyConfig directly.  Other debugging-y stuff
+   * probably will operate similarly or get its own explicit API calls.
+   */
   debugSupport: function(command, argument) {
     if (command === 'setLogging') {
       this.config.debugLogging = argument;
       return this.modifyConfig({
         debugLogging: argument
       });
+    } else if (command === 'dumpLog') {
+      throw new Error('XXX circular logging currently not implemented');
     }
+  },
+
+  /**
+   * Compel the backend to act like it received a cronsync.
+   *
+   * @param {AccountId[]} [arg.accountIds]
+   *   The list of account ids to act like we are being told to sync.  If
+   *   omitted, the list of all accounts is used.
+   * @param {AccountId[]} [arg.notificationAccountIds]
+   *   The list of account ids to act like we have outstanding notifications for
+   *   (so as to not trigger a new_tracking status clearing).  If omitted, the
+   *   list of all accounts is used.
+   */
+  debugForceCronSync: function({ accountIds, notificationAccountIds }) {
+    let allAccountIds = this.accounts.items.map(account => account.id);
+
+    if (!accountIds) {
+      accountIds = allAccountIds;
+    }
+    if (!notificationAccountIds) {
+      notificationAccountIds = allAccountIds;
+    }
+    this.__bridgeSend({
+      type: 'debugForceCronSync',
+      accountIds,
+      notificationAccountIds
+    });
+  },
+
+  /**
+   * Retrieve the persisted-to-disk log entries we create for things like
+   * cronsync.
+   *
+   * @return {Promise<Object[]>}
+   */
+  getPersistedLogs: function() {
+    return this._sendPromisedRequest({
+      type: 'getPersistedLogs'
+    });
   }
 
   //////////////////////////////////////////////////////////////////////////////

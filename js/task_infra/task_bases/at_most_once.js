@@ -101,7 +101,7 @@ return {
    * on the helped_plan implementation to generate.
    */
   plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
-    let binId = req[this.binByArg];
+    let binId = this.binByArg ? req[this.binByArg] : 'only';
 
     // - Fast-path out if the bin is already planned.
     if (persistentState.binToMarker.has(binId)) {
@@ -166,7 +166,7 @@ return {
   }),
 
   execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
-    let binId = marker[this.binByArg];
+    let binId = this.binByArg ? marker[this.binByArg] : 'only';
     memoryState.inProgressBins.add(binId);
 
     if (this.helped_invalidate_overlays) {

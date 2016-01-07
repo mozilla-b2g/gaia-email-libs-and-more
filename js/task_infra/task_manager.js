@@ -28,16 +28,17 @@ const { SmartWakeLock } = require('../wakelocks');
  * `__restoreFromDB` method and we have fully initialized all complex tasks.
  * (Complex task initialization can be async.)
  */
-function TaskManager({ universe, db, registry, resources, priorities,
-                       accountsTOC }) {
+function TaskManager({ universe, db, taskRegistry, taskResources,
+                       taskPriorities, accountManager }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'TaskManager');
   this._universe = universe;
   this._db = db;
-  this._registry = registry;
-  this._resources = resources;
-  this._priorities = priorities;
-  this._accountsTOC = accountsTOC;
+  this._registry = taskRegistry;
+  this._resources = taskResources;
+  this._priorities = taskPriorities;
+  this._accountManager = accountManager;
+  this._accountsTOC = accountManager.accountsTOC;
 
   // XXX SADNESS.  So we wanted to use autoincrement to avoid collisions or us
   // having to manage a counter.  Unfortunately, we want to use mozGetAll for
@@ -58,7 +59,11 @@ function TaskManager({ universe, db, registry, resources, priorities,
    * to disk.)
    */
   this._tasksToPlan = [];
-
+  /**
+   * Track the number of plan writes so that we can avoid declaring the queue
+   * empty if there will soon be enqueued tasks once the write completes.
+   */
+  this._pendingPlanWrites = 0;
 
   // Wedge our processing infrastructure until we have loaded everything from
   // the database.  Note that nothing will actually .then() off of this, and
@@ -105,19 +110,31 @@ TaskManager.prototype = evt.mix({
     // -- Push complex task state into complex tasks
     let pendingInitPromises = [];
     this._registry.initializeFromDatabaseState(complexTaskStates);
+    // Initialize the global tasks.
+    pendingInitPromises.push(
+      this._registry.initGlobalTasks()
+      .then((markers) => {
+        this.__queueTasksOrMarkers(markers, 'restored:complex', true);
+      }));
+
     this._accountsTOC.getAllItems().forEach((accountInfo) => {
+      let foldersTOC =
+        this._accountManager.accountFoldersTOCs.get(accountInfo.id);
       pendingInitPromises.push(
         this._registry.accountExistsInitTasks(
-          accountInfo.id, accountInfo.engine)
+          accountInfo.id, accountInfo.engine, accountInfo, foldersTOC)
         .then((markers) => {
           this.__queueTasksOrMarkers(markers, 'restored:complex', true);
         }));
     });
     this._accountsTOC.on('add', (accountInfo) => {
-      this._registry.accountExistsInitTasks(accountInfo.id, accountInfo.engine)
-        .then((markers) => {
-          this.__queueTasksOrMarkers(markers, 'restored:complex', true);
-        });
+      let foldersTOC =
+        this._accountManager.accountFoldersTOCs.get(accountInfo.id);
+      this._registry.accountExistsInitTasks(
+        accountInfo.id, accountInfo.engine, accountInfo, foldersTOC)
+      .then((markers) => {
+        this.__queueTasksOrMarkers(markers, 'restored:complex', true);
+      });
     });
     this._accountsTOC.on('remove', (accountInfo) => {
       this._registry.accountRemoved(accountInfo.id);
@@ -200,7 +217,9 @@ TaskManager.prototype = evt.mix({
 
     logic(this, 'schedulePersistent', { why: why, tasks: wrappedTasks });
 
+    this._pendingPlanWrites++;
     return this._db.addTasks(wrappedTasks).then(() => {
+      this._pendingPlanWrites--;
       this.__enqueuePersistedTasksForPlanning(wrappedTasks);
       return wrappedTasks.map(x => x.id);
     });
@@ -332,7 +351,7 @@ TaskManager.prototype = evt.mix({
     return rawTasks.map((rawTask) => {
       return {
         id: this._nextId++,
-        rawTask: rawTask,
+        rawTask,
         state: null // => planned => (deleted)
       };
     });
@@ -413,6 +432,15 @@ TaskManager.prototype = evt.mix({
       this._activePromise = this._executeNextTask();
     } else {
       logic(this, 'nothingToDo');
+      // Indicate the queue is empty if we're here and there aren't tasks that
+      // will imminently be placed in the plan queue.  This primarily matters
+      // for task groups with tasks to schedule when the group completes.  In
+      // that case the call to scheduleTasks will occur before this code is
+      // reached, but the writes will almost certainly not complete until after
+      // this code has been reached.
+      if (this._pendingPlanWrites === 0) {
+        this.emit('taskQueueEmpty');
+      }
       this._releaseWakeLock();
       // bail, intentionally doing nothing.
       return;

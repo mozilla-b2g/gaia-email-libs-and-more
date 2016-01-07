@@ -39,6 +39,39 @@ define(function(require) {
     return !hasMismatch;
   }
 
+  /**
+   * Super-hack that peeks at the notifications that are still present and
+   * figures out if they are from newness/syncs and what account id's they
+   * correspond to.  This allows gaia mail to continue to fast-close if a
+   * notification "close" event was sent while still maintaining the UX logic
+   * that if they closed the notification then they don't care about any of
+   * those messages being new.  What happens is we send this list and the
+   * cronsync logic gets to transform those missing id's into requests to clear
+   * the newness status before triggering the syncs.
+   *
+   * Note that the newness clears happen across all accounts, not just the
+   * accounts we are
+   */
+  function getAccountsWithOutstandingSyncNotifications() {
+    if (typeof Notification !== 'function' || !Notification.get) {
+      return Promise.resolve([]);
+    }
+
+    return Notification.get().then(function(notifications) {
+      var result = [];
+      notifications.forEach(function(notification) {
+        var data = notification.data;
+
+        if (data.v && data.ntype === 'sync') {
+          result.push(data.accountId);
+        }
+      });
+      return result;
+    }, function() {
+      return [];
+    });
+  }
+
   // This weird circular registration is because of how the router works and
   // does its registration via "dispatch"-table indirection which has wonky this
   // implications.  It's a non-idiomatic legacy hackjob thing.  I'm writing this
@@ -300,13 +333,17 @@ define(function(require) {
 
       var wakelockId = requestWakeLock('cpu');
 
-      logic(this, 'alarmDispatch');
+      getAccountsWithOutstandingSyncNotifications().then(
+        (accountIdsWithNotifications) => {
+          logic(this, 'alarmDispatch');
 
-      dispatcher._sendMessage('alarm',
-                              [data.accountIds, data.interval, wakelockId]);
+          dispatcher._sendMessage(
+            'alarm',
+            [data.accountIds, data.interval, wakelockId,
+             accountIdsWithNotifications]);
+        });
     });
   }
-
 
   routeRegistration = {
     name: 'cronsync',

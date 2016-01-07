@@ -8,7 +8,7 @@ define(function() {
 return {
   name: 'message_count',
 
-  'msg!*!add': function(triggerModify, message) {
+  'msg!*!add': function(triggerCtx, message) {
     // Every folderId it belongs to gets an atomicDelta of 1.
     let folderDeltas = new Map();
     for (let folderId of message.folderIds) {
@@ -18,14 +18,14 @@ return {
           localMessageCount: 1
         });
     }
-    triggerModify({
+    triggerCtx.modify({
       atomicDeltas: {
         folders: folderDeltas
       }
     });
   },
 
-  'msg!*!change': function(triggerModify, messageId, preInfo, message, added,
+  'msg!*!change': function(triggerCtx, messageId, preInfo, message, added,
                             kept, removed) {
     if (!added.size && !removed.size) {
       return;
@@ -47,7 +47,7 @@ return {
         });
     }
 
-    triggerModify({
+    triggerCtx.modify({
       atomicDeltas: {
         folders: folderDeltas
       }

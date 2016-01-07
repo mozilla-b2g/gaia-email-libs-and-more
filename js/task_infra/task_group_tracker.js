@@ -26,6 +26,16 @@ const logic = require('logic');
  */
 function TaskGroupTracker(taskManager) {
   logic.defineScope(this, 'TaskGroupTracker');
+  /**
+   * Uniqueifying id helper so we can differentiate group "instances".  While
+   * it's great that we can use semantic names like "sync_refresh:2" for when
+   * we're syncing account 2, it's also useful to be able to distinguish one
+   * aggregated sync effort from one that happens later.  We use the group id's
+   * to this end.  We assume and require that group id's will only be compared
+   * within a single universe lifetime with any comparisons being "!==" tests
+   * initialized to null on each reset so this does not pose a problem.
+   */
+  this._nextGroupId = 1;
   this._groupsByName = new Map();
   this._taskIdsToGroups = new Map();
   // All task id's in this set are a case of a simple task reusing its id and
@@ -44,11 +54,9 @@ TaskGroupTracker.prototype = {
     emitter.on('executed', this, this._onExecuted);
   },
 
-  /**
-   * Ensure that a task group exists with the given name, and return a Promise
-   * that will be resolved when the last task in the group completes.
-   */
-  ensureNamedTaskGroup: function(groupName, taskId) {
+  // Internal heart of ensureNamedTaskGroup that exposes internal rep for reuse
+  // by other class code.
+  _ensureNamedTaskGroup: function(groupName, taskId) {
     let group = this._groupsByName.get(groupName);
     if (!group) {
       group = this._makeTaskGroup(groupName);
@@ -68,12 +76,51 @@ TaskGroupTracker.prototype = {
     group.pendingCount++;
     group.totalCount++;
     this._taskIdsToGroups.set(taskId, group);
-    return group.promise;
+    return group;
+  },
+
+  /**
+   * Ensure that a task group exists with the given name, and return a Promise
+   * that will be resolved when the last task in the group completes.
+   */
+   ensureNamedTaskGroup(groupName, taskId) {
+     let group = this._ensureNamedTaskGroup(groupName, taskId);
+     return group.promise;
+   },
+
+  /**
+   * Return the root ancestor task group.  See TaskContext.rootTaskGroupId for
+   * the rationale for this existing.
+   */
+  getRootTaskGroupForTask: function(taskId) {
+    let taskGroup = this._taskIdsToGroups.get(taskId);
+    if (!taskGroup) {
+      return taskGroup;
+    }
+    while (taskGroup.parentGroup !== null) {
+      taskGroup = taskGroup.parentGroup;
+    }
+    return taskGroup;
+  },
+
+  ensureRootTaskGroupFollowOnTask: function(taskId, taskToPlan) {
+    let rootTaskGroup = this.getRootTaskGroupForTask(taskId);
+    if (!rootTaskGroup) {
+      // Create a group for the task if one didn't exist.
+      rootTaskGroup =
+        this._ensureNamedTaskGroup('ensured:' + this._nextGroupId, taskId);
+    }
+    if (!rootTaskGroup.tasksToScheduleOnCompletion) {
+      rootTaskGroup.tasksToScheduleOnCompletion = new Set();
+    }
+    rootTaskGroup.tasksToScheduleOnCompletion.add(taskToPlan);
   },
 
   _makeTaskGroup: function(groupName) {
     let group = {
       groupName,
+      // (see the comment for _nextGroupId for rationale on this)
+      groupId: this._nextGroupId++,
       // The number of tasks or groups that have yet to complete.
       pendingCount: 0,
       // Debugging support: track the number of things this group ever wanted to
@@ -81,7 +128,8 @@ TaskGroupTracker.prototype = {
       totalCount: 0,
       parentGroup: null,
       promise: null,
-      resolve: null
+      resolve: null,
+      tasksToScheduleOnCompletion: null,
     };
     group.promise = new Promise((resolve) => {
       group.resolve = resolve;
@@ -146,6 +194,11 @@ TaskGroupTracker.prototype = {
         });
       group.resolve();
       this._groupsByName.delete(group.groupName);
+      if (group.tasksToScheduleOnCompletion) {
+        this.taskManager.scheduleTasks(
+          Array.from(group.tasksToScheduleOnCompletion),
+          'deferred-group:' + group.groupName);
+      }
       if (group.parentGroup) {
         this._decrementGroupPendingCount(group.parentGroup);
       }

@@ -150,38 +150,6 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_modifyConfig: function(msg) {
-    this.universe.modifyConfig(msg.mods);
-  },
-
-  notifyConfig: function(config) {
-    this.__sendMessage({
-      type: 'config',
-      config: config,
-    });
-  },
-
-  _cmd_debugSupport: function(msg) {
-    switch (msg.cmd) {
-      case 'setLogging':
-        this.universe.modifyConfig({ debugLogging: msg.arg });
-        break;
-
-      case 'dumpLog':
-        switch (msg.arg) {
-          case 'storage':
-            this.universe.dumpLogToDeviceStorage();
-            break;
-          default:
-            break;
-        }
-        break;
-
-      default:
-        break;
-    }
-  },
-
   _cmd_setInteractive: function(/*msg*/) {
     this.universe.setInteractive();
   },
@@ -658,6 +626,18 @@ MailBridge.prototype = {
       type: 'backgroundSendStatus',
       data: data
     });
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Debug Stuff
+
+  debugForceCronSync: function(msg) {
+    this.universe.cronSyncSupport.onAlarm(
+      msg.accountIds,
+      'fake-interval', // this is not a real sync and the logic doesn't care.
+      'fake-wakelock', // uh, so, this could end badly...
+      msg.notificationAccountIds
+    );
   }
 
 };

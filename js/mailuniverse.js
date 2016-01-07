@@ -5,6 +5,7 @@ const logic = require('logic');
 const MailDB = require('./maildb');
 
 const AccountManager = require('./universe/account_manager');
+const CronSyncSupport = require('./universe/cronsync_support');
 
 const DataOverlayManager = require('./db/data_overlay_manager');
 const FolderConversationsTOC = require('./db/folder_convs_toc');
@@ -36,9 +37,17 @@ function MailUniverse(online, testOptions) {
   logic.defineScope(this, 'Universe');
   this._initialized = false;
 
-  this.db = new MailDB({
+  // -- Initialize everything
+  // We use locals here with the same name as instance variables in order to get
+  // eslint to immediately tell us if we're being dumb with ordering when
+  // passing arguments.  (Otherwise things could be undefined.)
+  const db = this.db = new MailDB({
     universe: this,
     testOptions
+  });
+  const triggerManager = this.triggerManager = new TriggerManager({
+    db,
+    triggers: dbTriggerDefs
   });
 
   this._bridges = [];
@@ -50,36 +59,42 @@ function MailUniverse(online, testOptions) {
   /** @type{Map<ConverastionId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
-  this.dataOverlayManager = new DataOverlayManager();
+  const dataOverlayManager = this.dataOverlayManager = new DataOverlayManager();
 
-  this.taskPriorities = new TaskPriorities();
-  this.taskResources = new TaskResources(this.taskPriorities);
-  this.taskRegistry = new TaskRegistry({
-    dataOverlayManager: this.dataOverlayManager,
-    taskResources: this.taskResources
+  const taskPriorities = this.taskPriorities = new TaskPriorities();
+  const taskResources = this.taskResources =
+    new TaskResources(this.taskPriorities);
+  const taskRegistry = this.taskRegistry = new TaskRegistry({
+    dataOverlayManager,
+    triggerManager,
+    taskResources,
   });
 
-  this.accountManager = new AccountManager({
-    db: this.db,
+  const accountManager = this.accountManager = new AccountManager({
+    db,
     universe: this,
-    taskRegistry: this.taskRegistry
+    taskRegistry
   });
-  this.taskManager = new TaskManager({
+  const taskManager = this.taskManager = new TaskManager({
     universe: this,
-    db: this.db,
-    registry: this.taskRegistry,
-    resources: this.taskResources,
-    priorities: this.taskPriorities,
-    accountsTOC: this.accountManager.accountsTOC
+    db,
+    taskRegistry,
+    taskResources,
+    taskPriorities,
+    accountManager
   });
-  this.taskGroupTracker = new TaskGroupTracker(this.taskManager);
-  this.triggerManager = new TriggerManager({
-    db: this.db,
-    triggers: dbTriggerDefs
-  });
+  this.taskGroupTracker = new TaskGroupTracker(taskManager);
 
   this.taskRegistry.registerGlobalTasks(globalTasks);
 
+  /**
+   * This gets fully initialized
+   */
+  this.cronSyncSupport = new CronSyncSupport({
+    universe: this,
+    db,
+    accountManager
+  });
 
   /** Fake navigator to use for navigator.onLine checks */
   this._testModeFakeNavigator = (testOptions && testOptions.fakeNavigator) ||
@@ -207,11 +222,13 @@ MailUniverse.prototype = {
     this._initLogging(config);
     logic(this, 'configLoaded', { config });
 
+    this._bindStandardBroadcasts();
+
     // For reasons of sanity, we bring up the account manager (which is
     // responsible for registering tasks with the task registry as needed) in
     // its entirety before we initialize the TaskManager so it can assume all
     // task-type definitions are already loaded.
-    return this.accountManager.initFromDB(accountDefs)
+    let initPromise = this.accountManager.initFromDB(accountDefs)
       .then(() => {
         return this.taskManager.__restoreFromDB();
       })
@@ -219,37 +236,17 @@ MailUniverse.prototype = {
         if (tasksToPlan) {
           this.taskManager.scheduleTasks(tasksToPlan, 'initFromConfig');
         }
+        this.cronSyncSupport.systemReady();
         return this;
       });
 
-    // XXX disabled cronsync because of massive rearchitecture
-    //this._cronSync = new $cronsync.CronSync(this, this._LOG);
-  },
+    // Now that we've told the account manager the accountDefs we can kick off
+    // an ensureSync.
+    this.cronSyncSupport.ensureSync('universe-init');
 
-  /**
-   * Return the subset of our configuration that the client can know about.
-   */
-  exposeConfigForClient: function() {
-    // eventually, iterate over a whitelist, but for now, it's easy...
-    return {
-      debugLogging: this.config.debugLogging
-    };
-  },
-
-  modifyConfig: function(changes) {
-    // XXX OLD: this wants to be a task using atomicClobber functionality.
-    for (var key in changes) {
-      var val = changes[key];
-      switch (key) {
-        case 'debugLogging':
-          break;
-        default:
-          continue;
-      }
-      this.config[key] = val;
-    }
-    this.db.saveConfig(this.config);
-    this.__notifyConfig();
+    // The official init process does want to wait on the task subsystems coming
+    // up, however.
+    return initPromise;
   },
 
   setInteractive: function() {
@@ -289,6 +286,50 @@ MailUniverse.prototype = {
     if (idx !== -1) {
       this._bridges.splice(idx, 1);
     }
+  },
+
+  _bindStandardBroadcasts: function() {
+    // - config: send a sanitized version
+    // While our threat model at the current time trusts the front-end, there's
+    // no need to send it implementation details that it does not care about.
+    this._db.on('config', (config) => {
+      this.broadcastOverBridges(
+        'config',
+        {
+          debugLogging: config.debugLogging
+        });
+    });
+  },
+
+  /**
+   * Send a named payload to all currently registered bridges to be emitted as
+   * an event on the MailAPI instances.  Currently, all messages are sent
+   * without concern for interest on the client side, but this could eventually
+   * change should profiling show we're being ridonkulous about things.
+   *
+   * This is intended to be used for notable events where one of the following
+   * is true:
+   * - The event is nebulous and global in nature and not something directly
+   *   related to something we already have data types and limited subscriptions
+   *   for.
+   * - The UX for notifying the user and/or helping the user deal with the
+   *   problem is largely stateless and using the existing data types would
+   *   be silly/inefficient or compromises the UX.
+   *
+   * Examples of sensible uses:
+   * - Notifications of account credential problems.  There is no benefit to
+   *   forcing front-end logic to add a listener to every account, but there is
+   *   a lot of hassle.  Likewise, the UI for this situation is likely to be a
+   *   pop-up style notification that doesn't care what else what was happening
+   *   at the time.
+   * - Notification of revised "new tracking" state.
+   *
+   * @param {String} name
+   * @param {Object} data
+   *   Note that this data
+   */
+  broadcastOverBridges: function(name, data) {
+
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -480,6 +521,16 @@ MailUniverse.prototype = {
     }
   },
 
+  modifyConfig: function(accountId, mods, why) {
+    return this.taskManager.scheduleTaskAndWaitForPlannedResult(
+      {
+        type: 'config_modify',
+        mods
+      },
+      why);
+  },
+
+
   modifyAccount: function(accountId, mods, why) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
@@ -500,6 +551,8 @@ MailUniverse.prototype = {
       },
       why);
   },
+
+
 
   //////////////////////////////////////////////////////////////////////////////
   // Lifetime Stuff
@@ -784,6 +837,22 @@ MailUniverse.prototype = {
 
   deleteMessages: function(messageSuids) {
     // XXX OLD
+  },
+
+  clearNewTrackingForAccount: function({ accountId, silent }) {
+    this.taskManager.scheduleTasks([{
+      type: 'new_tracking',
+      accountId,
+      op: 'clear',
+      silent
+    }]);
+  },
+
+  /**
+   *
+   */
+  flushNewAggregates: function() {
+
   },
 
   /**

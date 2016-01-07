@@ -13,16 +13,22 @@ const logic = require('logic');
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
  */
-function TaskRegistry({ dataOverlayManager, taskResources }) {
+function TaskRegistry({ dataOverlayManager, triggerManager, taskResources }) {
   logic.defineScope(this, 'TaskRegistry');
 
   this._dataOverlayManager = dataOverlayManager;
+  this._triggerManager = triggerManager;
   this._taskResources = taskResources;
 
   this._globalTasks = new Map();
   this._globalTaskRegistry = new Map();
   this._perAccountTypeTasks = new Map();
   this._perAccountIdTaskRegistry = new Map();
+  // To simplify some logic, use `null` as the sentinel value for account type
+  // and accountId in our maps above.  Namely, initializing complex tasks is
+  // complex and we don't want to duplicate that logic.
+  this._perAccountTypeTasks.set(null, this._globalTasks);
+  this._perAccountIdTaskRegistry.set(null, this._globalTaskRegistry);
 
   this._dbDataByAccount = new Map();
 }
@@ -30,17 +36,6 @@ TaskRegistry.prototype = {
   registerGlobalTasks: function(taskImpls) {
     for (let taskImpl of taskImpls) {
       this._globalTasks.set(taskImpl.name, taskImpl);
-      // currently all global tasks must be simple
-      if (taskImpl.isComplex) {
-        throw new Error('hey, no complex global tasks yet!');
-      }
-      this._globalTaskRegistry.set(
-        taskImpl.name,
-        {
-          impl: taskImpl,
-          persistent: null,
-          transient: null
-        });
     }
   },
 
@@ -105,14 +100,15 @@ TaskRegistry.prototype = {
 
   /**
    * Given a complex task implementation bound to an account (which is tracked
-   * in a taskMeta dict), find methods named like "overlay_NAMESPACE", and
-   * dynamically register them with the `DataOverlayManager`.
+   * in a taskMeta dict), find methods named like "overlay_NAMESPACE" and
+   * "trigger_EVENTNAME" and register them with the `DataOverlayManager` and
+   * `TriggerManager`.
    *
    * We currently do not support unregistering which is consistent with other
    * simplifications we've made like this.  We would implement all of that at
    * the same time.
    */
-  _registerComplexTaskImplWithDataOverlayManager: function(accountId, meta) {
+  _registerComplexTaskImplWithEventSources: function(accountId, meta) {
     let taskImpl = meta.impl;
 
     let blockedTaskChecker =
@@ -140,7 +136,35 @@ TaskRegistry.prototype = {
             blockedTaskChecker)
         );
       }
+
+      let triggerMatch = /^trigger_(.+$)$/.exec(key);
+      if (triggerMatch) {
+        logic(
+          this, 'registerTriggerHandler',
+          {
+            accountId,
+            taskName: taskImpl.name,
+            trigger: triggerMatch[1]
+          });
+        this._triggerManager.registerTriggerFunc(
+          triggerMatch[1],
+          taskImpl.name,
+          taskImpl[key].bind(
+            taskImpl,
+            meta.persistentState,
+            meta.memoryState)
+        );
+      }
     }
+  },
+
+  /**
+   * Initialize global tasks by reusing accountExistsInitTasks.  A simple
+   * function to make it clear what's going on and keep the horror confined to
+   * one spot.
+   */
+  initGlobalTasks: function() {
+    return this.accountExistsInitTasks(null, null, null, null);
   },
 
   /**
@@ -149,7 +173,8 @@ TaskRegistry.prototype = {
    * themselves, some may be async and may return a promise.  For that reason,
    * this method is async.
    */
-  accountExistsInitTasks: function(accountId, accountType) {
+  accountExistsInitTasks: function(accountId, accountType, accountInfo,
+                                   foldersTOC) {
     logic(this, 'accountExistsInitTasks', { accountId, accountType });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
@@ -189,8 +214,8 @@ TaskRegistry.prototype = {
         // async db stuff if its state isn't in the persistent state we
         // helpfully loaded.
         let maybePromise =
-          taskImpl.deriveMemoryStateFromPersistentState(meta.persistentState,
-                                                        accountId);
+          taskImpl.deriveMemoryStateFromPersistentState(
+            meta.persistentState, accountId, accountInfo, foldersTOC);
         let saveOffMemoryState = ({ memoryState, markers }) => {
           meta.memoryState = memoryState;
           if (markers) {
@@ -199,7 +224,7 @@ TaskRegistry.prototype = {
             accountMarkers.push(...markers);
           }
 
-          this._registerComplexTaskImplWithDataOverlayManager(accountId, meta);
+          this._registerComplexTaskImplWithEventSources(accountId, meta);
         };
         if (maybePromise.then) {
           pendingPromises.push(maybePromise.then(saveOffMemoryState));

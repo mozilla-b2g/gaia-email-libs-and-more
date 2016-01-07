@@ -158,9 +158,10 @@ TaskContext.prototype = {
    *
    * @param {Object} consultWhat
    *   Characterizes the task we want to talk to.
-   * @param {AccountId} accountId
-   * @param {String} name
-   *   The task name.
+   * @param {String} consultWhat.name
+   *   The task you want to talk to.
+   * @param {AccountId} consultWhat.accountId
+   *   The id of the account you want to talk to if the task isn't global.
    * @param {Object} argDict
    *   The argument object to be passed to the complex task.
    */
@@ -176,6 +177,49 @@ TaskContext.prototype = {
    */
   trackMeInTaskGroup: function(groupName) {
     return this._taskGroupTracker.ensureNamedTaskGroup(groupName, this.id);
+  },
+
+  /**
+   * The id of the root ancestral task group that contains this task.  You would
+   * likely use this for high level "hey, is this the same batch of things as
+   * the last batch of things" if you are a database trigger handler or
+   * something like that.  Note that the id is different from the name of the
+   * task group.  Task group names may be semantic things like
+   * "sync_refresh:ACCOUNTID" which will be reused each time, whereas the group
+   * id is by-design unique for each task group within a mailuniverse lifetime.
+   *
+   * You likely want the root task group instead of the most specific task group
+   * because task groups are hierarchical and there is no rule about introducing
+   * new levels of hierarchy to fix a problem.  So if you depended on the most
+   * specific group, you could be subtly broken by implementation changes,
+   * which would suck.  New containing roots are unlikely to occur without
+   * serious semantic intent, and in that case you may want it anyways.
+   *
+   * If you think you know better, what you probably want is to be able to
+   * provide a regexp that is run against the names of the task group ancestry
+   * until a match is reached.
+   */
+  get rootTaskGroupId() {
+    let rootTaskGroup = this._taskGroupTracker.getRootTaskGroupForTask(this.id);
+    if (rootTaskGroup) {
+      return rootTaskGroup.groupId;
+    } else {
+      return null;
+    }
+  },
+
+  /**
+   * Find the root task group and put this task in the set of tasks to schedule
+   * when the group completes.  As an optimization, a Set is used to store the
+   * tasks, so if you want to avoid needlessly duplicated tasks, it's preferable
+   * if you can use a single object instance to schedule your tasks.  If you
+   * can't make this happen and may generate a large number of potentially
+   * redundant tasks without any other workaround, please consider adding
+   * support for de-duplicating via explicit namespaced string.  (For large,
+   * I'm thinking 10+ per task in a normal case.)
+   */
+  ensureRootTaskGroupFollowOnTask: function(taskToPlan) {
+    this._taskGroupTracker.ensureRootTaskGroupFollowOnTask(this.id, taskToPlan);
   },
 
   /**
@@ -489,6 +533,7 @@ TaskContext.prototype = {
     }
     this.state = 'finishing';
 
+    const taskManager = this.universe.taskManager;
     let revisedTaskInfo;
     // If this isn't a marker, then there is a task state that needs to either
     // be revised or nuked.
@@ -502,7 +547,7 @@ TaskContext.prototype = {
           id: this.id,
           value: this._taskThing
         };
-        this.universe.taskManager.__queueTasksOrMarkers(
+        taskManager.__queueTasksOrMarkers(
           [this._taskThing], this.id, true);
       } else {
         revisedTaskInfo = {
@@ -536,12 +581,12 @@ TaskContext.prototype = {
       for (let [markerId, taskMarker] of finishData.taskMarkers) {
         // create / update marker
         if (taskMarker) {
-          this.universe.taskManager.__queueTasksOrMarkers(
+          taskManager.__queueTasksOrMarkers(
             [taskMarker], this.id, true);
         }
         // nuke the marker
         else {
-          this.universe.taskManager.__removeTaskOrMarker(markerId, this.id);
+          taskManager.__removeTaskOrMarker(markerId, this.id);
         }
       }
     }
@@ -550,7 +595,7 @@ TaskContext.prototype = {
     let wrappedTasks = null;
     if (finishData.newData && finishData.newData.tasks) {
       wrappedTasks =
-        this.universe.taskManager.__wrapTasks(finishData.newData.tasks);
+        taskManager.__wrapTasks(finishData.newData.tasks);
     }
 
     return this.universe.db.finishMutate(
@@ -566,8 +611,7 @@ TaskContext.prototype = {
         // running, the idea is that IndexedDB should really be assigning the
         // id's as part of the transaction, so we will only have assigned id's
         // at this point.  See the __wrapTasks documentation for more context.)
-        this.universe.taskManager.__enqueuePersistedTasksForPlanning(
-          wrappedTasks, this.id);
+        taskManager.__enqueuePersistedTasksForPlanning(wrappedTasks, this.id);
       }
     });
   },

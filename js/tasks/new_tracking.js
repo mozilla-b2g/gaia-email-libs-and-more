@@ -5,10 +5,15 @@ const co = require('co');
 
 const TaskDefiner = require('../task_infra/task_definer');
 
+const messageSummarize = require('app_logic/new_message_summarizer');
+
+const { convIdFromMessageId } = require('../id_conversions');
+
 /**
  * Per-account tracking of "new" messages and the conversations they belong to.
  * We use the trigger mechanism to listen for new messages and for changes to
- * messages to know when a message is no longer new.
+ * messages to know when a message is no longer new.  We use app-provided logic
+ * to determine what bits of a new message are interesting.
  *
  * Our rules for newness are quite simple:
  * - A message is new if, as part of a sync, it is newer than the previously
@@ -101,14 +106,177 @@ return TaskDefiner.defineComplexTask([
   {
     name: 'new_tracking',
 
-    'trigger_msg!*!add': function(persistentState, memoryState, triggerModify,
-                                  message) {
-
+    /**
+     */
+    initPersistentState: function() {
+      return {
+        /**
+         * The DateMS to use to test for new messages.  If null, we haven't
+         * completed our initial sync and messages cannot be considered new yet.
+         */
+        compareDate: null,
+        /**
+         * The highest DateMS we've seen.  Promoted to compareDate when task
+         * groups change.  See the giant doc-block for more info.
+         */
+        pendingDate: 0,
+        /**
+         * @type{Map<ConvId, Map<MessageId, NewMessageSummary>>}
+         *
+         * The set of known new messages stored as per-conversation lists (keyed
+         * by the conversation )
+         */
+        newByConv: new Map()
+      };
     },
 
-    'trigger_msg!*!change': function(persistentState, memoryState, triggerModify,
-                                     messageId, preInfo, message, added, kept, removed) {
+    deriveMemoryStateFromPersistentState: function(persistentState, accountId,
+        accountInfo, foldersTOC) {
+      return {
+        memoryState: {
+          // Try and get the folder already; this could fail if the account was
+          // just created and sync_folder_list hasn't run yet, so...
+          inboxFolderId: foldersTOC.getCanonicalFolderByType('inbox'),
+          // ...cache the TOC so we can keep trying.
+          foldersTOC,
+          pendingTaskGroupId: null,
+          // Because maps using object identity for keys, if we want to have
+          // a complex map key with replacement, we need to be using the same
+          // object every time.  To this end we could save off the key and
+          // create a new map every time.  However, it's also the case that
+          // the map itself will have the same structure every time.  So we
+          // just create the map once and reuse it forever.
+          complexStateMap: new Map([
+            [
+              [accountId, this.name],
+              persistentState
+            ]
+          ]),
+          // Same rationale re: object identity.  The group tracker uses a set
+          // and so by only ever using a single object we avoid having N
+          // equivalent tasks planned
+          newFlushTaskReq: {
+            type: 'new_flush'
+          }
+        },
+        markers: []
+      };
+    },
 
+    /**
+     * Clear the current newness state for this task.
+     */
+    plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+      // If we have nothing new tracked, fast-path out without any other writes.
+      if (!persistentState.newByConv.size) {
+        yield ctx.finishTask({});
+        return;
+      }
+
+      let newTasks = [];
+      if (req.op === 'clear') {
+        // This state may already be reflected in the UI, in which case a silent
+        // clear may be requested.  In this case, we should not schedule a
+        // flush.
+        if (!req.silent) {
+          newTasks.push({
+            type: 'new_flush'
+          });
+        }
+        persistentState.newByConv.clear();
+      }
+
+      yield ctx.finishTask({
+        newData: { tasks: newTasks },
+        complexTaskState: persistentState
+      });
+    }),
+
+    execute: null,
+
+    'trigger_msg!*!add': function(persistentState, memoryState, triggerCtx,
+                                  message) {
+      if (!memoryState.inboxFolderId) {
+        memoryState.inboxFolderId =
+          memoryState.foldersTOC.getCanonicalFolderByType('inbox');
+        // this is crazy non-sensical, but whatever.
+        if (!memoryState.inboxFolderId) {
+          return;
+        }
+      }
+      // bail if this isn't our account's inbox
+      if (!message.folderIds.has(memoryState.inboxFolderId)) {
+        return;
+      }
+
+      // - detect group change
+      let curTaskGroupId = triggerCtx.rootTaskGroupId;
+
+      let dirty = false;
+      if (curTaskGroupId !== memoryState.pendingTaskGroupId) {
+        persistentState.compareDate = persistentState.pendingDate;
+        memoryState.pendingTaskGroupId = curTaskGroupId;
+        dirty = true;
+      }
+
+      // - is this message newer?
+      if (message.date >= persistentState.pendingDate) {
+        dirty = true;
+        persistentState.pendingDate = Math.max(persistentState.pendingDate,
+          message.date);
+
+        let convId = convIdFromMessageId(message.id);
+        let summary = messageSummarize(message);
+
+        let messageMap = persistentState.newByConv.get(convId);
+        if (!messageMap) {
+          messageMap = new Map();
+          persistentState.newByConv.set(convId, messageMap);
+        }
+
+        messageMap.set(message.id, summary);
+      }
+
+      if (dirty) {
+        triggerCtx.modify({
+          complexTaskStates: memoryState.complexStateMap,
+          // XXX IMPLEMENT THIS RIGHT HERE!!!!! XXX XXX
+          rootGroupDeferredTask: memoryState.newFlushTaskReq
+        });
+      }
+    },
+
+    /**
+     * Look for messages that are no longer in the inbox or have been read,
+     * (making them count as no longer new) and remove them from our tracked
+     * set.
+     */
+    'trigger_msg!*!change': function(persistentState, memoryState, triggerCtx,
+                                     messageId, preInfo, message, added, kept,
+                                     removed) {
+      // (removed handles deletion as well as the message simply losing its
+      // label)
+      if (removed.has(memoryState.inboxFolderId) ||
+          (message && (message.indexOf('\\Seen') !== -1))) {
+        let convId = convIdFromMessageId(messageId);
+        let messageMap = persistentState.newByConv.get(convId);
+        if (!messageMap) {
+          // the conversation wasn't known, nothing to do.
+          return;
+        }
+        // (delete returns true if the element existed)
+        if (messageMap.delete(messageId)) {
+          // the conversation may no longer have any new messages; remove it.
+          if (messageMap.size === 0) {
+            persistentState.newByConv.delete(convId);
+          }
+
+          triggerCtx.modify({
+            complexTaskStates: memoryState.complexStateMap,
+            rootGroupDeferredTask: memoryState.newFlushTaskReq
+          });
+        }
+      }
     }
   }
 ]);

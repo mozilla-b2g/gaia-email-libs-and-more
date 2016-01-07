@@ -210,6 +210,23 @@ AccountManager.prototype = {
   },
 
   /**
+   * Get all account currently known account definitions *even if we have not
+   * completed all the load steps for the accounts*.  Use this if all you need
+   * are the accountDefs and there is zero chance of you trying to schedule a
+   * task or talk to the account and you are absurdly time sensitive.  Otherwise
+   * you really want to be using the accountsTOC and its events.
+   *
+   * Right now, if you are not the cronsync code trying to call ensureSync() as
+   * early as possible in order to avoid worst-case mozAlarm lossages, then you
+   * do not meet these requirements.
+   *
+   * @return {Iterator}
+   */
+  getAllAccountDefs: function() {
+    return this._immediateAccountDefsById.values();
+  },
+
+  /**
    * Return the FolderInfo for the given FolderId.  This is only safe to call
    * after the universe has fully loaded.
    */

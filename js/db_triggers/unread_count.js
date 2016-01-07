@@ -8,7 +8,7 @@ define(function() {
 return {
   name: 'unread_count',
 
-  'conv!*!add': function(triggerModify, convInfo) {
+  'conv!*!add': function(triggerCtx, convInfo) {
     // Nothing to do if this conversation is already fully read.
     if (!convInfo.hasUnread) {
       return;
@@ -23,7 +23,7 @@ return {
           localUnreadConversations: 1
         });
     }
-    triggerModify({
+    triggerCtx.modify({
       atomicDeltas: {
         folders: folderDeltas
       }
@@ -35,7 +35,7 @@ return {
    * does us a solid and has pre-computed changes to the folderId's by providing
    * added/kept/removed and these are correct even in the face of deletion.
    */
-  'conv!*!change': function(triggerModify, convId, preInfo, convInfo, added,
+  'conv!*!change': function(triggerCtx, convId, preInfo, convInfo, added,
                             kept, removed) {
     let hasUnread = convInfo ? convInfo.hasUnread : false;
 
@@ -80,7 +80,7 @@ return {
     }
 
     if (folderDeltas.size) {
-      triggerModify({
+      triggerCtx.modify({
         atomicDeltas: {
           folders: folderDeltas
         }

@@ -1644,9 +1644,10 @@ MailDB.prototype = evt.mix({
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
-    // Correctness requires that we have a triggerManager, so this blind access
-    // and potentially resulting explosions are desired.
-    let derivedMutations = this.triggerManager.derivedMutations = [];
+    // The TriggerManager needs context for the events we will be
+    // (synchronously, unyieldingly) firing.  We clear the state below.
+    let derivedMutations = [];
+    this.triggerManager.__setState(ctx, derivedMutations);
 
     // -- New / Added data
     let newData = data.newData;
@@ -1695,66 +1696,88 @@ MailDB.prototype = evt.mix({
           trans, ctx._preMutateStates.messages, mutations.messages);
       }
 
-      if (mutations.complexTaskStates) {
-        for (let [key, complexTaskState] of mutations.complexTaskStates) {
-          trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState, key);
-        }
-      }
+      // complexTaskStates are committed after merging in trigger side-effects.
     } else {
       // atomics potentially need this.
       mutations = {};
     }
+
+    // Clear state; triggers have had their chance already, no point adding
+    // confusion.
+    this.triggerManager.__clearState();
 
     // -- Atomics
     this._applyAtomics(data, mutations);
     if (derivedMutations.length) {
       for (let derivedMut of derivedMutations) {
         this._applyAtomics(derivedMut, mutations);
+
+        // - Merge in complex task states.
+        // (It's very possible for a task-based trigger to fire multiple times
+        // in a single transaction.  In that case, there will be redundant state
+        // writes being made )
+        if (derivedMut.complexTaskStates) {
+          if (!mutations.complexTaskStates) {
+            mutations.complexTaskStates = new Map();
+          }
+          for (let [key, value] of derivedMut.complexTaskStates) {
+            mutations.complexTaskStates.set(key, value);
+          }
+        }
+
         // TODO: allow database triggers to contribute tasks too.
+        // sorta resolved by the rootGroupDeferredTask mechanism here...
+
+        if (derivedMut.rootGroupDeferredTask) {
+          ctx.ensureRootTaskGroupFollowOnTask(derivedMut.rootGroupDeferredTask);
+        }
       }
     }
-    this.triggerManager.derivedMutations = null;
 
     // -- Atomics-controlled writes
-    if (mutations) {
-      if (mutations.folders) {
-        let store = trans.objectStore(TBL_FOLDER_INFO);
-        for (let [folderId, folderInfo] of mutations.folders) {
-          let accountId = accountIdFromFolderId(folderId);
-          if (folderInfo !== null) {
-            store.put(folderInfo, folderId);
-          } else {
-            store.delete(folderId);
-          }
-          this.emit(`fldr!${folderId}!change`, folderId, folderInfo);
-          this.emit(`acct!${accountId}!folders!tocChange`,
-                    folderId, folderInfo, false);
+    if (mutations.complexTaskStates) {
+      for (let [key, complexTaskState] of mutations.complexTaskStates) {
+        trans.objectStore(TBL_COMPLEX_TASKS).put(complexTaskState, key);
+      }
+    }
+
+    if (mutations.folders) {
+      let store = trans.objectStore(TBL_FOLDER_INFO);
+      for (let [folderId, folderInfo] of mutations.folders) {
+        let accountId = accountIdFromFolderId(folderId);
+        if (folderInfo !== null) {
+          store.put(folderInfo, folderId);
+        } else {
+          store.delete(folderId);
         }
+        this.emit(`fldr!${folderId}!change`, folderId, folderInfo);
+        this.emit(`acct!${accountId}!folders!tocChange`,
+                  folderId, folderInfo, false);
       }
+    }
 
-      if (mutations.accounts) {
-        // (This intentionally comes after all other mutation types and newData
-        // so that our deletions should clobber new introductions of data,
-        // although arguably no such writes should be occurring.)
-        for (let [accountId, accountDef] of mutations.accounts) {
-          if (accountDef) {
-            // - Update
-            trans.objectStore(TBL_CONFIG)
-              .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
-          } else {
-            // - Account Deletion!
-            this._processAccountDeletion(trans, accountId);
-          }
-
-          this.emit(`acct!${accountId}!change`, accountId, accountDef);
-          this.emit('accounts!tocChange', accountId, accountDef, false);
+    if (mutations.accounts) {
+      // (This intentionally comes after all other mutation types and newData
+      // so that our deletions should clobber new introductions of data,
+      // although arguably no such writes should be occurring.)
+      for (let [accountId, accountDef] of mutations.accounts) {
+        if (accountDef) {
+          // - Update
+          trans.objectStore(TBL_CONFIG)
+            .put(accountDef, CONFIG_KEYPREFIX_ACCOUNT_DEF + accountId);
+        } else {
+          // - Account Deletion!
+          this._processAccountDeletion(trans, accountId);
         }
-      }
 
-      if (mutations.config) {
-        trans.objectStore(TBL_CONFIG).put(mutations.config, 'config');
-        this.emit('config', mutations.config);
+        this.emit(`acct!${accountId}!change`, accountId, accountDef);
+        this.emit('accounts!tocChange', accountId, accountDef, false);
       }
+    }
+
+    if (mutations.config) {
+      trans.objectStore(TBL_CONFIG).put(mutations.config, 'config');
+      this.emit('config', mutations.config);
     }
 
     // -- Tasks
