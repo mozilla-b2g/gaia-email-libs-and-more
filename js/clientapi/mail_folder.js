@@ -115,6 +115,8 @@ MailFolder.prototype = evt.mix({
   },
 
   __updateOverlays: function(overlays) {
+    let syncOverlay = overlays.sync_refresh || overlays.sync_grow || {};
+
     /**
      * Is a sync pending or actively being performed?  If truthy, one of these
      * things is happening.  Also check syncBlockedwhich indicates if the sync
@@ -131,8 +133,7 @@ MailFolder.prototype = evt.mix({
      * one of: null/'offline/'bad-auth'/'unknown'.  This is per discussion
      * with :jrburke on IRC.
      */
-    this.syncStatus = overlays.sync_refresh || overlays.sync_grow || null;
-
+    this.syncStatus = syncOverlay.status || null;
 
     /**
      * Is the sync blocked by something which prevents us from performing a
@@ -158,11 +159,7 @@ MailFolder.prototype = evt.mix({
      * - unknown: Something weird is wrong with the server/account that we don't
      *   understand.
      */
-    this.syncBlocked = null;
-
-    /**
-     * TODO: implement syncBlocked, extracted from the sync_refresh overlay.
-     */
+    this.syncBlocked = syncOverlay.blocked || null;
   },
 
   release: function() {

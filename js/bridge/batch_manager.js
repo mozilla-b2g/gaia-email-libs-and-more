@@ -48,6 +48,11 @@ function BatchManager(db) {
 
   this._db = db;
   this._pendingProxies = new Set();
+  /**
+   * When null, there's no timer scheduled.  When `true`, it means we scheduled
+   * a Promise to do the flush.  Otherwise it's a number that's a timer handle
+   * that we can use to invoke clearTimeout on.
+   */
   this._timer = null;
 
   this._bound_timerFired = this._flushPending.bind(this, true);
@@ -88,25 +93,41 @@ BatchManager.prototype = {
   },
 
   /**
-   * Register a dirty view, potentially triggering an immediate flush.
+   * Register a dirty view, potentially accelerating the flush.
+   *
+   *
+   * @param {false|'soon'|'immediate'} [flushMode=false]
+   *   If false, we will use our regular flushing semantics.  If 'soon', we will
+   *   use a setTimeout(0) in order to
    *
    * You would want an immediate flush when servicing a request from the
    * front-end and therefore where latency is likely of the essence.
    */
-  registerDirtyView: function(proxy, immediateFlush) {
+  registerDirtyView: function(proxy, flushMode) {
     logic(
       this, 'dirtying',
       {
         tocType: proxy.toc.type,
         ctxName: proxy.ctx.name,
-        immediateFlush: immediateFlush,
+        flushMode,
         alreadyDirty: this._pendingProxies.has(proxy)
       });
 
     this._pendingProxies.add(proxy);
 
-    if (immediateFlush) {
-      this._flushPending(false);
+    if (flushMode) {
+      if (flushMode === 'immediate') {
+        this._flushPending(false);
+      } else if (this._timer !== true) { // therefore: flushMode === 'soon'
+        // Our conditioanl means we're only in here if a promise isn't already
+        // scheduled.
+        if (this._timer) {
+          // which means this is a timer we need to clear if truthy.
+          window.clearTimeout(this._timer);
+        }
+        Promise.resolve().then(() => { this._flushPending(false); });
+        this._timer = true;
+      }
     } else if (!this._timer) {
       this._timer = window.setTimeout(this._bound_timerFired,
                                       this.flushDelayMillis);

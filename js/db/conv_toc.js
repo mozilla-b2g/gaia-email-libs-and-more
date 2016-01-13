@@ -1,18 +1,16 @@
 define(function(require) {
 'use strict';
 
-let co = require('co');
-let logic = require('logic');
+const co = require('co');
+const logic = require('logic');
 
-let util = require('../util');
-let bsearchMaybeExists = util.bsearchMaybeExists;
-let bsearchForInsert = util.bsearchForInsert;
+const util = require('../util');
+const bsearchMaybeExists = util.bsearchMaybeExists;
+const bsearchForInsert = util.bsearchForInsert;
 
-let RefedResource = require('../refed_resource');
+const BaseTOC = require('./base_toc');
 
-let evt = require('evt');
-
-let { conversationMessageComparator } = require('./comparators');
+const { conversationMessageComparator } = require('./comparators');
 
 /**
  * The Conversation Table-of-Contents is in charge of backing view slices
@@ -31,16 +29,13 @@ let { conversationMessageComparator } = require('./comparators');
  * view slice is requested for a given conversation and destroyed once no more
  * view slices care about.
  */
-function ConversationTOC({ db, conversationId, dataOverlayManager,
-                          onForgotten }) {
-  RefedResource.call(this);
-  evt.Emitter.call(this);
+function ConversationTOC({ db, conversationId, dataOverlayManager }) {
+  BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'ConversationTOC');
 
   this._db = db;
   this.convId = conversationId;
-  this._onForgotten = onForgotten;
   // id for toc-style changes to the ordered set of messages in the conversation
   this._tocEventId = '';
   // id for the conversation summary; used to detect the deletion of the
@@ -58,7 +53,7 @@ function ConversationTOC({ db, conversationId, dataOverlayManager,
 
   this.__deactivate(true);
 }
-ConversationTOC.prototype = evt.mix(RefedResource.mix({
+ConversationTOC.prototype = BaseTOC.mix({
   type: 'ConversationTOC',
   overlayNamespace: 'messages',
   heightAware: false,
@@ -86,10 +81,6 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
     this.idsWithDates = [];
     if (!firstTime) {
       this._db.removeListener(this._tocEventId, this._bound_onTOCChange);
-      if (this._onForgotten) {
-        this._onForgotten(this, this.convId);
-      }
-      this._onForgotten = null;
     }
   },
 
@@ -272,7 +263,7 @@ ConversationTOC.prototype = evt.mix(RefedResource.mix({
       newValidDataSet: newKnownSet
     };
   }
-}));
+});
 
 return ConversationTOC;
 });

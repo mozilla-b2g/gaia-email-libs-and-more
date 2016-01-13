@@ -11,6 +11,8 @@ const DataOverlayManager = require('./db/data_overlay_manager');
 const FolderConversationsTOC = require('./db/folder_convs_toc');
 const ConversationTOC = require('./db/conv_toc');
 
+const SyncLifecycleMetaHelper = require('./db/toc_meta/sync_lifecycle');
+
 const TaskManager = require('./task_infra/task_manager');
 const TaskRegistry = require('./task_infra/task_registry');
 const TaskPriorities = require('./task_infra/task_priorities');
@@ -362,10 +364,17 @@ MailUniverse.prototype = {
     if (this._folderConvsTOCs.has(folderId)) {
       toc = this._folderConvsTOCs.get(folderId);
     } else {
+      let folderInfo = this.accountManager.getFolderById(folderId);
       toc = new FolderConversationsTOC({
         db: this.db,
         folderId,
         dataOverlayManager: this.dataOverlayManager,
+        metaHelpers: [
+          new SyncLifecycleMetaHelper({
+            folderInfo,
+            dataOverlayManager: this.dataOverlayManager
+          }),
+        ],
         onForgotten: () => {
           this._folderConvsTOCs.delete(folderId);
         }

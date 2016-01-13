@@ -1,17 +1,19 @@
 define(function(require) {
+'use strict';
 
-let co = require('co');
-let mix = require('mix');
+const co = require('co');
+const mix = require('mix');
 
 /**
  * A simple reference-counted resource implementation to be mixed in to
  * implementations that need to be reference counted for resource management
  * reasons.
  */
-function RefedResource() {
+function RefedResource({ onForgotten }) {
   this._activatePromise = null;
   this._valid = false;
   this._activeConsumers = [];
+  this._onForgotten = onForgotten;
 }
 RefedResource.prototype = {
   /**
@@ -35,15 +37,24 @@ RefedResource.prototype = {
     return this;
   }),
 
-  __release: co.wrap(function*(ctx) {
+  __release: function(ctx) {
     let idx = this._activeConsumers.indexOf(ctx);
     if (idx === -1) {
-      throw new Error('context does not ref this resource!')
+      throw new Error('context does not ref this resource!');
     }
     this._activeConsumers.splice(idx, 1);
-    // TODO XXX implement cleanup idiom where we tell the context's manager that
-    // no one cares about us anymore and we can be deactivate'ed on demand.
-  })
+
+    if (this._activeConsumers.length === 0) {
+      this.__deactivate();
+
+      if (this._onForgotten) {
+        this._onForgotten(this, this.convId);
+      }
+      this._onForgotten = null;
+    }
+
+    return Promise.resolve();
+  }
 };
 
 // TODO more rigorous mixin magic

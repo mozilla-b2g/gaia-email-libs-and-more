@@ -25,8 +25,7 @@ var evt = require('evt');
  */
 
 /**
- * A windowed (subset) view into a conceptually much larger list view.  Because
- * a variety of complicated things can happen
+ * A windowed (subset) view into a conceptually much larger list view.
  *
  * ## Events ##
  * - `seeked` (SeekChangeInfo): Fired when anything happens.  ANYTHING.  This is
@@ -68,6 +67,8 @@ function WindowedListView(api, itemConstructor, handle) {
    * flow.)
    */
   this._itemsById = new Map();
+
+  this.tocMeta = null;
 
   /**
    * Has this slice been completely initially populated?  If you want to wait
@@ -161,7 +162,18 @@ WindowedListView.prototype = evt.mix({
     this.items = newItems;
     this._itemsById = newSet;
 
+    if (details.tocMeta) {
+      this.tocMeta = details.tocMeta;
+      this.emit('metaChange', this.tocMeta);
+    }
+
     this.emit('seeked', whatChanged);
+
+    if (details.events) {
+      for (let { name, data } of details.events) {
+        this.emit(name, data);
+      }
+    }
   },
 
   // TODO: determine whether these are useful at all; seems like the virtual

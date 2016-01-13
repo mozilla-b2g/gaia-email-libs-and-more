@@ -44,7 +44,7 @@ EntireListProxy.prototype = {
       this.onAdd(items[i], i);
     }
 
-    this.batchManager.registerDirtyView(this, /* immediate */ true);
+    this.batchManager.registerDirtyView(this, 'immediate');
 
     this.toc.on('add', this._bound_onAdd);
     this.toc.on('change', this._bound_onChange);
@@ -82,7 +82,7 @@ EntireListProxy.prototype = {
     }
 
     this.dirty = true;
-    this.batchManager.registerDirtyView(this, /* immediate */ false);
+    this.batchManager.registerDirtyView(this);
   },
 
   onAdd: function(item, index) {
