@@ -97,6 +97,10 @@ build: $(OUR_JS_DEPS)
 	git submodule update --init --recursive
 	node scripts/sync-js-ext-deps.js
 
+docs:
+	rm -rf built_docs
+	./node_modules/.bin/jsdoc -r --verbose -a all -c jsdoc-conf.json --lenient -d built_docs
+
 .PHONY: download-b2g
 download-b2g: b2g
 

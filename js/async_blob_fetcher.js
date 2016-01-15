@@ -1,5 +1,8 @@
 define(function(require) {
 'use strict';
+/**
+ * @module
+ */
 
 /**
  * Asynchronously fetch the contents of a Blob, returning a Uint8Array.

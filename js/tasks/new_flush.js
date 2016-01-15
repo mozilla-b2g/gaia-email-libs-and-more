@@ -8,6 +8,8 @@ const { NOW } = require('../../date');
 
 const TaskDefiner = require('../task_infra/task_definer');
 
+const churnAllNewMessages = require('app_logic/new_batch_churn');
+
 /**
  * This task gathers up the new_tracking data from all accounts, feeds it to the
  * new_batch_churn, and sends the result over the wire to the frontend as a
@@ -25,15 +27,22 @@ return TaskDefiner.defineAtMostOnceTask([
     binByArg: null,
 
     /**
-     * In our planning phase we discard nonsensical requests to refresh
-     * local-only folders.
+     *
      */
     helped_plan: co.wrap(function*(ctx, rawTask) {
+      // -- Get the list of all accounts
+
+      // -- For each account, consult the new_tracking task
+
+      // -- Have the app logic churn
+
+      // -- Send the batch
+      yield null;
 
       return {
         taskState: null
       }
-    },
+    }),
   }
 ]);
 });

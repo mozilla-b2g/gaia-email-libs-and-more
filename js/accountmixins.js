@@ -2,6 +2,10 @@ define(function(require, exports) {
 'use strict';
 
 /**
+ * @module
+ **/
+
+/**
  * Return the folder metadata for the first folder with the given type, or null
  * if no such folder exists.
  */

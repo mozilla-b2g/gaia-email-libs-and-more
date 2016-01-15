@@ -6,6 +6,8 @@
  * we can't use JS numbers for.
  *
  * The math logic is by me (asuth); hopefully it's not too embarassing.
+ *
+ * @module
  **/
 
 define(

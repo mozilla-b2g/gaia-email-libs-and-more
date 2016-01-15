@@ -1,5 +1,6 @@
 /b2g/
 /build/
+/built_docs/
 /node_modules/
 /gaia-symlink
 /b2g-bindir-symlink

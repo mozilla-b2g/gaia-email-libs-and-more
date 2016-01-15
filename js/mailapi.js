@@ -1,3 +1,6 @@
+/**
+ * @module
+ */
 define(function(require, exports) {
 'use strict';
 
@@ -54,6 +57,9 @@ const LEGAL_CONFIG_KEYS = ['debugLogging'];
  * TODO: Implement a failsafe timeout mechanism for returning Promises for
  * requests that will timeout and reject or something.  The idea is to allow
  * code that
+ *
+ * @constructor
+ * @memberof module:mailapi
  */
 function MailAPI() {
   evt.Emitter.call(this);
@@ -61,7 +67,7 @@ function MailAPI() {
   this._nextHandle = 1;
 
   /**
-   * @type Map<BridgeHandle, Object>
+   * @type {Map<BridgeHandle, Object>}
    *
    * Holds live list views (what were formerly called slices) and live tracked
    * one-off items (ex: viewConversation/friends that call
@@ -124,7 +130,7 @@ function MailAPI() {
   this.accounts = this.viewAccounts({ autoViewFolders: true });
 }
 exports.MailAPI = MailAPI;
-MailAPI.prototype = evt.mix({
+MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   toString: function() {
     return '[MailAPI]';
   },

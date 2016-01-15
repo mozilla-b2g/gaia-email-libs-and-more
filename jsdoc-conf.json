@@ -1,0 +1,12 @@
+{
+  "source": {
+    "include": ["js"],
+    "exclude": ["js/ext"]
+  },
+  "plugins": [
+    "plugins/markdown"
+  ],
+  "tags": {
+    "allowUnknownTags": true
+  }
+}

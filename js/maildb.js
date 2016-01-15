@@ -1,6 +1,10 @@
 define(function(require) {
 'use strict';
 
+/**
+ * @module
+ */
+
 const co = require('co');
 const evt = require('evt');
 const logic = require('logic');
@@ -472,24 +476,23 @@ function genericCachedLookups(store, requestMap, cache) {
  *
  * See maildb.md for more info/context.
  *
- * @args[
- *   @param[testOptions #:optional @dict[
- *     @key[dbVersion #:optional Number]{
- *       Override the database version to treat as the database version to use.
- *       This is intended to let us do simple database migration testing by
- *       creating the database with an old version number, then re-open it
- *       with the current version and seeing a migration happen.  To test
- *       more authentic migrations when things get more complex, we will
- *       probably want to persist JSON blobs to disk of actual older versions
- *       and then pass that in to populate the database.
- *     }
- *     @key[nukeDb #:optional Boolean]{
- *       Compel ourselves to nuke the previous database state and start from
- *       scratch.  This only has an effect when IndexedDB has fired an
- *       onupgradeneeded event.
- *     }
- *   ]]
- * ]
+ * @constructor
+ * @memberof module:maildb
+ * @param arg
+ * @param arg.testOptions
+ * @param {Number} [arg.testOptions.dbVersion]
+ *   Override the database version to treat as the database version to use.
+ *   This is intended to let us do simple database migration testing by
+ *   creating the database with an old version number, then re-open it
+ *   with the current version and seeing a migration happen.  To test
+ *   more authentic migrations when things get more complex, we will
+ *   probably want to persist JSON blobs to disk of actual older versions
+ *   and then pass that in to populate the database.
+ * @param {Boolean} [arg.testOptions.nukeDb]
+ *   Compel ourselves to nuke the previous database state and start from
+ *   scratch.  This only has an effect when IndexedDB has fired an
+ *   onupgradeneeded event.
+ *
  */
 function MailDB({ universe, testOptions }) {
   evt.Emitter.call(this);
@@ -584,7 +587,7 @@ function MailDB({ universe, testOptions }) {
   });
 }
 
-MailDB.prototype = evt.mix({
+MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
   /**
    * Reset the contents of the database.
    */
@@ -860,7 +863,7 @@ MailDB.prototype = evt.mix({
    *   cannot take advantage of the `messageCache`.  (There are some easy-ish
    *   things we could do to accomplish this, but it's not believed to be a
    *   major concern at this time.)
-   * @param {Map<[MessageId, DateMS], MessageInfo} requests.messages
+   * @param {Map<[MessageId, DateMS], MessageInfo>} requests.messages
    *   Load specific messages.  Note that we need the canonical MessageId plus
    *   the DateMS associated with the message to find the record if it's not in
    *   cache.  This is a little weird but it's assumed you have previously

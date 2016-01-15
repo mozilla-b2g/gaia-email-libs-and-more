@@ -1,6 +1,7 @@
 /**
  * Simple coordination logic that might be better handled by promises, although
  * we probably have the edge in comprehensibility for now.
+ * @module
  **/
 
 define(['exports'], function(exports) {

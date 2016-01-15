@@ -1,6 +1,10 @@
 define(function(require) {
 'use strict';
 
+/**
+ * @module
+ */
+
 const logic = require('logic');
 const MailDB = require('./maildb');
 
@@ -34,6 +38,9 @@ const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId,
  * APIs to tasks, although we might move most of that into `TaskContext`
  * especially as we push more of our implementation into helpers that live in
  * the `universe` subdirectory.
+ *
+ * @constructor
+ * @memberof module:mailuniverse
  */
 function MailUniverse(online, testOptions) {
   logic.defineScope(this, 'Universe');
