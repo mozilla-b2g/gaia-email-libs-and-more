@@ -25,7 +25,7 @@ return TaskDefiner.defineSimpleTask([
       // to our conditionalized username/password logic.
       const accountDef = ctx.readSingle('accounts', rawTask.accountId);
       const accountClobbers = new Map();
-      for (const key in rawTask.mods) {
+      for (let key in rawTask.mods) {
         const val = rawTask.mods[key];
 
         switch (key) {

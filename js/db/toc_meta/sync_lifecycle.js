@@ -72,7 +72,7 @@ SyncLifecycle.prototype = {
     this.toc = toc;
     this.newIndex = 0;
     this.toc.on('_indexChange', this._bound_onIndexChange);
-    this.dataOverlayManager.on('folders', this._bound_overlayChange);
+    this.dataOverlayManager.on('folders', this._bound_onOverlayChange);
   },
 
   deactivate: function() {

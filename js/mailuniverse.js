@@ -82,7 +82,8 @@ function MailUniverse(online, testOptions) {
   const accountManager = this.accountManager = new AccountManager({
     db,
     universe: this,
-    taskRegistry
+    taskRegistry,
+    taskResources
   });
   const taskManager = this.taskManager = new TaskManager({
     universe: this,
@@ -117,11 +118,21 @@ function MailUniverse(online, testOptions) {
   // listener.
   this._onConnectionChange(online);
 
-  // Track the mode of the universe. Values are:
-  // 'cron': started up in background to do tasks like sync.
-  // 'interactive': at some point during its life, it was used to
-  // provide functionality to a user interface. Once it goes
-  // 'interactive', it cannot switch back to 'cron'.
+  /**
+   * Track the mode of the universe. Values are:
+   * - 'cron': started up in background to do tasks like sync.
+   * - 'interactive': at some point during its life, it was used to provide
+   *   functionality to a user interface. Once it goes 'interactive', it cannot
+   *   switch back to 'cron'.
+   *
+   * Note that this was introduced pre-convoy as a means of keeping deferred ops
+   * from interfering with cronsync.  It is not currently used in convoy because
+   * the resource management system and our errbackoff-derivatives hope to
+   * address elegantly what the deferred ops timeout tried to accomplish
+   * bluntly.  We're not removing this yet because it does seem reasonable that
+   * we care about this again in the future and it would be silly to remove it
+   * just to add it back.
+   */
   this._mode = 'cron';
 
   this.config = null;
@@ -277,16 +288,17 @@ MailUniverse.prototype = {
     console.log('Email knows that it is:', this.online ? 'online' : 'offline',
                 'and previously was:', wasOnline ? 'online' : 'offline');
 
-    if (wasOnline !== this.online) {
-      if (this.online) {
-        this.taskResources.resourceAvailable('online');
-      } else {
-        this.taskResources.resourcesNoLongerAvailable(['online']);
-      }
+    if (this.online) {
+      this.taskResources.resourceAvailable('online');
+    } else {
+      this.taskResources.resourcesNoLongerAvailable(['online']);
     }
   },
 
   registerBridge: function(mailBridge) {
+    // If you're doing anything like thinking of adding event binding here,
+    // please read the comments inside broadcastOverBridges and reconsider its
+    // implementation after having read this.
     this._bridges.push(mailBridge);
   },
 
@@ -297,16 +309,31 @@ MailUniverse.prototype = {
     }
   },
 
+  exposeConfigForClient: function() {
+    const config = this.config;
+    return {
+      debugLogging: config.debugLogging
+    };
+  },
+
+  /**
+   * The home for thin bindings of back-end events to be front-end events.
+   *
+   * Anything complicated should probably end up as its own explicit file named
+   * by the event we expose to the clients.  Heck, even the simple stuff would
+   * probably do well to do that, but while we're still figuring things out
+   * the simple stuff can live here.  (It's possible the complex stuff really
+   * belongs as tasks or other explicit named classes, so creating a directory
+   * by broadcast would be inverting things from their optimal structure.)
+   */
   _bindStandardBroadcasts: function() {
     // - config: send a sanitized version
     // While our threat model at the current time trusts the front-end, there's
     // no need to send it implementation details that it does not care about.
-    this._db.on('config', (config) => {
+    this.db.on('config', () => {
       this.broadcastOverBridges(
         'config',
-        {
-          debugLogging: config.debugLogging
-        });
+        this.exposeConfigForClient());
     });
   },
 
@@ -338,7 +365,20 @@ MailUniverse.prototype = {
    *   Note that this data
    */
   broadcastOverBridges: function(name, data) {
-
+    // Implementation-wise, there are two ways the control flow could go:
+    // 1. Iterate over the bridges and call a broadcast() method.
+    // 2. MailUniverse should be an EventEmitter and it should  emit an event
+    //    that the bridges are subscribed to and then they call _broadcast on
+    //    themselves or _onBroadcast or something.
+    //
+    // We've chosen the iteration strategy somewhat arbitrarily.  The best thing
+    // I can say about the choice is that the control-flow and data-flow are
+    // arguably cleaner this way by having the MailBridge and MailUniverse
+    // interact strictly through explicit API calls with no "soft" API surface
+    // like events.
+    for (let bridge of this._bridges) {
+      bridge.broadcast(name, data);
+    }
   },
 
   //////////////////////////////////////////////////////////////////////////////
@@ -845,14 +885,6 @@ MailUniverse.prototype = {
       messageDate,
       parts
     });
-  },
-
-  moveMessages: function(messageSuids, targetFolderId, callback) {
-    // XXX OLD
-  },
-
-  deleteMessages: function(messageSuids) {
-    // XXX OLD
   },
 
   clearNewTrackingForAccount: function({ accountId, silent }) {

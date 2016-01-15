@@ -58,7 +58,7 @@ ConversationTOC.prototype = BaseTOC.mix({
   overlayNamespace: 'messages',
   heightAware: false,
 
-  __activate: co.wrap(function*() {
+  __activateTOC: co.wrap(function*() {
     // NB: Although our signature is for this to just provide us with the id's,
     // this actually has the byproduct of loading the header records and placing
     // them in the cache because we can't currently just get the keys.
@@ -77,7 +77,7 @@ ConversationTOC.prototype = BaseTOC.mix({
     this._db.on(convEventId, this._bound_onConvChange);
   }),
 
-  __deactivate: function(firstTime) {
+  __deactivateTOC: function(firstTime) {
     this.idsWithDates = [];
     if (!firstTime) {
       this._db.removeListener(this._tocEventId, this._bound_onTOCChange);

@@ -194,6 +194,13 @@ return TaskDefiner.defineComplexTask([
 
     execute: null,
 
+    /**
+     * Expose our newByConv state for the benefit of new_flush.
+     */
+    consult: function(askingCtx, persistentState /*, memoryState, argDict */) {
+      return persistentState.newByConv;
+    },
+
     'trigger_msg!*!add': function(persistentState, memoryState, triggerCtx,
                                   message) {
       if (!memoryState.inboxFolderId) {

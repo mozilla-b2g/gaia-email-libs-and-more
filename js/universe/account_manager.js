@@ -41,7 +41,7 @@ function prereqify(mapPropName, func) {
  * Manages account instance life-cycles, and the TOC of accounts and the
  * per-account folder TOC's.
  */
-function AccountManager({ db, universe, taskRegistry }) {
+function AccountManager({ db, universe, taskRegistry, taskResources }) {
   logic.defineScope(this, 'AccountManager');
 
   this.db = db;
@@ -50,6 +50,7 @@ function AccountManager({ db, universe, taskRegistry }) {
   db.accountManager = this;
   this.universe = universe;
   this.taskRegistry = taskRegistry;
+  this.taskResources = taskResources;
 
   /**
    * Maps account id's to their accountDef instances from the moment we hear
@@ -270,6 +271,11 @@ AccountManager.prototype = {
    */
   _accountAdded: function(accountDef) {
     logic(this, 'accountExists', { accountId: accountDef.id });
+
+    // XXX put these resources into place that we don't actually properly
+    // control yet.
+    this.taskResources.resourceAvailable(`credentials!${accountDef.id}`);
+    this.taskResources.resourceAvailable(`happy!${accountDef.id}`);
 
     this._immediateAccountDefsById.set(accountDef.id, accountDef);
 

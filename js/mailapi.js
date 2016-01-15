@@ -14,7 +14,6 @@ logic.realtimeLogEverything = true;
 const addressparser = require('./ext/addressparser');
 const evt = require('evt');
 
-const MailAccount = require('./clientapi/mail_account');
 const MailFolder = require('./clientapi/mail_folder');
 
 const MailConversation = require('./clientapi/mail_conversation');
@@ -221,7 +220,13 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
       }
     }
     catch (ex) {
-      logic(this, 'processMessageError', { type: msg.type, ex });
+      logic(
+        this, 'processMessageError',
+        {
+          type: msg.type,
+          ex,
+          stack: ex.stack
+        });
       return;
     }
   },
@@ -235,13 +240,6 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     while (this._processingMessage === null && this._deferredMessages.length) {
       this._processMessage(this._deferredMessages.shift());
     }
-  },
-
-  _recv_badLogin: function(msg) {
-    this.emit('badlogin',
-              new MailAccount(this, msg.account, null),
-              msg.problem,
-              msg.whichSide);
   },
 
   /** @see ContactCache.shoddyAutocomplete */
@@ -305,6 +303,11 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     let pending = this._pendingRequests[handle];
     delete this._pendingRequests[handle];
     pending.resolve(msg.data);
+  },
+
+  _recv_broadcast: function(msg) {
+    let { name, data } = msg.payload;
+    this.emit(name, data);
   },
 
   /**

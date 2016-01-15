@@ -483,12 +483,20 @@ TaskManager.prototype = evt.mix({
     let ctx = new TaskContext(wrappedTask, this._universe);
     let planResult = this._registry.planTask(ctx, wrappedTask);
     if (planResult) {
-      planResult.then((maybeResult) => {
-        let result = maybeResult && maybeResult.wrappedResult || undefined;
-        logic(this, 'planning:end', { task: wrappedTask });
-        this.emit('planned:' + wrappedTask.id, result);
-        this.emit('planned', wrappedTask.id, result);
-      });
+      planResult.then(
+        (maybeResult) => {
+          let result = maybeResult && maybeResult.wrappedResult || undefined;
+          logic(this, 'planning:end', { success: true, task: wrappedTask });
+          this.emit('planned:' + wrappedTask.id, result);
+          this.emit('planned', wrappedTask.id, result);
+        },
+        (err) => {
+          logic(
+            this, 'planning:end',
+            { success: false, err, task: wrappedTask });
+          this.emit('planned:' + wrappedTask.id, null);
+          this.emit('planned', wrappedTask.id, null);
+        });
     } else {
       logic(this, 'planning:end', { moot: true, task: wrappedTask });
       this.emit('planned:' + wrappedTask.id, undefined);
@@ -504,12 +512,20 @@ TaskManager.prototype = evt.mix({
     let ctx = new TaskContext(taskThing, this._universe);
     let execResult = this._registry.executeTask(ctx, taskThing);
     if (execResult) {
-      execResult.then((maybeResult) => {
-        let result = maybeResult && maybeResult.wrappedResult || undefined;
-        logic(this, 'executing:end', { task: taskThing });
-        this.emit('executed:' + taskThing.id, result);
-        this.emit('executed', taskThing.id, result);
-      });
+      execResult.then(
+        (maybeResult) => {
+          let result = maybeResult && maybeResult.wrappedResult || undefined;
+          logic(this, 'executing:end', { success: true, task: taskThing });
+          this.emit('executed:' + taskThing.id, result);
+          this.emit('executed', taskThing.id, result);
+        },
+        (err) => {
+          logic(
+            this, 'executing:end',
+            { success: false, err, task: taskThing });
+          this.emit('executed:' + taskThing.id, null);
+          this.emit('executed', taskThing.id, null);
+        });
     } else {
       logic(this, 'executing:end', { moot: true, task: taskThing });
       this.emit('executed:' + taskThing.id, undefined);

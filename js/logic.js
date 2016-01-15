@@ -155,6 +155,7 @@
  * See test_disaster_recovery.js for an example test using these primitives.
  */
 define(function(require) {
+  'use strict';
   var evt = require('evt');
   var equal = require('gelam/ext/equal');
 
@@ -356,7 +357,7 @@ define(function(require) {
       interceptions[type] = prevFn;
       return replacementFn();
     };
-  }
+  };
 
   /**
    * Return a Promise-like object that is fulfilled when an event
@@ -377,7 +378,7 @@ define(function(require) {
   logic.match = function(ns, type, detailPredicate) {
     return new LogicMatcher(
       LogicMatcher.normalizeMatchArgs(ns, type, detailPredicate));
-  }
+  };
 
 
   function MismatchError(matcher, event) {
@@ -879,6 +880,7 @@ define(function(require) {
       logic(scope, type, {
         awaitStatus: 2, // 'rejected'
         error: error,
+        stack: error && error.stack,
         sourceEventIds: (resultEvent
                          ? [resultEvent.id, awaitEvent.id]
                          : [awaitEvent.id])

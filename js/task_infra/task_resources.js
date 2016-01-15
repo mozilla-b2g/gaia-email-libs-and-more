@@ -102,7 +102,7 @@ TaskResources.prototype = {
   resourcesNoLongerAvailable: function(removedResourceIds) {
     // - Remove the resources
     let removedCount = 0;
-    for (const removedResourceId of removedResourceIds) {
+    for (let removedResourceId of removedResourceIds) {
       if (this._availableResources.has(removedResourceId)) {
         this._availableResources.delete(removedResourceId);
         removedCount++;
@@ -122,7 +122,7 @@ TaskResources.prototype = {
       // If the thing has resources at all and one of those resources is one we
       // just removed, then tell priorities to stop tracking it.
       if (taskThing.resources) {
-        for (const resourceId of taskThing.resources) {
+        for (let resourceId of taskThing.resources) {
           if (removedResourceIds.indexOf(resourceId) !== -1) {
             nowBlocked.push(taskThing);
             return true; // (do remove)
@@ -135,7 +135,7 @@ TaskResources.prototype = {
     // - Reschedule all of these blocked tasks
     // (We know they will end up blocked rather than re-prioritized because we
     // removed one of the resources they depend on above.)
-    for (const taskThing of nowBlocked) {
+    for (let taskThing of nowBlocked) {
       this.ownOrRelayTaskThing(taskThing);
     }
   },

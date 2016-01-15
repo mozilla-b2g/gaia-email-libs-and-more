@@ -16,12 +16,14 @@ function BaseTOC({ metaHelpers }) {
   RefedResource.apply(this, arguments);
   evt.Emitter.call(this);
 
-  this._metaHelpers = metaHelpers;
+  this._metaHelpers = metaHelpers || [];
 
   this.tocMeta = {};
+  this._everActivated = false;
 }
 BaseTOC.prototype = evt.mix(RefedResource.mix({
   __activate: function() {
+    this._everActivated = true;
     for (let metaHelper of this._metaHelpers) {
       metaHelper.activate(this);
     }
@@ -30,8 +32,10 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   __deactivate: function() {
-    for (let metaHelper of this._metaHelpers) {
-      metaHelper.deactivate(this);
+    if (this._everActivated) {
+      for (let metaHelper of this._metaHelpers) {
+        metaHelper.deactivate(this);
+      }
     }
 
     return this.__deactivateTOC.apply(this, arguments);
@@ -68,6 +72,17 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
     this.emit('broadcast', eventName, eventData);
   }
 }));
+
+// TODO more rigorous mixin magic
+BaseTOC.mix = function(obj) {
+  Object.keys(BaseTOC.prototype).forEach(function(prop) {
+    if (obj.hasOwnProperty(prop)) {
+      throw new Error('Object already has a property "' + prop + '"');
+    }
+    obj[prop] = BaseTOC.prototype[prop];
+  });
+  return obj;
+};
 
 return BaseTOC;
 });

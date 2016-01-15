@@ -1,12 +1,13 @@
-define(function() {
+define(function(require) {
 'use strict';
 
 const co = require('co');
+const logic = require('logic');
 
 // (this is broken out into a helper for clarity and to avoid temporary gecko
 // "let" issues.)
 const makeWrappedOverlayFunc = function(helpedOverlayFunc) {
-  return function(persistentState, memoryState, id, blockedTaskChecker) {
+  return function(persistentState, memoryState, blockedTaskChecker, id) {
     return helpedOverlayFunc.call(
       this,
       id,
@@ -18,7 +19,7 @@ const makeWrappedOverlayFunc = function(helpedOverlayFunc) {
 };
 
 const makeWrappedPrefixOverlayFunc = function([extractor, helpedOverlayFunc]) {
-  return function(persistentState, memoryState, fullId, blockedTaskChecker) {
+  return function(persistentState, memoryState, blockedTaskChecker, fullId) {
     // use the provided extractor to get the id for the bin.
     let binId = extractor(fullId);
     return helpedOverlayFunc.call(
@@ -107,6 +108,7 @@ return {
     if (persistentState.binToMarker.has(binId)) {
       let rval;
       if (this.helped_already_planned) {
+        logic(ctx, 'alreadyPlanned');
         rval = yield this.helped_already_planned(ctx, req);
       } else {
         rval = {};
@@ -162,6 +164,7 @@ return {
     }
 
     yield ctx.finishTask(rval);
+
     return ctx.returnValue(rval.result);
   }),
 

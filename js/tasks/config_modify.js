@@ -23,11 +23,7 @@ return TaskDefiner.defineSimpleTask([
       // to our conditionalized username/password logic.
       const accountClobbers = new Map();
 
-      // for now there's still only one identity.
-      const identIndex = 0;
-      const identPath = ['identities', identIndex];
-
-      for (const key in rawTask.mods) {
+      for (let key in rawTask.mods) {
         const val = rawTask.mods[key];
 
         switch (key) {

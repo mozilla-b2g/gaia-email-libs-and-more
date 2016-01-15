@@ -21,6 +21,9 @@ function MailBridge(universe, db, name) {
   logic.defineScope(this, 'MailBridge', { name: name });
   this.name = name;
   this.universe = universe;
+  // If you're thinking of registering listeners on the universe, please check
+  // out MailUniverse.registerBridge and MailUniverse.broadcastOverBridges
+  // before committing to any design choices.
   this.universe.registerBridge(this);
   this.db = db;
 
@@ -93,9 +96,6 @@ MailBridge.prototype = {
     promise.then(runNext, runNext);
   },
 
-  /**
-   * Whenever
-   */
   _commandCompletedProcessNextCommandInQueue: function(namedContext) {
     if (namedContext.commandQueue.length) {
       console.warn('processing deferred command');
@@ -110,6 +110,17 @@ MailBridge.prototype = {
     } else {
       namedContext.pendingCommand = null;
     }
+  },
+
+  /**
+   * Used by MailUniverse.broadcastOverBridges to send a message to the MailAPI
+   * instance to be emitted.
+   */
+  broadcast: function(name, data) {
+    this.__sendMessage({
+      type: 'broadcast',
+      payload: { name, data }
+    });
   },
 
   /**
@@ -444,7 +455,6 @@ MailBridge.prototype = {
     };
     this.db.on(eventId, dataEventHandler);
     dataOverlayManager.on(readKey, overlayEventHandler);
-    this.universe.dataOverlayManager.on(readKey);
     ctx.runAtCleanup(() => {
       this.db.removeListener(eventId, dataEventHandler);
       dataOverlayManager.removeListener(readKey, overlayEventHandler);

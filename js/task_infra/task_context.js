@@ -131,6 +131,10 @@ TaskContext.prototype = {
     return acquireable.__acquire(this);
   },
 
+  acquireAccountsTOC: function() {
+    return this.universe.acquireAccountsTOC(this);
+  },
+
   _releaseEverything: function() {
     for (let acquireable of this._stuffToRelease) {
       try {
@@ -166,7 +170,7 @@ TaskContext.prototype = {
    *   The argument object to be passed to the complex task.
    */
   synchronouslyConsultOtherTask: function(consultWhat, argDict) {
-    this._taskRegistry.__synchronouslyConsultOtherTask(
+    return this._taskRegistry.__synchronouslyConsultOtherTask(
       this, consultWhat, argDict);
   },
 
@@ -461,9 +465,14 @@ TaskContext.prototype = {
    * immediately reading the object back.  This only makes sense for Blob
    * laundering where we try and forget about memory-backed Blobs in favor of
    * disked-back Blobs (or more properly after read-back, Files).
+   *
+   * XXX I wrote this comment but didn't end up using it, but it's a good
+   * comment so here it sits with the open question: would this be a good idea?
+   * TODO: Review the attachment tasks and see if time has made this seem like
+   * a better approach than what we ended up using for blob laundering.
    */
   flushedWriteRetainingLock: function() {
-
+    throw new Error(); // make a stupid call, get a stupid error.
   },
 
   /**
@@ -492,7 +501,8 @@ TaskContext.prototype = {
   },
 
   /**
-   *
+   * Quite possibly moot, don't use without discussion with asuth.  If asuth,
+   * mumble to self madly.
    */
   dangerousIncrementalWrite: function(mutations) {
     return this.universe.db.dangerousIncrementalWrite(this, mutations);

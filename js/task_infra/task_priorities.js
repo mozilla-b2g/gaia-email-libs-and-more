@@ -313,7 +313,7 @@ TaskPriorities.prototype = {
    * - TODO: Removing outstanding tasks by accountId when an account is deleted.
    */
   removeTasksUsingFilter: function(shouldRemove) {
-    for (const priorityNode of this._taskIdToHeapNode.values()) {
+    for (let priorityNode of this._taskIdToHeapNode.values()) {
       const taskThing = priorityNode.value;
       if (shouldRemove(taskThing)) {
         this.removeTaskThing(taskThing.id, priorityNode);

@@ -175,7 +175,7 @@ TaskRegistry.prototype = {
    */
   accountExistsInitTasks: function(accountId, accountType, accountInfo,
                                    foldersTOC) {
-    logic(this, 'accountExistsInitTasks', { accountId, accountType });
+    logic(this, 'accountExistsInitTasks:begin', { accountId, accountType });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
     if (!taskImpls) {
@@ -192,9 +192,15 @@ TaskRegistry.prototype = {
     }
 
     // Populate the { impl, persistent, transient } instances keyed by task type
-    let taskMetas = new Map();
-    this._perAccountIdTaskRegistry.set(accountId, taskMetas);
+    // (the global account sentinel null will already be in here...)
+    let taskMetas = this._perAccountIdTaskRegistry.get(accountId);
+    if (!taskMetas) {
+      taskMetas = new Map();
+      this._perAccountIdTaskRegistry.set(accountId, taskMetas);
+    }
 
+    let simpleCount = 0;
+    let complexCount = 0;
     for (let unlatchedTaskImpl of taskImpls.values()) {
       let taskImpl = unlatchedTaskImpl; // (let limitations in gecko right now)
       let taskType = taskImpl.name;
@@ -204,6 +210,7 @@ TaskRegistry.prototype = {
         memoryState: null
       };
       if (taskImpl.isComplex) {
+        complexCount++;
         logic(
           this, 'initializingComplexTask',
           { accountId, taskType, hasPersistentState: !!meta.persistentState });
@@ -231,18 +238,52 @@ TaskRegistry.prototype = {
         } else {
           saveOffMemoryState(maybePromise);
         }
+      } else {
+        simpleCount++;
       }
 
       taskMetas.set(taskType, meta);
     }
 
     return Promise.all(pendingPromises).then(() => {
+      logic(
+        this, 'accountExistsInitTasks:end',
+        {
+          accountId,
+          accountType,
+          simpleCount,
+          complexCount,
+          markerCount: accountMarkers.length
+        });
       return accountMarkers;
     });
   },
 
   accountRemoved: function(/*accountId*/) {
     // TODO: properly handle and propagate account removal
+  },
+
+  /**
+   * Helper for planTask and executeTask to help ensure that the task context
+   * gets a chance to clean up.  See internal comments; this probably needs
+   * enhancements.
+   */
+  _forceFinalize: function(ctx, maybePromiseResult) {
+    // We need to force tasks to finalize if they don't do so themselves.  This
+    // is true for both rejections and returns without finalization.
+    if (maybePromiseResult.then) {
+      let doFinalize = () => { ctx.__failsafeFinalize(); };
+      // I'm intentionally not forcing the return to wait on the failsafe
+      // finalization to happen out of paranoia.  It might be a good idea,
+      // though.
+      //
+      // And note that because of this choice, it doesn't matter that we're
+      // doing the same thing for the callback and errback... because we don't
+      // do anything with this then()'s returned promise.
+      maybePromiseResult.then(doFinalize, doFinalize);
+    } else {
+      ctx.__failsafeFinalize();
+    }
   },
 
   planTask: function(ctx, wrappedTask) {
@@ -256,6 +297,7 @@ TaskRegistry.prototype = {
       let perAccountTasks = this._perAccountIdTaskRegistry.get(accountId);
       if (!perAccountTasks) {
         // This means the account is no longer known to us.  Return immediately,
+        logic(this, 'noSuchAccount', { taskType, accountId });
         return null;
       }
       taskMeta = perAccountTasks.get(taskType);
@@ -279,17 +321,8 @@ TaskRegistry.prototype = {
     } catch (ex) {
       logic.fail(ex);
     }
-    // We need to force tasks to finalize if they don't do so themselves.  This
-    // is true for both rejections and returns without finalization.
-    if (maybePromiseResult.then) {
-      let doFinalize = () => { ctx.__failsafeFinalize(); };
-      // I'm intentionally not forcing the return to wait on the failsafe
-      // finalization to happen out of paranoia.  It might be a good idea,
-      // though.
-      maybePromiseResult.then(doFinalize, doFinalize);
-    } else {
-      ctx.__failsafeFinalize();
-    }
+
+    this._forceFinalize(ctx, maybePromiseResult);
     return maybePromiseResult;
   },
 
@@ -315,12 +348,15 @@ TaskRegistry.prototype = {
     }
 
     ctx.__taskInstance = taskMeta.impl;
+    let maybePromiseResult;
     if (isMarker) {
-      return taskMeta.impl.execute(
+      maybePromiseResult = taskMeta.impl.execute(
         ctx, taskMeta.persistentState, taskMeta.memoryState, taskThing);
     } else {
-      return taskMeta.impl.execute(ctx, taskThing.plannedTask);
+      maybePromiseResult = taskMeta.impl.execute(ctx, taskThing.plannedTask);
     }
+    this._forceFinalize(ctx, maybePromiseResult);
+    return maybePromiseResult;
   },
 
   __synchronouslyConsultOtherTask: function(ctx, consultWhat, argDict) {
