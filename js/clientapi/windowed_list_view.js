@@ -68,7 +68,7 @@ function WindowedListView(api, itemConstructor, handle) {
    */
   this._itemsById = new Map();
 
-  this.tocMeta = null;
+  this.tocMeta = {};
 
   /**
    * Has this slice been completely initially populated?  If you want to wait

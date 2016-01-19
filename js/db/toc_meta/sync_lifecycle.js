@@ -59,6 +59,7 @@ function SyncLifecycle({ folderId, syncStampSource, dataOverlayManager }) {
   this.newishIndexExclusive = 0;
 
   this.toc = null;
+  this.firstTime = true;
   this.syncActive = false;
 
   this.dataOverlayManager = dataOverlayManager;
@@ -74,6 +75,12 @@ SyncLifecycle.prototype = {
     this.newIndex = 0;
     this.toc.on('_indexChange', this._bound_onIndexChange);
     this.dataOverlayManager.on('folders', this._bound_onOverlayChange);
+
+    // Force the toc meta to update immediately.  also ensure a falling edge
+    // is impossible by flagging sync as previously not active.
+    this.firstTime = true;
+    this.syncActive = false;
+    this.onOverlayChange(this.folderId);
   },
 
   deactivate: function() {
@@ -124,23 +131,30 @@ SyncLifecycle.prototype = {
 
     let newSyncActive = !!syncOverlay.status;
     // If this is a falling edge, then we want to sample the timestamps and emit
-    // an event.
-    if (this.syncActive && !newSyncActive) {
+    // an event.  Alternately, if it's our first time, we want to sample the
+    // timestamps but not an event.  (So we check syncFinished again inside
+    // the method.  This was a late-change, this control flow could be slightly
+    // cleaned up.)
+    let syncFinished = this.syncActive && !newSyncActive;
+    if (syncFinished || this.firstTime) {
+      this.firstTime = false;
       const syncStampSource = this.syncStampSource;
       reviseMeta.lastSuccessfulSyncAt = syncStampSource.lastSuccessfulSyncAt;
       reviseMeta.lastAttemptedSyncAt = syncStampSource.lastAttemptedSyncAt;
 
       this.toc.applyTOCMetaChanges(reviseMeta);
-      this.toc.broadcastEvent(
-        'syncComplete',
-        {
-          // It just so happens that an exclusive index value like this is also
-          // a count!  (Using "count" seemed more ambiguous/confusing to me.)
-          newishCount: this.newishIndexExclusive
-        }
-      );
-      this.newishIndexExclusive = 0;
-      this.syncActive = newSyncActive;
+      if (syncFinished) {
+        this.toc.broadcastEvent(
+          'syncComplete',
+          {
+            // It just so happens that an exclusive index value like this is
+            // also a count!  (Using "count" seemed more ambiguous/confusing to
+            // me.)
+            newishCount: this.newishIndexExclusive
+          }
+        );
+        this.newishIndexExclusive = 0;
+      }
     } else {
       // It wasn't a falling edge.  It's possible nothing changed for us, even.
       // But still, let's dirty the tocMeta
