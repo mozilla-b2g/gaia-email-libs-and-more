@@ -2,6 +2,7 @@ define(function(require) {
 'use strict';
 
 const evt = require('evt');
+const logic = require('logic');
 const RefedResource = require('../refed_resource');
 
 /**
@@ -25,6 +26,9 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
   __activate: function() {
     this._everActivated = true;
     for (let metaHelper of this._metaHelpers) {
+      logic(
+        this, 'activatingMetaHelper',
+        { name: metaHelper.constructor && metaHelper.constructor.name });
       metaHelper.activate(this);
     }
 
@@ -52,7 +56,7 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
   applyTOCMetaChanges: function(changes) {
     const tocMeta = this.tocMeta;
     let somethingChanged = false;
-    for (let key of changes) {
+    for (let key of Object.keys(changes)) {
       let value = changes[key];
       if (tocMeta[key] !== value) {
         tocMeta[key] = value;
@@ -66,10 +70,13 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   /**
-   *
+   * Emit an event.  The list view proxy should be listening for this,
+   * accumulate the event, dirty the proxy, and then send the event as part of
+   * its flush.  On the client side this should then be emitted on the list view
+   * instance with the provided eventName and eventData.
    */
   broadcastEvent: function(eventName, eventData) {
-    this.emit('broadcast', eventName, eventData);
+    this.emit('broadcastEvent', eventName, eventData);
   }
 }));
 

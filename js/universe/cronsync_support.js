@@ -263,8 +263,10 @@ CronSyncSupport.prototype = {
     // This is the timestamp we'll use with our log entry.
     let logTimestamp = NOW();
 
-    let wakelock = wrapMainThreadAcquiredWakelock(
-      wakelockId, CRONSYNC_MAX_DURATION_MS);
+    let wakelock = wrapMainThreadAcquiredWakelock({
+      wakelockId,
+      timeout: CRONSYNC_MAX_DURATION_MS
+    });
 
     // - Build and log the initial bounded log entry (before doing anything)
     let cronsyncLogEntry = {

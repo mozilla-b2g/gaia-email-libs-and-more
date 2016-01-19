@@ -194,6 +194,14 @@ MailAccount.prototype = evt.mix({
   },
 
   /**
+   * Clear the new-tracking state for this account.  Also accessible as
+   * `MailAPI.clearNewTrackingForAccount`.
+   */
+  clearNewTracking: function() {
+    this._api.clearNewTrackingForAccount(this);
+  },
+
+  /**
    * Returns true if this account is the default account, by looking at
    * all accounts in the acctsSlice.
    */

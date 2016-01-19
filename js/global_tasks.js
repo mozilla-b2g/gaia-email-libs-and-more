@@ -15,5 +15,8 @@ return [
   require('./tasks/draft_create'),
   // (All other drafts tasks are per-account even though they use the same
   // global implementations.)
+
+  // - Aggregate state stuff
+  require('./tasks/new_flush')
 ];
 });

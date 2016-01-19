@@ -1321,6 +1321,34 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   },
 
   /**
+   * Clear the set of new messages associated with the given account.  Also
+   * exposed on MailAccount as clearNewTracking.
+   */
+  clearNewTrackingForAccount: function(accountish) {
+    let accountId = accountish.id || accountish;
+    this.__bridgeSend({
+      type: 'clearNewTrackingForAccount',
+      accountId
+    });
+  },
+
+  /**
+   * Cause the 'newMessagesUpdate' message to be re-derived and re-broadcast.
+   * This should only be used in exceptional circumstances because the whole
+   * implementation of this assumes that persistent notifications are generated
+   * by the broadcast.  Since the message will also automatically be sent when
+   * the set of new messages changes, if you are calling this, you are by
+   * definition asking for redundant data you should already have heard about.
+   * I would prefix this with `debug` but it's possible there's a reason to
+   * expose this that's not horrible.
+   */
+  flushNewAggregates: function() {
+    this.__bridgeSend({
+      type: 'flushNewAggregates'
+    });
+  },
+
+  /**
    * Compel the backend to act like it received a cronsync.
    *
    * @param {AccountId[]} [arg.accountIds]

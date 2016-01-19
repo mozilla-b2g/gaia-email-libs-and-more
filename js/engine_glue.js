@@ -139,6 +139,43 @@ return {
   ]),
 
   /**
+   * Maps engine id's to metadata about engines for use by the back-end.
+   * Exposed by AccountManager.getAccountEngineFacts(accountId), but you could
+   * also access it directly yourself.
+   *
+   * While it looks like there's a lot of overlap/duplication with
+   * engineFrontEndAccountMeta and engineFrontEndFolderMeta, and there is, it's
+   * desirable to avoid overloading any of these.  Also, we can safely be more
+   * cavalier in our naming for the back-end since it's all internal API.
+   */
+  engineBackEndFacts: new Map([
+    [
+      'gmailImap',
+      {
+        syncGranularity: 'account'
+      }
+    ],
+    [
+      'vanillaImap',
+      {
+        syncGranularity: 'folder'
+      }
+    ],
+    [
+      'activesync',
+      {
+        syncGranularity: 'folder'
+      }
+    ],
+    [
+      'pop3',
+      {
+        syncGranularity: 'folder'
+      }
+    ]
+  ]),
+
+  /**
    * Maps engine id's to metadata about engines to tell the front-end by
    * annotating stuff onto the account wire rep.  This was brought into
    * existence for syncGranularity purposes, but the idea is that anything that

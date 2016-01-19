@@ -2,9 +2,9 @@ define(function(require) {
 'use strict';
 
 const co = require('co');
-const { shallowClone } = require('../../util');
+const { shallowClone } = require('../util');
 
-const { NOW } = require('../../date');
+const { NOW } = require('../date');
 
 const TaskDefiner = require('../task_infra/task_definer');
 

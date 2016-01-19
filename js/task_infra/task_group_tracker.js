@@ -26,6 +26,9 @@ const logic = require('logic');
  */
 function TaskGroupTracker(taskManager) {
   logic.defineScope(this, 'TaskGroupTracker');
+
+  this.taskManager = taskManager;
+
   /**
    * Uniqueifying id helper so we can differentiate group "instances".  While
    * it's great that we can use semantic names like "sync_refresh:2" for when
@@ -65,7 +68,8 @@ TaskGroupTracker.prototype = {
       logic(this, 'reuseGroup', { groupName, taskId });
     }
 
-    let existingOwningGroup = this._taskIdsToGroups.get(taskId);
+    // (normalize to null from undefined)
+    let existingOwningGroup = this._taskIdsToGroups.get(taskId) || null;
     // It's possible the group already existed and we were already mapped into
     // the group.  (It's also possible the group existed but we weren't mapped
     // in.)

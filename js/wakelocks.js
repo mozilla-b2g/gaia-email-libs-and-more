@@ -153,7 +153,7 @@ define(function(require) {
   function wrapMainThreadAcquiredWakelock({ wakelockId, timeout,
       imminentDoomHandler }) {
     return new SmartWakeLock({
-      types: ['mainthread-acquired'],
+      locks: ['mainthread-acquired'],
       timeout,
       imminentDoomHandler,
       __existingLockId: wakelockId

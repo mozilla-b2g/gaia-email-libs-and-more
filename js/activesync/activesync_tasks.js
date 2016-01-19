@@ -23,5 +23,7 @@ return [
 
   require('../tasks/account_modify'),
   require('../tasks/identity_modify'),
+
+  require('../tasks/new_tracking'),
 ];
 });

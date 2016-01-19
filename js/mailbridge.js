@@ -613,35 +613,20 @@ MailBridge.prototype = {
     }
   },
 
-  notifyCronSyncStart: function mb_notifyCronSyncStart(accountIds) {
-    this.__sendMessage({
-      type: 'cronSyncStart',
-      accountIds: accountIds
+  _cmd_clearNewTrackingForAccount: function(msg) {
+    this.universe.clearNewTrackingForAccount({
+      accountId: msg.accountId
     });
   },
 
-  notifyCronSyncStop: function mb_notifyCronSyncStop(accountsResults) {
-    this.__sendMessage({
-      type: 'cronSyncStop',
-      accountsResults: accountsResults
-    });
-  },
-
-  /**
-   * Notify the frontend about the status of message sends. Data has
-   * keys like 'state', 'error', etc, per the sendOutboxMessages job.
-   */
-  notifyBackgroundSendStatus: function(data) {
-    this.__sendMessage({
-      type: 'backgroundSendStatus',
-      data: data
-    });
+  _cmd_flushNewAggregates: function() {
+    this.universe.flushNewAggregates();
   },
 
   //////////////////////////////////////////////////////////////////////////////
   // Debug Stuff
 
-  debugForceCronSync: function(msg) {
+  _cmd_debugForceCronSync: function(msg) {
     this.universe.cronSyncSupport.onAlarm(
       msg.accountIds,
       'fake-interval', // this is not a real sync and the logic doesn't care.

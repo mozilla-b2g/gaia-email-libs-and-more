@@ -132,11 +132,12 @@ return TaskDefiner.defineComplexTask([
 
     deriveMemoryStateFromPersistentState: function(persistentState, accountId,
         accountInfo, foldersTOC) {
+      let inboxFolder = foldersTOC.getCanonicalFolderByType('inbox');
       return {
         memoryState: {
           // Try and get the folder already; this could fail if the account was
           // just created and sync_folder_list hasn't run yet, so...
-          inboxFolderId: foldersTOC.getCanonicalFolderByType('inbox'),
+          inboxFolderId: inboxFolder && inboxFolder.id,
           // ...cache the TOC so we can keep trying.
           foldersTOC,
           pendingTaskGroupId: null,
@@ -204,8 +205,9 @@ return TaskDefiner.defineComplexTask([
     'trigger_msg!*!add': function(persistentState, memoryState, triggerCtx,
                                   message) {
       if (!memoryState.inboxFolderId) {
-        memoryState.inboxFolderId =
+        let inboxFolder =
           memoryState.foldersTOC.getCanonicalFolderByType('inbox');
+        memoryState.inboxFolderId = inboxFolder && inboxFolder.id;
         // this is crazy non-sensical, but whatever.
         if (!memoryState.inboxFolderId) {
           return;

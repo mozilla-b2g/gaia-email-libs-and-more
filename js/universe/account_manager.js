@@ -5,7 +5,8 @@ const logic = require('logic');
 
 const { accountIdFromFolderId } = require('../id_conversions');
 
-const { accountModules, engineTaskMappings } = require('../engine_glue');
+const { accountModules, engineTaskMappings, engineBackEndFacts } =
+  require('../engine_glue');
 
 const AccountsTOC = require('../db/accounts_toc');
 const FoldersTOC = require('../db/folders_toc');
@@ -208,6 +209,16 @@ AccountManager.prototype = {
    */
   getAccountDefById: function(accountId) {
     return this._immediateAccountDefsById.get(accountId);
+  },
+
+  /**
+   * Return the back-end engine facts for the engine for the given account.  The
+   * account is synchronously looked-up without waiting for it to be fully
+   * loaded, just like getAccountDefById.
+   */
+  getAccountEngineBackEndFacts(accountId) {
+    let accountDef = this._immediateAccountDefsById.get(accountId);
+    return engineBackEndFacts.get(accountDef.engine);
   },
 
   /**

@@ -68,6 +68,7 @@ function SyncLifecycle({ folderId, syncStampSource, dataOverlayManager }) {
   this._bound_onOverlayChange = this.onOverlayChange.bind(this);
 }
 SyncLifecycle.prototype = {
+  constructor: SyncLifecycle,
   activate: function(toc) {
     this.toc = toc;
     this.newIndex = 0;
@@ -78,7 +79,7 @@ SyncLifecycle.prototype = {
   deactivate: function() {
     this.toc.removeListener('_indexChange', this._bound_onIndexChange);
     this.dataOverlayManager.removeListener(
-      'folders', this._bound_overlayChange);
+      'folders', this._bound_onOverlayChange);
   },
 
   onIndexChange: function(oldIndex, newIndex) {
@@ -113,7 +114,7 @@ SyncLifecycle.prototype = {
 
     let overlays = this.resolveFolderOverlay(changedFolderId);
     let syncOverlay =
-      overlays ? (overlays.sync_refresh || overlays.sync_grow) : {};
+      overlays ? (overlays.sync_refresh || overlays.sync_grow || {}) : {};
 
     // We don't need to do diffing to avoid being too chatty;
     // applyTOCMetaChanges does that for us.
@@ -131,7 +132,7 @@ SyncLifecycle.prototype = {
 
       this.toc.applyTOCMetaChanges(reviseMeta);
       this.toc.broadcastEvent(
-        'syncCompleted',
+        'syncComplete',
         {
           // It just so happens that an exclusive index value like this is also
           // a count!  (Using "count" seemed more ambiguous/confusing to me.)
@@ -145,6 +146,7 @@ SyncLifecycle.prototype = {
       // But still, let's dirty the tocMeta
       this.toc.applyTOCMetaChanges(reviseMeta);
     }
+    this.syncActive = newSyncActive;
   }
 };
 

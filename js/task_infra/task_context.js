@@ -140,7 +140,9 @@ TaskContext.prototype = {
       try {
         acquireable.__release(this);
       } catch (ex) {
-        logic(this, 'problem releasing', { what: acquireable, ex: ex });
+        logic(
+          this, 'problemReleasing',
+          { what: acquireable, ex, stack: ex && ex.stack });
       }
     }
   },
@@ -273,6 +275,10 @@ TaskContext.prototype = {
    */
   heartbeat: function(/* why */) {
     this._taskManager.__renewWakeLock();
+  },
+
+  broadcastOverBridges: function(name, data) {
+    return this.universe.broadcastOverBridges(name, data);
   },
 
   /**
