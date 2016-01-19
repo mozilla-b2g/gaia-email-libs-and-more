@@ -28,8 +28,8 @@ const dbTriggerDefs = require('./db_triggers/all');
 
 const globalTasks = require('./global_tasks');
 
-const { accountIdFromMessageId, accountIdFromConvId, convIdFromMessageId,
-        accountIdFromIdentityId } =
+const { accountIdFromFolderId, accountIdFromMessageId, accountIdFromConvId,
+        convIdFromMessageId, accountIdFromIdentityId } =
   require('./id_conversions');
 
 /**
@@ -240,6 +240,7 @@ MailUniverse.prototype = {
     this._initialized = true;
     this.config = config;
     this._initLogging(config);
+    logic(this, 'START_OF_LOG');
     logic(this, 'configLoaded', { config });
 
     this._bindStandardBroadcasts();
@@ -411,14 +412,26 @@ MailUniverse.prototype = {
     if (this._folderConvsTOCs.has(folderId)) {
       toc = this._folderConvsTOCs.get(folderId);
     } else {
-      let folderInfo = this.accountManager.getFolderById(folderId);
+      // Figure out what the sync stamp source is for this account.  It hinges
+      // on the sync granularity; if it's account-based then the sync stamps
+      // will be on the account, otherwise on the folder.
+      let accountId = accountIdFromFolderId(folderId);
+      let engineFacts =
+        this.accountManager.getAccountEngineBackEndFacts(accountId);
+      let syncStampSource;
+      if (engineFacts.syncGranularity === 'account') {
+        syncStampSource = this.accountManager.getAccountDefById(accountId);
+      } else {
+        syncStampSource = this.accountManager.getFolderById(folderId);
+      }
       toc = new FolderConversationsTOC({
         db: this.db,
         folderId,
         dataOverlayManager: this.dataOverlayManager,
         metaHelpers: [
           new SyncLifecycleMetaHelper({
-            folderInfo,
+            folderId,
+            syncStampSource,
             dataOverlayManager: this.dataOverlayManager
           }),
         ],
@@ -441,7 +454,7 @@ MailUniverse.prototype = {
         conversationId,
         dataOverlayManager: this.dataOverlayManager,
         onForgotten: () => {
-          this._conversationsTOCs.delete(conversationId);
+          this._conversationTOCs.delete(conversationId);
         }
       });
       this._conversationTOCs.set(conversationId, toc);
@@ -897,10 +910,15 @@ MailUniverse.prototype = {
   },
 
   /**
-   *
+   * Cause a new_flush task to be scheduled so that the broadcast message gets
+   * re-sent.  Assuming persistent notifications are generated, this should
+   * not be needed outside of simplifying debugging logic.  If you really need
+   * to be able to access this data on command, something needs to be rethought.
    */
   flushNewAggregates: function() {
-
+    this.taskManager.scheduleTasks([{
+      type: 'new_flush'
+    }]);
   },
 
   /**

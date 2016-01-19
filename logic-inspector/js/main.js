@@ -1,4 +1,3 @@
-
 /**
  * This class is the entry point for logic-inspector. Based upon the JSON test
  * results we stored (passed through loggest-chrome-runner.js in GELAM) in the
@@ -25,6 +24,11 @@ class LogicInspector extends React.Component {
       indexData: [],
       href: null,
       autoReload: true,
+      /**
+       * Hacky indicator of whether we should only show log events from the most
+       * recent event with type "START_OF_LOG".
+       */
+      mostRecentSessionOnly: true,
       data: null
     };
 
@@ -128,9 +132,24 @@ class LogicInspector extends React.Component {
 
     if (href) {
       fetchDetectExtract(href).then(({ data, dataType }) => {
+        if (dataType === 'raw-events' &&
+            this.state.mostRecentSessionOnly) {
+          data = this.filterToMostRecentSessionOnly(data);
+        }
         this.setState({ data, dataType });
       });
     }
+  }
+
+  filterToMostRecentSessionOnly(unfiltered) {
+    let filtered = [];
+    for (let event of unfiltered) {
+      if (event.type === 'START_OF_LOG') {
+        filtered = [];
+      }
+      filtered.push(event);
+    }
+    return filtered;
   }
 
   // From http://stackoverflow.com/questions/8460265
@@ -168,7 +187,7 @@ class LogicInspector extends React.Component {
     }
   }
 
-  renderTestLog(data) {
+  renderTestLog() {
     var data = this.state.data;
     var variant = data.tests[0] && data.tests[0].variant;
     var result = data.tests.every((t) => t.result === 'pass') ? 'pass' : 'fail';
@@ -190,7 +209,9 @@ class LogicInspector extends React.Component {
   renderRawEvents() {
     let data = this.state.data;
     return (
-      <EventList events={ data } />
+      <div>
+        <EventList events={ data } />
+      </div>
     );
   }
 
