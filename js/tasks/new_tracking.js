@@ -266,7 +266,7 @@ return TaskDefiner.defineComplexTask([
       // (removed handles deletion as well as the message simply losing its
       // label)
       if (removed.has(memoryState.inboxFolderId) ||
-          (message && (message.indexOf('\\Seen') !== -1))) {
+          (message && (message.flags.indexOf('\\Seen') !== -1))) {
         let convId = convIdFromMessageId(messageId);
         let messageMap = persistentState.newByConv.get(convId);
         if (!messageMap) {
