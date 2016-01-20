@@ -11,7 +11,7 @@ define(function() {
  *   The object to pull lastSuccessfulSyncAt and lastAttemptedSyncAt off of.
  *
  * ## Events ##
- * - syncCompleted: We track this by listening for overlay changes about the
+ * - syncComplete: We track this by listening for overlay changes about the
  *   folder in question.
  *
  * ## tocMeta fields ##
@@ -54,7 +54,7 @@ function SyncLifecycle({ folderId, syncStampSource, dataOverlayManager }) {
    * code complexity.)  In that case, newishIndexExclusive will end up 1 after
    * the onIndexChange call.
    *
-   * Reset back to zero when we generate a 'syncCompleted' broadcast event.
+   * Reset back to zero when we generate a 'syncComplete' broadcast event.
    */
   this.newishIndexExclusive = 0;
 
