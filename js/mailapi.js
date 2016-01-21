@@ -1171,24 +1171,6 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  // cron syncing
-
-  /**
-   * Receive events about the start and stop of periodic syncing
-   */
-  _recv_cronSyncStart: function ma__recv_cronSyncStart(msg) {
-    this.emit('cronsyncstart', msg.accountIds);
-  },
-
-  _recv_cronSyncStop: function ma__recv_cronSyncStop(msg) {
-    this.emit('cronsyncstop', msg.accountsResults);
-  },
-
-  _recv_backgroundSendStatus: function(msg) {
-    this.emit('backgroundsendstatus', msg.data);
-  },
-
-  //////////////////////////////////////////////////////////////////////////////
   // Localization
 
   /**
@@ -1324,11 +1306,14 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Clear the set of new messages associated with the given account.  Also
    * exposed on MailAccount as clearNewTracking.
    */
-  clearNewTrackingForAccount: function(accountish) {
-    let accountId = accountish.id || accountish;
+  clearNewTrackingForAccount: function({ account, accountId, silent }) {
+    if (account && !accountId) {
+      accountId = account.id;
+    }
     this.__bridgeSend({
       type: 'clearNewTrackingForAccount',
-      accountId
+      accountId,
+      silent
     });
   },
 

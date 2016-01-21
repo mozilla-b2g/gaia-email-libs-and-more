@@ -197,8 +197,11 @@ MailAccount.prototype = evt.mix({
    * Clear the new-tracking state for this account.  Also accessible as
    * `MailAPI.clearNewTrackingForAccount`.
    */
-  clearNewTracking: function() {
-    this._api.clearNewTrackingForAccount(this);
+  clearNewTracking: function(opts) {
+    this._api.clearNewTrackingForAccount({
+      accountId: this.id,
+      silent: opts && opts.silent || false
+    });
   },
 
   /**

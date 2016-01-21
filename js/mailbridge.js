@@ -615,7 +615,8 @@ MailBridge.prototype = {
 
   _cmd_clearNewTrackingForAccount: function(msg) {
     this.universe.clearNewTrackingForAccount({
-      accountId: msg.accountId
+      accountId: msg.accountId,
+      silent: msg.silent
     });
   },
 

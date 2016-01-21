@@ -194,7 +194,8 @@ return {
       {
         engineFacts: {
           syncGranularity: 'account'
-        }
+        },
+        usesArchiveMetaphor: true
       }
     ],
     [
@@ -202,7 +203,8 @@ return {
       {
         engineFacts: {
           syncGranularity: 'folder'
-        }
+        },
+        usesArchiveMetaphor: false
       }
     ],
     [
@@ -210,7 +212,8 @@ return {
       {
         engineFacts: {
           syncGranularity: 'folder'
-        }
+        },
+        usesArchiveMetaphor: false
       }
     ],
     [
@@ -221,7 +224,8 @@ return {
           // having some type of local folder stuff going on.  We can of course
           // revisit this as needed.
           syncGranularity: 'folder'
-        }
+        },
+        usesArchiveMetaphor: false
       }
     ]
   ]),

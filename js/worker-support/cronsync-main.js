@@ -310,9 +310,9 @@ define(function(require) {
         window.appShouldStayAlive = 'alarmFired';
       }
 
-      // We only ever generate 'sync' alarms now, but I guess maybe we used to
-      // do something different?  So just ignore these mysterious alarms of
-      // yore.
+      // If this is not a notification displaying cronsync results, ignore it.
+      // The other known message types at this time are:
+      // - message_reader: Used for background send error notifications.
       var data = alarm.data;
       if (!data || data.type !== 'sync') {
         return;
