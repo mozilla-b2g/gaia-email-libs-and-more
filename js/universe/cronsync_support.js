@@ -435,7 +435,7 @@ CronSyncSupport.prototype = {
         return;
       }
       logic(this, 'cronSync:end');
-      this._universe.broadcastOverBridges('cronsyncComplete', {});
+      this._universe.broadcastOverBridges('cronSyncComplete', {});
       logConclusionOnEntry('success');
       wakelockOnEntry.unlock();
     };
