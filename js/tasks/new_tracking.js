@@ -217,6 +217,10 @@ return TaskDefiner.defineComplexTask([
       if (!message.folderIds.has(memoryState.inboxFolderId)) {
         return;
       }
+      // bail if the message has already been read.
+      if (message.flags.indexOf('\\Seen') !== -1) {
+        return;
+      }
 
       // - detect group change
       let curTaskGroupId = triggerCtx.rootTaskGroupId;
