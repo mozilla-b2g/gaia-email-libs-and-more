@@ -291,7 +291,7 @@ define(function(require) {
 
   if (navigator.mozSetMessageHandler) {
     navigator.mozSetMessageHandler('alarm', (alarm) => {
-      logic(this, 'alarmFired');
+      logic(dispatcher, 'alarmFired');
 
       // !! Coordinate with the gaia mail app frontend logic !!
       // html_cache_restore.js has some logic that tries to cleverly close the
@@ -335,7 +335,7 @@ define(function(require) {
 
       getAccountsWithOutstandingSyncNotifications().then(
         (accountIdsWithNotifications) => {
-          logic(this, 'alarmDispatch');
+          logic(dispatcher, 'alarmDispatch');
 
           dispatcher._sendMessage(
             'alarm',
