@@ -138,7 +138,11 @@ SyncLifecycle.prototype = {
     let syncFinished = this.syncActive && !newSyncActive;
     if (syncFinished || this.firstTime) {
       this.firstTime = false;
-      const syncStampSource = this.syncStampSource;
+      // The account has a syncInfo object clobbered onto it in its entirety,
+      // so we can't just have syncStampSource directly point at syncInfo when
+      // we are initialized.
+      const syncStampSource = this.syncStampSource.syncInfo ||
+                              this.syncStampSource;
       reviseMeta.lastSuccessfulSyncAt = syncStampSource.lastSuccessfulSyncAt;
       reviseMeta.lastAttemptedSyncAt = syncStampSource.lastAttemptedSyncAt;
 
