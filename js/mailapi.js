@@ -305,6 +305,88 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     pending.resolve(msg.data);
   },
 
+  /**
+   * Create an UndoableOperation for synchronous return to the caller that will
+   * have its actual tasks to undo filled in asynchronously.  Idiom glue logic.
+   */
+  _sendUndoableRequest: function(undoableInfo, requestPayload) {
+    let undoableTasksPromise = this._sendPromisedRequest(requestPayload);
+    let undoableOp = new UndoableOperation({
+      api: this,
+      operation: undoableInfo.operation,
+      affectedType: undoableInfo.affectedType,
+      affectedCount: undoableInfo.affectedCount,
+      undoableTasksPromise
+    });
+    this.emit('undoableOp', undoableOp);
+    return undoableOp;
+  },
+
+  __scheduleUndoTasks: function(undoableOp, undoTasks) {
+    this.emit('undoing', undoableOp);
+    this.__bridgeSend({
+      type: 'undo',
+      undoTasks
+    });
+  },
+
+  /**
+   * Normalize conversation/message references to our list of
+   * conversation-with-selector objects of the form/type { id, messageIds,
+   * messageSelector }.
+   */
+  _normalizeConversationSelectorArgs: function(arrayOfStuff, args) {
+    let { detectType: argDetect, conversations: argConversations,
+          messages: argMessages, messageSelector } = args;
+    let convSelectors;
+    if (arrayOfStuff) {
+      argDetect = arrayOfStuff;
+    }
+
+    if (argDetect) {
+      if (argDetect[0] instanceof MailMessage) {
+        argMessages = argDetect;
+      } else if (argDetect[0] instanceof MailConversation) {
+        argConversations = argDetect;
+      }
+    }
+    let affectedType;
+    let affectedCount = 0;
+    if (argConversations) {
+      affectedType = 'conversation';
+      affectedCount = argConversations.length;
+      convSelectors = argConversations.map((x) => {
+        return {
+          id: x.id,
+          messageSelector
+        };
+      });
+    } else if (argMessages) {
+      affectedType = 'message';
+      affectedCount = argMessages.length;
+      convSelectors = [];
+      let selectorByConvId = new Map();
+      for (let message of argMessages) {
+        let convId = convIdFromMessageId(message.id);
+        let selector = selectorByConvId.get(convId);
+        if (!selector) {
+          selector = {
+            id: convId,
+            messageIds: [message.id]
+          };
+          selectorByConvId.set(convId, selector);
+          convSelectors.push(selector);
+        } else {
+          selector.messageIds.push(message.id);
+        }
+      }
+    } else {
+      throw new Error('Weird conversation/message selector.');
+    }
+
+    return { convSelectors, affectedType, affectedCount };
+  },
+
   _recv_broadcast: function(msg) {
     let { name, data } = msg.payload;
     this.emit(name, data);
@@ -855,170 +937,246 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   //
   // All actions are undoable and return an `UndoableOperation`.
 
-  deleteMessages: function ma_deleteMessages(messages) {
-    // We allocate a handle that provides a temporary name for our undoable
-    // operation until we hear back from the other side about it.
-    var handle = this._nextHandle++;
-
-    var undoableOp = new UndoableOperation(this, 'delete', messages.length,
-                                           handle),
-        msgSuids = messages.map(x => x.id);
-
-    this._pendingRequests[handle] = {
-      type: 'mutation',
-      handle: handle,
-      undoableOp: undoableOp
-    };
-    this.__bridgeSend({
-      type: 'deleteMessages',
-      handle: handle,
-      messages: msgSuids,
-    });
-
-    return undoableOp;
-  },
-
-  // Copying messages is not required yet.
-  /*
-  copyMessages: function ma_copyMessages(messages, targetFolder) {
-  },
-  */
-
-  moveMessages: function ma_moveMessages(messages, targetFolder, callback) {
-    // We allocate a handle that provides a temporary name for our undoable
-    // operation until we hear back from the other side about it.
-    var handle = this._nextHandle++;
-
-    var undoableOp = new UndoableOperation(this, 'move', messages.length,
-                                           handle),
-        msgSuids = messages.map(x => x.id);
-
-    this._pendingRequests[handle] = {
-      type: 'mutation',
-      handle: handle,
-      undoableOp: undoableOp,
-      callback: callback
-    };
-    this.__bridgeSend({
-      type: 'moveMessages',
-      handle: handle,
-      messages: msgSuids,
-      targetFolder: targetFolder.id
-    });
-
-    return undoableOp;
-  },
-
-  markMessagesRead: function ma_markMessagesRead(messages, beRead) {
-    return this.modifyMessageTags(messages,
-                                  beRead ? ['\\Seen'] : null,
-                                  beRead ? null : ['\\Seen'],
-                                  beRead ? 'read' : 'unread');
-  },
-
-  markMessagesStarred: function ma_markMessagesStarred(messages, beStarred) {
-    return this.modifyMessageTags(messages,
-                                  beStarred ? ['\\Flagged'] : null,
-                                  beStarred ? null : ['\\Flagged'],
-                                  beStarred ? 'star' : 'unstar');
+  /**
+   * Trash the given messages/conversations by moving them to the trash folder.
+   * A trash folder will be created if one does not already exist.  If the
+   * message is already in the trash folder it will instead be immediately
+   * removed.
+   *
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to delete.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {"last"|null} [opts.messageSelector]
+   *   Allows filtering the set of affected messages in a conversation when
+   *   conversations are provided.  This would be crazy to use for `trash`, but
+   *   is mentioned here because if you provide it, we will use it.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
+   *
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
+   */
+  trash: function(arrayOfStuff, opts) {
+    let { convSelectors, affectedType, affectedCount } =
+      this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
+    return this._sendUndoableRequest(
+      {
+        operation: 'trash',
+        affectedType,
+        affectedCount,
+      },
+      {
+        type: 'trash',
+        conversations: convSelectors
+      });
   },
 
   /**
-   * Add/remove labels on all the messages in conversation(s) at once.  If you
-   * want to only manipulate the labels on some of the messages, use
-   * `modifyConversationMessageLabels`.
+   * Move the given messages/conversations to the desired target folder.  Note
+   * that there may be more appropriate semantic options you can take than a
+   * direct move.  For example:
+   * - use: `trash()` to delete stuff.
+   * - future: `archive()` to archive stuff.
    *
-   * Note that the back-end is smart and won't do redundant things; so you
-   * need not attempt to be clever.
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to modify.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {MailFolder} targetFolder
+   *   The folder to move the stuff to.  The folder must belong to the same
+   *   account as the stuff.  In the future we may also support an alternate
+   *   mechanism where a folder type rather than a specific folder can be
+   *   specified, in which case this would work across accounts.  Please feel
+   *   free to raise an issue to discuss while also considering whether the
+   *   need actually merits a higher level operation.  (Like 'trash' really
+   *   does want to be its own high-level thing and not just a re-branded
+   *   move operation.)
+   * @param {"last"|null} [opts.messageSelector]
+   *   Allows filtering the set of affected messages in a conversation when
+   *   conversations are provided.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
    *
-   * TODO: undo support
-   *
-   * @param {MailConversation[]} conversations
-   * @param {MailFolder[]} [addLabels]
-   * @param {MailFolder[]} [removeLabels]
-   * @param {"last"|null} messageSelector
-   *   Allows filtering the set of affected messages in the conversation.
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
    */
-  modifyConversationLabels: function(conversations, addLabels, removeLabels,
-                                     messageSelector) {
-    this.__bridgeSend({
-      type: 'store_labels',
-      conversations: conversations.map((x) => {
-        return {
-          id: x.id,
-          messageSelector
-        };
-      }),
-      add: normalizeFoldersToIds(addLabels),
-      remove: normalizeFoldersToIds(removeLabels)
-    });
+  move: function(arrayOfStuff, targetFolder, opts) {
+    let { convSelectors, affectedType, affectedCount } =
+      this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
+    return this._sendUndoableRequest(
+      {
+        operation: 'move',
+        affectedType,
+        affectedCount,
+      },
+      {
+        type: 'move',
+        conversations: convSelectors,
+        targetFolderId: targetFolder.id
+      });
   },
 
   /**
-   * Add/remove labels on specific messages within a conversation.  All of the
-   * messages you pass to this method must be from a single conversation.  If
-   * you want to manipulate all of the messages in the conversation, use
-   * `modifyConversationLabels`, not this method.
+   * Mark the given conversations/messages as read/unread.
    *
-   * TODO: undo support
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to modify.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {Boolean} beRead
+   *   true to mark stuff read, false to mark stuff unread
+   * @param {"last"|null} [opts.messageSelector]
+   *   Allows filtering the set of affected messages in a conversation when
+   *   conversations are provided.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
+   *
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
    */
-  modifyConversationMessageLabels: function(messages, addLabels, removeLabels) {
-    this.__bridgeSend({
-      type: 'store_labels',
-      conversations: [{
-        id: convIdFromMessageId(messages[0].id),
-        messageIds: messages.map(x => x.id)
-      }],
-      add: normalizeFoldersToIds(addLabels),
-      remove: normalizeFoldersToIds(removeLabels)
-    });
-  },
-
-  modifyConversationTags: function(conversations, addTags, removeTags,
-                                   messageSelector) {
-    this.__bridgeSend({
-      type: 'store_flags',
-      conversations: conversations.map((x) => {
-        return {
-          id: x.id,
-          messageSelector
-        };
-      }),
-      add: addTags,
-      remove: removeTags
-    });
-  },
-
-  modifyMessageTags: function ma_modifyMessageTags(messages, addTags,
-                                                   removeTags, _opcode) {
-    this.__bridgeSend({
-      type: 'store_flags',
-      conversations: [{
-        id: convIdFromMessageId(messages[0].id),
-        messageIds: messages.map(x => x.id)
-      }],
-      add: addTags,
-      remove: removeTags
-    });
+  markRead: function(arrayOfStuff, beRead) {
+    return this.modifyTags(
+      arrayOfStuff,
+      {
+        operation: beRead ? 'read' : 'unread',
+        addTags: beRead ? ['\\Seen'] : null,
+        removeTags: beRead ? null : ['\\Seen']
+      }
+    );
   },
 
   /**
-   * Check the outbox for pending messages, and initiate a series of
-   * jobs to attempt to send them. The callback fires after the first
-   * message's send attempt completes; this job will then
-   * self-schedule further jobs to attempt to send the rest of the
-   * outbox.
+   * Star/un-star the given conversations/messages.
    *
-   * @param {MailAccount} account
-   * @param {function} callback
-   *   Called after the first message's send attempt finishes.
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to modify.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {Boolean} beStarred
+   *   true to star the stuff, false to un-star them.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
+   *
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
    */
-  sendOutboxMessages: function (account, callback) {
-    // the revised complex task is pretty smart; not sure to what extent we need
-    // this.  we may need to revisit semantics somewhat, since this is mainly
-    // about moving deferred tasks immediately back into the "go" bucket and
-    // maybe re-scheduling drafts we had given up on.
-    // TODO: clear up what to do here.
+  markStarred: function(arrayOfStuff, beStarred) {
+    return this.modifyTags(
+      arrayOfStuff,
+      {
+        operation: beStarred ? 'star' : 'unstar',
+        addTags: beStarred ? ['\\Flagged'] : null,
+        removeTags: beStarred ? null : ['\\Flagged'],
+        // If we're starring, we use the same heuristics setStarred used on
+        // MailConversation, which is to only star the last one.  This is
+        // consistent with what gmail and friends do.  Note that it is our
+        // intent that this only applies to the conversation case, and at least
+        // for the current implementation (as of writing this), this will not
+        // be propagated in the messages case.
+        messageSelector: beStarred ? 'last' : null
+      }
+    );
+  },
+
+  /**
+   * Add/remove labels on the given conversations/messages.
+   *
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to modify.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {MailFolder[]} [opts.addLabels]
+   * @param {MailFolder[]} [opts.removeLabels]
+   * @param {"last"|null} [opts.messageSelector]
+   *   Allows filtering the set of affected messages in a conversation when
+   *   conversations are provided.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
+   *
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
+   */
+  modifyLabels: function(arrayOfStuff, opts) {
+    let { convSelectors, affectedType, affectedCount } =
+      this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
+    return this._sendUndoableRequest(
+      {
+        operation: opts.operation || 'modifylabels',
+        affectedType,
+        affectedCount,
+      },
+      {
+        type: 'store_labels',
+        conversations: convSelectors,
+        add: normalizeFoldersToIds(opts.addLabels),
+        remove: normalizeFoldersToIds(opts.removeLabels)
+      });
+  },
+
+  /**
+   * Add/remove labels on the given conversations/messages.
+   *
+   * @param {MailMessage[]|MailConversation[]} arrayOfStuff
+   *   The messages or conversations to modify.  This should be a homogenous
+   *   list, although in the future we could enhance things to support a
+   *   mixture.
+   * @param {String[]]} [opts.addTags]
+   * @param {String[]} [opts.removeTags]
+   * @param {"last"|null} [opts.messageSelector]
+   *   Allows filtering the set of affected messages in a conversation when
+   *   conversations are provided.
+   * @return {UndoableOperation}
+   *   An undoable operation that roughly describes what was done (to
+   *   facilitate describing the thing that can be undone) and a means of
+   *   triggering the undo.  Note that while the actual undo() behavior will
+   *   attempt to leave things in their original state (rather than inverting
+   *   the original request), the characterization of how many
+   *   messages/conversations were impacted will not reflect these smarts.
+   *
+   *   An `undoableOp` event will also be emitted on the base MailAPI instance
+   *   if that simplifies your life.
+   */
+  modifyTags: function(arrayOfStuff, opts) {
+    let { convSelectors, affectedType, affectedCount } =
+      this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
+    return this._sendUndoableRequest(
+      {
+        operation: opts.operation || 'modifytags',
+        affectedType,
+        affectedCount,
+      },
+      {
+        type: 'store_flags',
+        conversations: convSelectors,
+        add: opts.addTags,
+        remove: opts.removeTags
+      });
   },
 
   /**
@@ -1053,13 +1211,6 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     catch (ex) {
       return null;
     }
-  },
-
-  __undo: function undo(undoableOp) {
-    this.__bridgeSend({
-      type: 'undo',
-      longtermIds: undoableOp._longtermIds,
-    });
   },
 
   //////////////////////////////////////////////////////////////////////////////

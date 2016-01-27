@@ -614,6 +614,10 @@ TaskContext.prototype = {
         taskManager.__wrapTasks(finishData.newData.tasks);
     }
 
+    if (finishData.undoTasks) {
+      taskManager.emit(`undoTasks:${this.id}`, finishData.undoTasks);
+    }
+
     return this.universe.db.finishMutate(
       this,
       finishData,

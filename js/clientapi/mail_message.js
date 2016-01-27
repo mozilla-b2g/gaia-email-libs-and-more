@@ -217,7 +217,7 @@ MailMessage.prototype = evt.mix({
     // that the back-end really cares.  It's SMRT.)
     let curInboxFolders = this.labels.filter(folder => folder.type === 'inbox');
     if (curInboxFolders.length) {
-      this.modifyLabels(null, curInboxFolders);
+      return this.modifyLabels({ removeLabels: curInboxFolders });
     }
   },
 
@@ -226,8 +226,8 @@ MailMessage.prototype = evt.mix({
    * currently in the trash folder.  Permanent deletion is triggered if the
    * message is already in the trash folder.
    */
-  deleteMessage: function() {
-    return this._api.deleteMessages([this]);
+  trash: function() {
+    return this._api.trash([this]);
   },
 
   /*
@@ -243,15 +243,15 @@ MailMessage.prototype = evt.mix({
    * Move this message to another folder.  This should *not* be used on gmail,
    * instead modifyLabels should be used.
    */
-  moveMessage: function(targetFolder) {
-    return this._api.moveMessages([this], targetFolder);
+  move: function(targetFolder) {
+    return this._api.move([this], targetFolder);
   },
 
   /**
    * Set or clear the read status of this message.
    */
   setRead: function(beRead) {
-    return this._api.markMessagesRead([this], beRead);
+    return this._api.markRead([this], beRead);
   },
 
   toggleRead: function() {
@@ -262,7 +262,7 @@ MailMessage.prototype = evt.mix({
    * Set or clear the starred/flagged status of this message.
    */
   setStarred: function(beStarred) {
-    return this._api.markMessagesStarred([this], beStarred);
+    return this._api.markStarred([this], beStarred);
   },
 
   toggleStarred: function() {
@@ -272,22 +272,22 @@ MailMessage.prototype = evt.mix({
   /**
    * Add and/or remove tags/flags from this message.
    *
-   * @param {String[]} [addTags]
-   * @param {String[]} [removeTags]
+   * @param {String[]} [args.addTags]
+   * @param {String[]} [args.removeTags]
    */
-  modifyTags: function(addTags, removeTags) {
-    return this._api.modifyMessageTags([this], addTags, removeTags);
+  modifyTags: function(args) {
+    return this._api.modifyTags([this], args);
   },
 
   /**
    * And and/or remove gmail labels from this message.  This only makes sense
-   * for gmail, and we expose lables as Folders.
+   * for gmail, and we expose labels as Folders.
    *
-   * @param {MailFolder[]} [addFolders]
-   * @param {MailFolder[]} [removeFolders]
+   * @param {MailFolder[]} [args.addLabels]
+   * @param {MailFolder[]} [args.removeLabels]
    */
-  modifyLabels: function(addFolders, removeFolders) {
-    return this._api.modifyMessageLabels([this], addFolders, removeFolders);
+  modifyLabels: function(args) {
+    return this._api.modifyLabels([this], args);
   },
 
   /**

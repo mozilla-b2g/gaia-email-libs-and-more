@@ -724,32 +724,41 @@ MailUniverse.prototype = {
 
   storeLabels: function(conversationId, messageIds, messageSelector, addLabels,
                         removeLabels) {
-    return this.taskManager.scheduleTasks([
-      {
-        type: 'store_labels',
-        accountId: accountIdFromConvId(conversationId),
-        convId: conversationId,
-        onlyMessages: messageIds || null,
-        messageSelector: messageSelector || null,
-        add: addLabels,
-        remove: removeLabels
-      }
-    ]);
+    return this.taskManager.scheduleTaskAndWaitForPlannedUndoTasks({
+      type: 'store_labels',
+      accountId: accountIdFromConvId(conversationId),
+      convId: conversationId,
+      onlyMessages: messageIds || null,
+      messageSelector: messageSelector || null,
+      add: addLabels,
+      remove: removeLabels
+    });
   },
 
   storeFlags: function(conversationId, messageIds, messageSelector, addFlags,
                        removeFlags) {
-    return this.taskManager.scheduleTasks([
-      {
-        type: 'store_flags',
-        accountId: accountIdFromConvId(conversationId),
-        convId: conversationId,
-        onlyMessages: messageIds || null,
-        messageSelector: messageSelector || null,
-        add: addFlags,
-        remove: removeFlags
-      }
-    ]);
+    return this.taskManager.scheduleTaskAndWaitForPlannedUndoTasks({
+      type: 'store_flags',
+      accountId: accountIdFromConvId(conversationId),
+      convId: conversationId,
+      onlyMessages: messageIds || null,
+      messageSelector: messageSelector || null,
+      add: addFlags,
+      remove: removeFlags
+    });
+  },
+
+  /**
+   * Schedule tasks previously returned as undoTasks for planning in order to
+   * undo the effects of previosly planned tasks.
+   *
+   * SECURITY NOTE: This is currently the one code path where we directly allow
+   * the front-end logic to directly tell us raw tasks to plan.  While we're not
+   * designed or intended to defend against a hostile front-end, this method is
+   * notable in this regard.
+   */
+  undo: function(undoTasks) {
+    this.taskManager.scheduleTasks(undoTasks);
   },
 
   /**
@@ -821,8 +830,9 @@ MailUniverse.prototype = {
   },
 
   /**
-   * Delete an existing (local) draft.  This may end up just using the normal
-   * message deletion logic under the hood, but right now
+   * Delete an existing (local) draft.  This eventually may end up just using
+   * the normal message deletion logic under the hood, but right now this has
+   * its own custom API call and task.
    */
   deleteDraft: function(messageId, why) {
     return this.taskManager.scheduleTasks([{

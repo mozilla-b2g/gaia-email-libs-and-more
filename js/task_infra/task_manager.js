@@ -253,6 +253,36 @@ TaskManager.prototype = evt.mix({
   },
 
   /**
+   * Schedule a task and wait for it to be planned and possibly generate undo
+   * tasks.  We return a Promise that will be resolved with the list of undo
+   * tasks generated.  Note that failure to generate a specific list of undo
+   * tasks is treated as if an empty list had been generated.
+   */
+  scheduleTaskAndWaitForPlannedUndoTasks: function(rawTask, why) {
+    return this.scheduleTasks([rawTask], why)
+    .then(([taskId]) => {
+      return new Promise((resolve) => {
+        // We can't guarantee that the undo event will be generated, so we need
+        // to infer no undo tasks were generated if we saw planned.  Also,
+        // since we can only use removeListener on once()-bound listeners if
+        // there was an associated object, we add the undo listener just using
+        // `on` and explicitly remove it in our (guaranteed-to-fire) `once`
+        // planned handler.
+        let undoHandler = (undoTasks) => {
+          resolve(undoTasks);
+        };
+        let ensureCleanup = () => {
+          this.removeListener(`undoTasks:${taskId}`, undoHandler);
+          // (will be ignored if the undo handler fired.)
+          resolve([]);
+        };
+        this.on(`undoTasks:${taskId}`, undoHandler);
+        this.once(`planned:${taskId}`, ensureCleanup);
+      });
+    });
+  },
+
+  /**
    * Schedule a persistent task, returning a promise that will be resolved
    * with the return value of the task's execution stage.
    */

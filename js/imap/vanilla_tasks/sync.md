@@ -100,7 +100,7 @@ cases like:
 
 The back-end currently does nothing to address these scenarios because any
 solution is likely to be complex and require even more complexity to allow UI
-manipulation of the messages underying the aggregate.  (And could be very
+manipulation of the messages underlying the aggregate.  (And could be very
 confusing to the user.)  For now it seems best to leave it up to the app/UI to
 address, such as collapsing duplicate messages by default or hiding them.  The
 back-end could provide some support for automatically hiding the messages by

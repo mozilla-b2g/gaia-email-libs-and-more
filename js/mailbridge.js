@@ -33,12 +33,6 @@ function MailBridge(universe, db, name) {
     batchManager: this.batchManager,
     dataOverlayManager: this.universe.dataOverlayManager
   });
-  this._pendingMessagesByHandle;
-
-  // outstanding persistent objects that aren't slices. covers: composition
-  this._pendingRequests = {};
-  //
-  this._lastUndoableOpPair = null;
 }
 MailBridge.prototype = {
   __sendMessage: function() {
@@ -508,28 +502,52 @@ MailBridge.prototype = {
   // All mutations are told to the universe which breaks the modifications up on
   // a per-account basis.
 
+  /**
+   * Helper for undoable operations.  For use in calls where the MailUniverse
+   * calls return a Promise that gets resolved with a list of tasks to be
+   * invoked to undo the effects of the just-planned task.  Handles flattening
+   * the array of arrays and the very limited promisedResult boilerplate.
+   */
+  __accumulateUndoTasksAndReply(sourceMsg, promises) {
+    Promise.all(promises).then((nestedUndoTasks) => {
+      // Have concat do the flattening for us.
+      let undoTasks = [];
+      undoTasks = undoTasks.concat.apply(undoTasks, nestedUndoTasks);
+
+      this.__sendMessage({
+        type: 'promisedResult',
+        handle: sourceMsg.handle,
+        data: undoTasks
+      });
+    });
+  },
+
   _cmd_store_labels: function(msg) {
-    for (let convInfo of msg.conversations) {
-      this.universe.storeLabels(
-        convInfo.id,
-        convInfo.messageIds,
-        convInfo.messageSelector,
-        msg.add,
-        msg.remove
-      );
-    }
+    this.__accumulateUndoTasksAndReply(
+      msg,
+      msg.conversations.map((convInfo) => {
+        return this.universe.storeLabels(
+          convInfo.id,
+          convInfo.messageIds,
+          convInfo.messageSelector,
+          msg.add,
+          msg.remove
+        );
+      }));
   },
 
   _cmd_store_flags: function(msg) {
-    for (let convInfo of msg.conversations) {
-      this.universe.storeFlags(
-        convInfo.id,
-        convInfo.messageIds,
-        convInfo.messageSelector,
-        msg.add,
-        msg.remove
-      );
-    }
+    this.__accumulateUndoTasksAndReply(
+      msg,
+      msg.conversations.map((convInfo) => {
+        return this.universe.storeFlags(
+          convInfo.id,
+          convInfo.messageIds,
+          convInfo.messageSelector,
+          msg.add,
+          msg.remove
+        );
+      }));
   },
 
   _cmd_outboxSetPaused: function(msg) {
@@ -545,9 +563,8 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_undo: function mb__cmd_undo(msg) {
-    // XXX OLD
-    this.universe.undoMutation(msg.longtermIds);
+  _cmd_undo: function(msg) {
+    this.universe.undo(msg.undoTasks);
   },
 
   //////////////////////////////////////////////////////////////////////////////

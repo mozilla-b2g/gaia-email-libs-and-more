@@ -26,7 +26,7 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
  *
  * - We are complex so that repeated offline manipulations of flag state
  *   result in at most one set of flag deltas per message.
- * - Being complex with a big aggergate state also lets the sync tasks consult
+ * - Being complex with a big aggregate state also lets the sync tasks consult
  *   us to know what flag changes are still pending and have not yet been played
  *   back to the server.  This avoids "flag flapping".
  * - Everything is keyed by umid/`UniqueMessageId`.  This is also the basis for
@@ -173,7 +173,8 @@ let MixStoreFlagsMixin = {
         messages: modifiedMessagesMap
       },
       taskMarkers: modifyTaskMarkers,
-      complexTaskState: persistentState
+      complexTaskState: persistentState,
+      undoTasks
     });
   }),
 

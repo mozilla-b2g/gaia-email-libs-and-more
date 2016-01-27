@@ -9,58 +9,56 @@ define(function(require) {
  * get a list of recently performed actions, the goal is to make it feasible
  * in the future.
  */
-function UndoableOperation(_api, operation, affectedCount,
-                           _tempHandle, _longtermIds) {
-  this._api = _api;
+function UndoableOperation({ api, id, operation, affectedCount, affectedType,
+                             undoableTasksPromise }) {
+  this._api = api;
+  /**
+   * A locally unique id to the owning API instance.  Currently it is the handle
+   * of the message that was sent for the request that can be undone, but you
+   * should not depend on that for anything other than simplified debugging.
+   */
+  this.id = id;
   /**
    * @oneof[
    *   @case['read']{
-   *     Marked message(s) as read.
+   *     Marked messages/conversations as read.
    *   }
    *   @case['unread']{
-   *     Marked message(s) as unread.
+   *     Marked messages/conversations as unread.
    *   }
    *   @case['star']{
-   *     Starred message(s).
+   *     Starred messages/conversations.
    *   }
    *   @case['unstar']{
-   *     Unstarred message(s).
+   *     Unstarred messages/conversations.
    *   }
-   *   @case['addtag']{
-   *     Added tag(s).
+   *   @case['modifytags']{
+   *     Added and/or removed tags.
    *   }
-   *   @case['removetag']{
-   *     Removed tag(s).
+   *   @case['modifylabels']{
+   *     Added and/or removed tags.
    *   }
    *   @case['move']{
-   *     Moved message(s).
+   *     Moved messages/conversations.
    *   }
    *   @case['copy']{
-   *     Copied message(s).
+   *     Copied messages/conversations.
    *   }
-   *   @case['delete']{
-   *     Deleted message(s) by moving to trash folder.
+   *   @case['trash']{
+   *     Deleted messages/conversations by moving to trash folder.  (Or nuking
+   *     if the message already was living in the trash folder.)
    *   }
    * ]
    */
   this.operation = operation;
   /**
-   * The number of messages affected by this operation.
+   * The number of things affected by this operation, `affectedType` indicates
+   * whether it was 'conversation' or 'message'.
    */
   this.affectedCount = affectedCount;
+  this.affectedType = affectedType;
 
-  /**
-   * The temporary handle we use to refer to the operation immediately after
-   * issuing it until we hear back from the mail bridge about its more permanent
-   * _longtermIds.
-   */
-  this._tempHandle = _tempHandle;
-  /**
-   * The names of the per-account operations that this operation was mapped
-   * to.
-   */
-  this._longtermIds = null;
-
+  this._undoableTasksPromise = undoableTasksPromise;
   this._undoRequested = false;
 }
 UndoableOperation.prototype = {
@@ -70,19 +68,25 @@ UndoableOperation.prototype = {
   toJSON: function() {
     return {
       type: 'UndoableOperation',
-      handle: this._tempHandle,
-      longtermIds: this._longtermIds,
+      affectedType: this.affectedType,
+      affectedCount: this.affectedCount
     };
   },
 
   undo: function() {
+    if (!this._undoableTasksPromise) {
+      return;
+    }
+    this._undoableTasksPromise.then((undoTasks) => {
+      this._api.__scheduleUndoTasks(this, undoTasks);
+    });
+    this._undoableTasksPromise = null;
     // We can't issue the undo until we've heard the longterm id, so just flag
     // it to be processed when we do.
     if (!this._longtermIds) {
       this._undoRequested = true;
       return;
     }
-    this._api.__undo(this);
   },
 };
 

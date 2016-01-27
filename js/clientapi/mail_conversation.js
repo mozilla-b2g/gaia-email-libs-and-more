@@ -98,7 +98,9 @@ MailConversation.prototype = evt.mix({
    * this conversation.
    *
    * XXX currently this is just the list of folders on the given account.  We
-   * need to perform filtering based on selectability/etc.
+   * need to perform filtering based on selectability/etc.  And arguably it
+   * might even be better for the MailAccount to provide an EntireListView for
+   * just this purpose.
    *
    * @return {MailFolder[]}
    *   A shallow copy of the list of folders.  The items will update, but the
@@ -125,24 +127,25 @@ MailConversation.prototype = evt.mix({
   },
 
   /**
-   * Add the label identified by the given folder to this conversation.
+   * Add the label(s) identified by the given folder(s) to this conversation.
    *
    * Under the hood, this is implemented by us applying the label to all the
    * messages in the conversation at the time the task is planned.
    */
   addLabels: function(folders) {
-    this._api.modifyConversationLabels([this], folders);
+    return this._api.modifyLabels([this], { addLabels: folders });
   },
 
   removeLabels: function(folders) {
-    this._api.modifyConversationLabels([this], null, folders);
+    return this._api.modifyLabels([this], { removeLabels: folders });
   },
 
-  /**
-   *
-   */
-  modifyTags: function(addTags, removeTags) {
-    this._api.modifyConversationTags([this], addTags, removeTags);
+  modifyLabels: function(args) {
+    return this._api.modifyLabels([this], args);
+  },
+
+  modifyTags: function(args) {
+    return this._api.modifyTags([this], args);
   },
 
   // Alias for hasStarred for symmetry with MailMessage.
@@ -161,15 +164,7 @@ MailConversation.prototype = evt.mix({
    *   state cleared.
    */
   setStarred: function(beStarred) {
-    if (beStarred) {
-      if (!this.hasStarred) {
-        this._api.modifyConversationTags([this], ['\\Flagged'], null, 'last');
-      }
-    } else {
-      if (this.hasStarred) {
-        this._api.modifyConversationTags([this], null, ['\\Flagged']);
-      }
-    }
+    return this._api.markStarred([this], beStarred);
   },
 
   toggleStarred: function() {
@@ -186,11 +181,7 @@ MailConversation.prototype = evt.mix({
    * messages in the conversation uniformly.
    */
   setRead: function(beRead) {
-    if (beRead) {
-      this.modifyTags(['\\Seen'], null);
-    } else {
-      this.modifyTags(null, ['\\Seen']);
-    }
+    return this._api.markRead([this], beRead);
   },
 
   toggleRead: function() {
