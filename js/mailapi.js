@@ -310,9 +310,11 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * have its actual tasks to undo filled in asynchronously.  Idiom glue logic.
    */
   _sendUndoableRequest: function(undoableInfo, requestPayload) {
+    let id = this._nextHandle;
     let undoableTasksPromise = this._sendPromisedRequest(requestPayload);
     let undoableOp = new UndoableOperation({
       api: this,
+      id,
       operation: undoableInfo.operation,
       affectedType: undoableInfo.affectedType,
       affectedCount: undoableInfo.affectedCount,

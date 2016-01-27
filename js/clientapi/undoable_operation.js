@@ -1,6 +1,5 @@
-define(function(require) {
+define(function() {
 'use strict';
-
 
 /**
  * Undoable operations describe the operation that was performed for
