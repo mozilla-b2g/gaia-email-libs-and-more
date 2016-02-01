@@ -79,7 +79,9 @@ define(function() {
  *   multipart/related message.
  * @property {String[]} [references]
  *   The contents of the references header as a list of de-quoted ('<' and
- *   '>' removed) message-id's.  If there was no header, this is null.
+ *   '>' removed) message-id's.  If there was no header, this is null.  The
+ *   references go from oldest to newest.  That is, the 0th reference should be
+ *   the root message and the last reference should be the parent.
  * @property {BodyPartInfo[]} bodyReps
  *   Information on the message body that is only for full message display.
  *   The to/cc/bcc information may get moved up to the header in the future,
