@@ -884,10 +884,42 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     this.__bridgeSend({
       type: 'viewFolderConversations',
       folderId: folder.id,
-      handle: handle,
+      handle
     });
 
     return view;
+  },
+
+  /**
+  * Search a folder's conversations for conversations matching the provided
+  * filter constraints, returning a ConversationsListView.
+  *
+  * @param {Object} spec
+  * @param {MailFolder} spec.folder
+  *   The folder whose messages we should search.
+  * @param {Object) spec.filter
+  * @param {String} [spec.filter.author]
+  *   Match against author display name or email address.
+  * @param {String} [spec.filter.recipients]
+  *   Match against recipient display name or email addresses.
+  * @param {String} [spec.filter.subject]
+  *   Match against the message subject.
+  * @param {String} [spec.filter.body]
+  *   Match against the authored message body.  Quoted blocks will be ignored.
+  * @param {String} [spec.filter.bodyAndQuotes]
+  *   Match against the authored message body and any included quoted blocks.
+  */
+  searchFolderConversations: function (spec) {
+    var handle = this._nextHandle++,
+        view = new ConversationsListView(this, handle);
+    view.folderId = spec.folder.id;
+    this._trackedItemHandles.set(handle, { obj: view });
+
+    this.__bridgeSend({
+      type: 'searchFolderConversations',
+      handle,
+      spec
+    });
   },
 
   viewConversationMessages: function(convOrId) {
@@ -900,35 +932,10 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     this.__bridgeSend({
       type: 'viewConversationMessages',
       conversationId: view.conversationId,
-      handle: handle,
+      handle
     });
 
     return view;
-  },
-
-  /**
-   * Search a folder for messages containing the given text in the sender,
-   * recipients, or subject fields, as well as (optionally), the body with a
-   * default time constraint so we don't entirely kill the server or us.
-   *
-   * @args[
-   *   @param[folder]{
-   *     The folder whose messages we should search.
-   *   }
-   *   @param[text]{
-   *     The phrase to search for.  We don't split this up into words or
-   *     anything like that.  We just do straight-up indexOf on the whole thing.
-   *   }
-   *   @param[whatToSearch @dict[
-   *     @key[author #:optional Boolean]
-   *     @key[recipients #:optional Boolean]
-   *     @key[subject #:optional Boolean]
-   *     @key[body #:optional @oneof[false 'no-quotes' 'yes-quotes']]
-   *   ]]
-   * ]
-   */
-  searchFolderMessages: function (folder, text, whatToSearch) {
-    // XXX OLD
   },
 
   //////////////////////////////////////////////////////////////////////////////

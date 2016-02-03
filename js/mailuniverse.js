@@ -8,6 +8,7 @@ define(function(require) {
 const logic = require('logic');
 const MailDB = require('./maildb');
 
+
 const AccountManager = require('./universe/account_manager');
 const CronSyncSupport = require('./universe/cronsync_support');
 
@@ -23,6 +24,7 @@ const TaskPriorities = require('./task_infra/task_priorities');
 const TaskResources = require('./task_infra/task_resources');
 const TaskGroupTracker = require('./task_infra/task_group_tracker');
 
+const QueryManager = require('./search/query_manager');
 const TriggerManager = require('./db/trigger_manager');
 const dbTriggerDefs = require('./db_triggers/all');
 
@@ -53,6 +55,9 @@ function MailUniverse(online, testOptions) {
   const db = this.db = new MailDB({
     universe: this,
     testOptions
+  });
+  this.queryManager = new QueryManager({
+    db
   });
   const triggerManager = this.triggerManager = new TriggerManager({
     db,
@@ -426,7 +431,9 @@ MailUniverse.prototype = {
       }
       toc = new FolderConversationsTOC({
         db: this.db,
-        folderId,
+        query: this.queryManager.queryConversations({
+          folderId
+        }),
         dataOverlayManager: this.dataOverlayManager,
         metaHelpers: [
           new SyncLifecycleMetaHelper({

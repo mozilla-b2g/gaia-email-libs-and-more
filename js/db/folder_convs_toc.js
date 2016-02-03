@@ -28,14 +28,14 @@ const BaseTOC = require('./base_toc');
  * perspective, if a conversation gets updated, it is no longer the same and
  * we instead treat the position where the { date, id } would be inserted now.
  */
-function FolderConversationsTOC({ db, folderId, dataOverlayManager }) {
+function FolderConversationsTOC({ db, query, dataOverlayManager }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'FolderConversationsTOC');
 
   this._db = db;
-  this.folderId = folderId;
   this._eventId = '';
+  this.query = query;
 
   // We share responsibility for providing overlay data with the list proxy.
   // Our getDataForSliceRange performs the resolving, but we depend on the proxy
@@ -53,11 +53,9 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
   heightAware: true,
 
   __activateTOC: co.wrap(function*() {
-    let { idsWithDates, drainEvents, eventId } =
-      yield this._db.loadFolderConversationIdsAndListen(this.folderId);
+    let idsWithDates = yield this.query.execute();
 
     this.idsWithDates = idsWithDates;
-    this._eventId = eventId;
 
     let totalHeight = 0;
     for (let info of idsWithDates) {
@@ -65,15 +63,14 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     }
     this.totalHeight = totalHeight;
 
-    drainEvents(this._bound_onChange);
-    this._db.on(eventId, this._bound_onTOCChange);
+    this.query.bind(this, this.onTOCChange);
   }),
 
   __deactivateTOC: function(firstTime) {
     this.idsWithDates = [];
     this.totalHeight = 0;
     if (!firstTime) {
-      this._db.removeListener(this._eventId, this._bound_onTOCChange);
+      this.query.destroy(this);
     }
   },
 

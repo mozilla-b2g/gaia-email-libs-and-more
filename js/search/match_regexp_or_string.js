@@ -1,0 +1,28 @@
+define(function() {
+'use strict';
+
+/**
+ * Check if a string or a regexp matches an input and if it does, it returns a
+ * 'return value' as RegExp.exec does.  Note that the 'index' of the returned
+ * value will be relative to the provided `fromIndex` as if the string had been
+ * sliced using fromIndex.
+ */
+return function matchRegexpOrString(phrase, input, fromIndex) {
+  if (!input) {
+    return null;
+  }
+
+  if (phrase instanceof RegExp) {
+    return phrase.exec(fromIndex ? input.slice(fromIndex) : input);
+  }
+
+  var idx = input.indexOf(phrase, fromIndex);
+  if (idx === -1) {
+    return null;
+  }
+
+  var ret = [ phrase ];
+  ret.index = idx - fromIndex;
+  return ret;
+};
+});

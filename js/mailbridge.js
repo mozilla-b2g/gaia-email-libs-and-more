@@ -318,6 +318,19 @@ MailBridge.prototype = {
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
   }),
 
+  _cmd_searchFolderConversations: co.wrap(function*(msg) {
+    let ctx = this.bridgeContext.createNamedContext(
+      msg.handle, 'FolderConversationsSearchView');
+    ctx.viewing = {
+      type: 'folder',
+      folderId: msg.folderId
+    };
+    let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
+                                                                msg.folderId);
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    yield ctx.acquire(ctx.proxy);
+  }),
+
   _cmd_viewConversationMessages: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'ConversationMessagesView');
