@@ -431,9 +431,7 @@ MailUniverse.prototype = {
       }
       toc = new FolderConversationsTOC({
         db: this.db,
-        query: this.queryManager.queryConversations({
-          folderId
-        }),
+        query: this.queryManager.queryConversations(ctx, { folderId }),
         dataOverlayManager: this.dataOverlayManager,
         metaHelpers: [
           new SyncLifecycleMetaHelper({
@@ -451,6 +449,37 @@ MailUniverse.prototype = {
     return ctx.acquire(toc);
   },
 
+  acquireSearchConversationsTOC: function(ctx, spec) {
+    let folderId = spec.folderId;
+    // Figure out what the sync stamp source is for this account.  It hinges
+    // on the sync granularity; if it's account-based then the sync stamps
+    // will be on the account, otherwise on the folder.
+    let accountId = accountIdFromFolderId(folderId);
+    let engineFacts =
+      this.accountManager.getAccountEngineBackEndFacts(accountId);
+    let syncStampSource;
+    if (engineFacts.syncGranularity === 'account') {
+      syncStampSource = this.accountManager.getAccountDefById(accountId);
+    } else {
+      syncStampSource = this.accountManager.getFolderById(folderId);
+    }
+    let toc = new FolderConversationsTOC({
+      db: this.db,
+      query: this.queryManager.queryConversations(ctx, spec),
+      dataOverlayManager: this.dataOverlayManager,
+      metaHelpers: [
+        new SyncLifecycleMetaHelper({
+          folderId,
+          syncStampSource,
+          dataOverlayManager: this.dataOverlayManager
+        }),
+      ],
+      onForgotten: () => {
+      }
+    });
+    return ctx.acquire(toc);
+  },
+
   acquireConversationTOC: function(ctx, conversationId) {
     let toc;
     if (this._conversationTOCs.has(conversationId)) {
@@ -458,7 +487,8 @@ MailUniverse.prototype = {
     } else {
       toc = new ConversationTOC({
         db: this.db,
-        conversationId,
+        query:
+          this.queryManager.queryConversationMessages(ctx, { conversationId }),
         dataOverlayManager: this.dataOverlayManager,
         onForgotten: () => {
           this._conversationTOCs.delete(conversationId);
@@ -468,6 +498,18 @@ MailUniverse.prototype = {
     }
     return ctx.acquire(toc);
   },
+
+  acquireSearchConversationMessagesTOC: function(ctx, spec) {
+    let toc = new ConversationTOC({
+      db: this.db,
+      query: this.queryManager.queryConversationMessages(ctx, spec),
+      dataOverlayManager: this.dataOverlayManager,
+      onForgotten: () => {
+      }
+    });
+    return ctx.acquire(toc);
+  },
+
 
   //////////////////////////////////////////////////////////////////////////////
 

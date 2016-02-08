@@ -243,6 +243,15 @@ exports.SYNC_RANGE_ENUMS_TO_MS = {
 exports.DESIRED_SNIPPET_LENGTH = 160;
 
 /**
+ * These values were arbitrarily chosen during v1.0 development and haven't
+ * posed a problem yet.  So, eh.
+ */
+exports.DEFAULT_SEARCH_EXCERPT_SETTINGS = {
+  charsBefore: 16,
+  charsAfter: 40
+};
+
+/**
  * How big a chunk of an attachment should we encode in a single read?  Because
  * we want our base64-encoded lines to be 76 bytes long (before newlines) and
  * there's a 4/3 expansion factor, we want to read a multiple of 57 bytes.

@@ -85,7 +85,7 @@ function filterOutBuiltinFlags(flags) {
  * its new state then you should wait for the message's `change` event to be
  * emitted.
  */
-function MailMessage(api, wireRep, overlays, slice) {
+function MailMessage(api, wireRep, overlays, matchInfo, slice) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;
@@ -116,6 +116,7 @@ function MailMessage(api, wireRep, overlays, slice) {
 
   this.subject = wireRep.subject;
   this.snippet = wireRep.snippet;
+  this.matchInfo = matchInfo;
 }
 MailMessage.prototype = evt.mix({
   toString: function() {

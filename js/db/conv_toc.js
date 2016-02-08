@@ -29,27 +29,19 @@ const { conversationMessageComparator } = require('./comparators');
  * view slice is requested for a given conversation and destroyed once no more
  * view slices care about.
  */
-function ConversationTOC({ db, conversationId, dataOverlayManager }) {
+function ConversationTOC({ db, query, dataOverlayManager }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'ConversationTOC');
 
   this._db = db;
-  this.convId = conversationId;
-  // id for toc-style changes to the ordered set of messages in the conversation
-  this._tocEventId = '';
-  // id for the conversation summary; used to detect the deletion of the
-  // conversation
-  this._convEventId = '';
+  this.query = query;
 
   // We share responsibility for providing overlay data with the list proxy.
   // Our getDataForSliceRange performs the resolving, but we depend on the proxy
   // to be listening for overlay updates and to perform appropriate dirtying.
   this._overlayResolver = dataOverlayManager.makeBoundResolver(
     this.overlayNamespace, null);
-
-  this._bound_onTOCChange = this.onTOCChange.bind(this);
-  this._bound_onConvChange = this.onConvChange.bind(this);
 
   this.__deactivate(true);
 }
@@ -62,25 +54,20 @@ ConversationTOC.prototype = BaseTOC.mix({
     // NB: Although our signature is for this to just provide us with the id's,
     // this actually has the byproduct of loading the header records and placing
     // them in the cache because we can't currently just get the keys.
-    let { idsWithDates, drainEvents, tocEventId, convEventId } =
-      yield this._db.loadConversationMessageIdsAndListen(this.convId);
+    let idsWithDates = yield this.query.execute();
 
     // Sort the IDs in the same order as used by the binary search used later
     // for modifications done with this class.
     idsWithDates.sort(conversationMessageComparator);
 
     this.idsWithDates = idsWithDates;
-    this._tocEventId = tocEventId;
-    this._convEventId = convEventId;
-    drainEvents(this._bound_onTOCChange);
-    this._db.on(tocEventId, this._bound_onTOCChange);
-    this._db.on(convEventId, this._bound_onConvChange);
+    this.query.bind(this, this.onTOCChange, this.onConvChange);
   }),
 
   __deactivateTOC: function(firstTime) {
     this.idsWithDates = [];
     if (!firstTime) {
-      this._db.removeListener(this._tocEventId, this._bound_onTOCChange);
+      this.query.destroy(this);
     }
   },
 
@@ -98,7 +85,7 @@ ConversationTOC.prototype = BaseTOC.mix({
    * immutable, we decided to allow them to change in the case of drafts to
    * allow for simpler conceptual handling.
    *
-   * @param {MessageId} messageId
+   * @param {MessageId} change.id
    * @param {DateTS} [preDate]
    *   If the message already existed, its date before the change.  If the
    *   message did not previously exist, this is null.
@@ -106,33 +93,33 @@ ConversationTOC.prototype = BaseTOC.mix({
    *   If the message has not been deleted, its date after the change.  (Which
    *   should be the same as the date before the change unless the message is a
    *   modified draft.)  If the message has been deleted, this is null.
-   * @param {MessageInfo} headerInfo
+   * @param {MessageInfo} item
    * @param {Boolean} freshlyAdded
    */
-  onTOCChange: function(messageId, preDate, postDate, headerInfo,
-                        freshlyAdded) {
-    let metadataOnly = headerInfo && !freshlyAdded;
+  onTOCChange: function({ id, preDate, postDate, item, freshlyAdded,
+                          matchInfo }) {
+    let metadataOnly = item && !freshlyAdded;
 
     if (freshlyAdded) {
       // - Added!
-      let newKey = { date: postDate, id: messageId };
+      let newKey = { date: postDate, id, matchInfo };
       let newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                       conversationMessageComparator);
       this.idsWithDates.splice(newIndex, 0, newKey);
-    } else if (!headerInfo) {
+    } else if (!item) {
       // - Deleted!
-      let oldKey = { date: preDate, id: messageId };
+      let oldKey = { date: preDate, id };
       let oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
                                         conversationMessageComparator);
       this.idsWithDates.splice(oldIndex, 1);
     } else if (preDate !== postDate) {
       // - Message date changed (this should only happen for drafts)
-      let oldKey = { date: preDate, id: messageId };
+      let oldKey = { date: preDate, id };
       let oldIndex = bsearchMaybeExists(this.idsWithDates, oldKey,
                                         conversationMessageComparator);
       this.idsWithDates.splice(oldIndex, 1);
 
-      let newKey = { date: postDate, id: messageId };
+      let newKey = { date: postDate, id, matchInfo };
       let newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                       conversationMessageComparator);
       this.idsWithDates.splice(newIndex, 0, newKey);
@@ -141,7 +128,7 @@ ConversationTOC.prototype = BaseTOC.mix({
       metadataOnly = false;
     }
 
-    this.emit('change', messageId, metadataOnly);
+    this.emit('change', id, metadataOnly);
   },
 
   /**
@@ -239,7 +226,13 @@ ConversationTOC.prototype = BaseTOC.mix({
         sendState.set(id, [null, overlayResolver(id)]);
       } else if (messageCache.has(id)) {
         newKnownSet.add(id);
-        sendState.set(id, [messageCache.get(id), overlayResolver(id)]);
+        sendState.set(
+          id,
+          [
+            messageCache.get(id),
+            overlayResolver(id),
+            idsWithDates[i].matchInfo
+          ]);
       } else {
         let date = idsWithDates[i].date;
         needData.set([id, date], null);

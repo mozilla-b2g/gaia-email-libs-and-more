@@ -34,7 +34,6 @@ function FolderConversationsTOC({ db, query, dataOverlayManager }) {
   logic.defineScope(this, 'FolderConversationsTOC');
 
   this._db = db;
-  this._eventId = '';
   this.query = query;
 
   // We share responsibility for providing overlay data with the list proxy.
@@ -84,8 +83,13 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    * @param {Object} change
    * @param {ConvId} id
    * @param {ConvInfo} item
+   *   (Not used by us because the filtering mechanism does not currently
+   *   provide this... although I suppose it could.  We only ever needed this
+   *   for the height and now it's provided as an explicit parallel argument.)
    * @param {DateTS} removeDate
    * @param {DateTS} addDate
+   * @param {Number} height
+   *   In the case of a non-deletion
    * @param {Number} oldHeight
    */
   onTOCChange: function(change) {
@@ -111,10 +115,10 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
       let newIndex = -1;
       if (change.addDate) {
         let newKey = { date: change.addDate, id: change.id,
-                       height: change.item.height };
+                       height: change.height, matchInfo: change.matchInfo };
         newIndex = bsearchForInsert(this.idsWithDates, newKey,
                                     folderConversationComparator);
-        this.totalHeight += change.item.height;
+        this.totalHeight += change.height;
         this.idsWithDates.splice(newIndex, 0, newKey);
       }
 
@@ -126,7 +130,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
         dataOnly = true;
       }
     } else {
-      this.totalHeight += change.item.height - change.oldHeight;
+      this.totalHeight += change.height - change.oldHeight;
     }
 
     // We could expose more data, but WindowedListProxy doesn't need it, so
@@ -347,10 +351,11 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
 
       if (haveData) {
         // only need overlays
-        sendState.set(id, [null, overlayResolver(id)]);
+        sendState.set(id, [null, overlayResolver(id)], null);
       } else if (convCache.has(id)) {
         newKnownSet.add(id);
-        sendState.set(id, [convCache.get(id), overlayResolver(id)]);
+        sendState.set(id, [convCache.get(id), overlayResolver(id),
+                           idsWithDates[i].matchInfo]);
       } else {
         needData.set(id, null);
       }

@@ -3,12 +3,13 @@ define(function(require) {
 
 var evt = require('evt');
 
-function MailFolder(api, wireRep, overlays) {
+function MailFolder(api, wireRep, overlays, matchInfo) {
   evt.Emitter.call(this);
   this._api = api;
 
   this.__update(wireRep);
   this.__updateOverlays(overlays);
+  this.matchInfo = matchInfo;
 }
 MailFolder.prototype = evt.mix({
   toString: function() {

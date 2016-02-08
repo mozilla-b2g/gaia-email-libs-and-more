@@ -9,13 +9,16 @@ const matchRegexpOrString = require('./match_regexp_or_string');
  * is in contrast to matchExcerptHighlight where the entire value is believed
  * to be large and so it has to be snippeted/excerpted.
  */
-return function matchVerbatimHighlight(searchPattern, value) {
-  var ret = matchRegexpOrString(searchPattern, value, 0);
+return function matchVerbatimHighlight(searchPattern, value, path) {
+  var match = matchRegexpOrString(searchPattern, value, 0);
+  if (!match) {
+    return null;
+  }
   return {
     text: value,
     offset: 0,
-    matchRuns: [{ start: ret.index, length: ret[0].length }],
-    path: null,
+    matchRuns: [{ start: match.index, length: match[0].length }],
+    path: path || null
   };
 };
 });

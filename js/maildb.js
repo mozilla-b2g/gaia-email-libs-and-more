@@ -1223,7 +1223,9 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                     id: convInfo.id,
                     item: convInfo,
                     removeDate: null,
-                    addDate: convInfo.date
+                    addDate: convInfo.date,
+                    height: convInfo.height,
+                    oldHeight: 0
                   });
 
         convIdsStore.add(
@@ -1292,6 +1294,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                     item: convInfo,
                     removeDate: null,
                     addDate: convInfo.date,
+                    height: convInfo.height,
                     oldHeight: 0
                   });
       }
@@ -1304,6 +1307,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                     item: convInfo,
                     removeDate: preInfo.date,
                     addDate: convInfo.date,
+                    height: convInfo.height,
                     oldHeight: preInfo.height
                   });
       }
@@ -1314,6 +1318,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                     item: convInfo,
                     removeDate: preInfo.date,
                     addDate: null,
+                    height: 0,
                     oldHeight: preInfo.height
                   });
       }
@@ -1385,6 +1390,15 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       this.emit('msg!*!add', message);
       let eventId = 'conv!' + convId + '!messages!tocChange';
       this.emit(eventId, message.id, null, message.date, message, true);
+      this.emit(
+        eventId,
+        {
+          id: message.id,
+          preDate: null,
+          postDate: message.date,
+          item: message,
+          freshlyAdded: true
+        });
     }
   },
 
@@ -1429,7 +1443,15 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
           preInfo.folderIds, message ? message.folderIds : new Set());
 
       let convEventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(convEventId, messageId, preDate, postDate, message, false);
+      this.emit(
+        convEventId,
+        {
+          id: messageId,
+          preDate,
+          postDate,
+          message,
+          freshlyAdded: false
+        });
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
 

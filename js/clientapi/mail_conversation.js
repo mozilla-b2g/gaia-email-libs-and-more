@@ -66,7 +66,7 @@ let cleanupConversation = require('app_logic/conv_client_cleanup');
  * @property {Boolean} hasDraft
  * @property {Boolean} hasAttachments
  */
-function MailConversation(api, wireRep, overlays, slice, handle) {
+function MailConversation(api, wireRep, overlays, matchInfo, slice, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;
@@ -77,6 +77,7 @@ function MailConversation(api, wireRep, overlays, slice, handle) {
 
   this.id = wireRep.id;
   this.__update(wireRep, true);
+  this.matchInfo = matchInfo;
 }
 MailConversation.prototype = evt.mix({
   toString: function() {

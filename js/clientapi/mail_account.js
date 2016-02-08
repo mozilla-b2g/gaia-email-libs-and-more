@@ -7,11 +7,12 @@ let MailSenderIdentity = require('./mail_sender_identity');
 /**
  *
  */
-function MailAccount(api, wireRep, overlays, acctsSlice) {
+function MailAccount(api, wireRep, overlays, matchInfo, acctsSlice) {
   evt.Emitter.call(this);
 
   this._api = api;
   this.id = wireRep.id;
+  this.matchInfo = matchInfo;
 
   // Hold on to wireRep for caching
   this._wireRep = wireRep;

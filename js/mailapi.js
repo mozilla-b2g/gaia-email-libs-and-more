@@ -909,7 +909,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   * @param {String} [spec.filter.bodyAndQuotes]
   *   Match against the authored message body and any included quoted blocks.
   */
-  searchFolderConversations: function (spec) {
+  searchFolderConversations: function(spec) {
     var handle = this._nextHandle++,
         view = new ConversationsListView(this, handle);
     view.folderId = spec.folder.id;
@@ -918,8 +918,12 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     this.__bridgeSend({
       type: 'searchFolderConversations',
       handle,
-      spec
+      spec: {
+        folderId: view.folderId,
+        filter: spec.filter
+      }
     });
+    return view;
   },
 
   viewConversationMessages: function(convOrId) {
@@ -933,6 +937,43 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
       type: 'viewConversationMessages',
       conversationId: view.conversationId,
       handle
+    });
+
+    return view;
+  },
+
+  /**
+   * Search a conversations messages for messages matching the provided
+   * filter constraints, returning a MessagesListView.
+   *
+   * @param {Object} spec
+   * @param {MailFolder} spec.folder
+   *   The folder whose messages we should search.
+   * @param {Object) spec.filter
+   * @param {String} [spec.filter.author]
+   *   Match against author display name or email address.
+   * @param {String} [spec.filter.recipients]
+   *   Match against recipient display name or email addresses.
+   * @param {String} [spec.filter.subject]
+   *   Match against the message subject.
+   * @param {String} [spec.filter.body]
+   *   Match against the authored message body.  Quoted blocks will be ignored.
+   * @param {String} [spec.filter.bodyAndQuotes]
+   *   Match against the authored message body and any included quoted blocks.
+   */
+  searchConversationMessages: function(spec) {
+    var handle = this._nextHandle++,
+        view = new MessagesListView(this, handle);
+    view.conversationId = spec.conversation.id;
+    this._trackedItemHandles.set(handle, { obj: view });
+
+    this.__bridgeSend({
+      type: 'searchConversationMessages',
+      handle,
+      spec: {
+        conversationId: view.conversationId,
+        filter: spec.filter
+      }
     });
 
     return view;

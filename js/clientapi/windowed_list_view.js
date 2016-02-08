@@ -131,9 +131,9 @@ WindowedListView.prototype = evt.mix({
         newSet.set(id, obj);
       } else if (newStates.has(id)) {
         itemSetChanged = true;
-        let [newState, newOverlays] = newStates.get(id);
+        let [newState, newOverlays, matchInfo] = newStates.get(id);
         obj = new this._itemConstructor(
-          this._api, newState, newOverlays, this);
+          this._api, newState, newOverlays, matchInfo, this);
         obj.serial = newSerial;
         newSet.set(id, obj);
       } else {

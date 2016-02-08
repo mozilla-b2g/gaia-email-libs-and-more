@@ -33,7 +33,9 @@ DirectFolderQuery.prototype = {
   }),
 
   /**
-   *
+   * Bind the listener for TOC changes, including immediately draining all
+   * buffered events that were fired between the time the DB query was issued
+   * and now.
    */
   bind: function(listenerObj, listenerMethod) {
     let boundListener = this._boundListener = listenerMethod.bind(listenerObj);

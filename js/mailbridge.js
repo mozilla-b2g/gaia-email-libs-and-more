@@ -325,15 +325,14 @@ MailBridge.prototype = {
       type: 'folder',
       folderId: msg.folderId
     };
-    let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
-                                                                msg.folderId);
+    let toc = yield this.universe.acquireSearchConversationsTOC(ctx, msg.spec);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
   }),
 
   _cmd_viewConversationMessages: co.wrap(function*(msg) {
-    let ctx = this.bridgeContext.createNamedContext(msg.handle,
-                                                    'ConversationMessagesView');
+    let ctx = this.bridgeContext.createNamedContext(
+      msg.handle, 'ConversationMessagesView');
     ctx.viewing = {
       type: 'conversation',
       conversationId: msg.conversationId
@@ -343,6 +342,20 @@ MailBridge.prototype = {
     ctx.proxy = new WindowedListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
   }),
+
+  _cmd_searchConversationMessages: co.wrap(function*(msg) {
+    let ctx = this.bridgeContext.createNamedContext(
+      msg.handle, 'ConversationSearchView');
+    ctx.viewing = {
+      type: 'conversation',
+      conversationId: msg.conversationId
+    };
+    let toc =
+      yield this.universe.acquireSearchConversationMessagesTOC(ctx, msg.spec);
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    yield ctx.acquire(ctx.proxy);
+  }),
+
 
   _cmd_refreshView: function(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
