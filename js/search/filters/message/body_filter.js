@@ -2,11 +2,14 @@ define(function(require) {
 'use strict';
 
 const matchExcerptHighlight = require('../../match_excerpt_highlight');
+const searchPatternFromArgs = require('../search_pattern_from_args');
 
 const CT_AUTHORED_CONTENT = 0x1;
 
-function BodyFilter(params/*, args*/) {
-  this.includeQuotes = (params && params.includeQuotes) || false;
+function BodyFilter(params, args) {
+  this.includeQuotes = params.includeQuotes;
+  this.excerptSettings = params.excerptSettings;
+  this.searchPattern = searchPatternFromArgs(args);
   this.gather = {
     bodyContents: { includeQuotes: this.includeQuotes }
   };
