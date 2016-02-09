@@ -1397,7 +1397,8 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
           preDate: null,
           postDate: message.date,
           item: message,
-          freshlyAdded: true
+          freshlyAdded: true,
+          matchInfo: null
         });
     }
   },
@@ -1449,8 +1450,9 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
           id: messageId,
           preDate,
           postDate,
-          message,
-          freshlyAdded: false
+          item: message,
+          freshlyAdded: false,
+          matchInfo: null
         });
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
