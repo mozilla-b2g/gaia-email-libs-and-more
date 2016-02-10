@@ -52,6 +52,8 @@ CompositeIncomingAccount.prototype = {
    * We receive this notification from our _backoffEndpoint.
    */
   onEndpointStateChange: function(state) {
+    console.log('endpoint state change:', state);
+    /*
     switch (state) {
       case 'healthy':
         this.universe.__removeAccountProblem(this.compositeAccount,
@@ -65,6 +67,7 @@ CompositeIncomingAccount.prototype = {
       default:
         break;
     }
+    */
   },
 };
 

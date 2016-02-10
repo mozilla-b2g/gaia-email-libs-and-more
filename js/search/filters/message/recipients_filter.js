@@ -12,6 +12,7 @@ RecipientsFilter.prototype = {
    * We don't need anything beyond the message.
    */
   gather: {
+    // message is implicit to the context
   },
 
   /**

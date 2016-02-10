@@ -9,6 +9,10 @@ const { DEFAULT_SEARCH_EXCERPT_SETTINGS } = require('../syncbase');
  **/
 
 return {
+  author: {
+    constructor: require('./filters/message/author_filter'),
+    params: null
+  },
   recipients: {
     constructor: require('./filters/message/recipients_filter'),
     params: null

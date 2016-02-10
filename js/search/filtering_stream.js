@@ -3,7 +3,8 @@ define(function(require) {
 
 const logic = require('logic');
 
-const { TransformStream, WritableStream } = require('streams');
+const { TransformStream, WritableStream, CountQueuingStrategy } =
+  require('streams');
 const { shallowClone } = require('../util');
 
 /**
@@ -64,13 +65,6 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
    */
   let knownFilteredSet = new Set();
 
-  let strategy = {
-    highWaterMark: 1,
-    size: function() {
-      return 1;
-    }
-  };
-
   /**
    * Stream that allows us to keep some number of gathers in flight for pipeline
    * throughput optimization.  This stream takes in the change requests that
@@ -97,8 +91,8 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
       }
       done();
     },
-    writableStrategy: strategy,
-    readableStrategy: strategy
+    writableStrategy: new CountQueuingStrategy({ highWaterMark: 1 }),
+    readableStrategy: new CountQueuingStrategy({ highWaterMark: 1 })
   });
 
   let filterStream = new TransformStream({
@@ -111,8 +105,9 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
         enqueue(change);
         done();
       } else {
+        logic(ctx, 'gatherWait', { id: change.id });
         gather.then((gathered) => {
-          logic(ctx, 'gathered', { id: change.id, gathered });
+          logic(ctx, 'gathered', { id: change.id });
           // It's possible the item got removed after we kicked off the gather.
           // Don't report the item in that case.  (Note that explicit deletion
           // of things already reported triggered the first branch of this if,
@@ -153,12 +148,14 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
         });
       }
     },
-    writableStrategy: strategy,
-    readableStrategy: strategy
+    writableStrategy: new CountQueuingStrategy({ highWaterMark: 1 }),
+    readableStrategy: new CountQueuingStrategy({ highWaterMark: 1 })
   });
 
-  gatherStream.readable.pipeTo(filterStream.writable);
-  filterStream.readable.pipeTo(new WritableStream({
+  //bufferingStream.readable.pipeTo(gatherStream.writable);
+  gatherStream.readable.pipeThrough(filterStream).pipeTo(new WritableStream({
+    start() {
+    },
     write(change) {
       onFilteredUpdate(change);
     },
@@ -169,7 +166,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
     abort(ex) {
       logic(ctx, 'filteringStreamAbortError', { ex, stack: ex.stack });
     }
-  }));
+  }, new CountQueuingStrategy({ highWaterMark: 1 })));
 
   return {
     /**

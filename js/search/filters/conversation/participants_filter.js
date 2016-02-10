@@ -4,10 +4,19 @@ define(function(require) {
 const searchPatternFromArgs = require('../search_pattern_from_args');
 const matchVerbatimHighlight = require('../../match_verbatim_highlight');
 
-function AuthorFilter(params, args) {
+/**
+ * Like the per-message Author filter but we check the ConversationInfo authors
+ * aggregate list instead of the messages.  This inherently involves less data
+ * but also fails to check replyTo.  Also, if we're already gathering the
+ * messages for any of the other filters, this is potentially less efficient.
+ * If we address the replyTo implications, it could make sense to rename this
+ * back to author filter and have it hide the per-message one in the
+ * conversation case.
+ */
+function ParticipantsFilter(params, args) {
   this.searchPattern = searchPatternFromArgs(args);
 }
-AuthorFilter.prototype = {
+ParticipantsFilter.prototype = {
   /**
    * We check authors directly on the conversation since an aggregate is
    * explicitly maintained.  The conversation is implicit, so we don't request
@@ -48,5 +57,5 @@ AuthorFilter.prototype = {
   },
 
 };
-return AuthorFilter;
+return ParticipantsFilter;
 });

@@ -13,6 +13,7 @@ SubjectFilter.prototype = {
    * We don't need anything beyond what's already provided on messages.
    */
   gather: {
+    // message is implicit to the context
   },
 
   /**

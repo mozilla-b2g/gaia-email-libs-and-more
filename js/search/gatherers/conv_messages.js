@@ -3,6 +3,10 @@ define(function() {
 
 /**
  * Gather the messages belonging to the provided conversation.
+ *
+ * The way this is used in conjunction with our gather definition, our returned
+ * result of [msgA, msgB, msgC] will be exploded in the gather context to be
+ * [{ message: msgA }, { message: msgB }, { message: msgC }].
  */
 function GatherConversationMessages({ db, ctx }) {
   this._db = db;

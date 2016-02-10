@@ -2,7 +2,7 @@ define(function() {
 'use strict';
 
 /**
- * Given the ConversationInfo for the given conversation.
+ * Gather the ConversationInfo for the given conversation.
  */
 function GatherConversation({ db, ctx }) {
   this._db = db;

@@ -11,8 +11,8 @@ define(function(require) {
 
 // The conversation specific filters.
 const convFilters = {
-  author: {
-    constructor: require('./filters/conversation/author_filter'),
+  participants: {
+    constructor: require('./filters/conversation/participants_filter'),
     params: null
   },
 };

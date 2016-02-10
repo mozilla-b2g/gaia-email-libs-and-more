@@ -10,7 +10,7 @@ NestedGatherer.prototype = {
   nested: true,
 
   hasGatherer: function(key) {
-    return this.gatherers.has(key);
+    return this.gatherers.has(key) || key === this.rootKey;
   },
 
   getGatherer: function(key) {
@@ -36,9 +36,10 @@ NestedGatherer.prototype = {
       // latch here.
       let key = ukey;
       let gatherer = ugatherer;
-      // It's possible for our caller to have been caller and already
+      // It's possible for our caller to have been clever and already
       // pre-populated some stuff for us.  In that case, skip this gatherer as
-      // long as it's not nested.
+      // long as it's not nested.  The nested case will handle the root being
+      // present automatically.
       if (gatherInto[key] && !gatherer.nested) {
         continue;
       }
@@ -54,7 +55,14 @@ NestedGatherer.prototype = {
 
   gather: function(gathered) {
     if (this.rootGatherer) {
-      return this.rootGatherer.gather(gathered).then((rootResult) => {
+      let rootGather;
+      // Allow bypassing the gatherer if the thing is already
+      if (gathered[this.rootKey]) {
+        rootGather = Promise.resolve(gathered[this.rootKey]);
+      } else {
+        rootGather = this.rootGatherer.gather(gathered);
+      }
+      return rootGather.then((rootResult) => {
         if (this.rootGatherer.plural) {
           // Plural, so the result is an array and we want to create a context
           // for each item and then run a gather on each of those items.

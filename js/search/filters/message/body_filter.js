@@ -11,6 +11,7 @@ function BodyFilter(params, args) {
   this.excerptSettings = params.excerptSettings;
   this.searchPattern = searchPatternFromArgs(args);
   this.gather = {
+    // message is implicit
     bodyContents: { includeQuotes: this.includeQuotes }
   };
 }

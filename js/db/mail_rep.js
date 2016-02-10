@@ -42,6 +42,7 @@ define(function() {
  * @property {NameAddressPair[]} cc
  * @property {NameAddressPair[]} bcc
  * @property {NameAddressPair[]} replyTo
+ *   Yes, reply-to is a list of addresses.
  * @property {String[]} flags
  * @property {Set} folderIds
  *   Folders this message belongs to.  For Gmail IMAP these correspond to

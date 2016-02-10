@@ -947,8 +947,8 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * filter constraints, returning a MessagesListView.
    *
    * @param {Object} spec
-   * @param {MailFolder} spec.folder
-   *   The folder whose messages we should search.
+   * @param {MailFolder} spec.conversation
+   *   The conversation whose messages we should search.
    * @param {Object) spec.filter
    * @param {String} [spec.filter.author]
    *   Match against author display name or email address.

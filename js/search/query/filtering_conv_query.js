@@ -6,44 +6,45 @@ const co = require('co');
 const FilteringStream = require('../filtering_stream');
 
 /**
- * Query that directly exposes the entirety of a conversation folder index.
- * Basically just normalizes the pre-query implementation so we don't need
- * multiple TOC variants, etc.
+ * Filter messages.
  */
-function FilteringFolderQuery({ ctx, db, folderId, filterRunner,
-                                rootGatherer }) {
+function FilteringConversationQuery({ ctx, db, conversationId, filterRunner,
+                                      rootGatherer }) {
   this._db = db;
-  this.folderId = folderId;
-  this._eventId = null;
+  this.conversationId = conversationId;
+  this._tocEventId = null;
+  this._convEventId = null;
   this._drainEvents = null;
-  this._boundListener = null;
+  this._boundTOCListener = null;
+  this._boundConvListener = null;
 
   this._filteringStream = new FilteringStream({
     ctx, filterRunner, rootGatherer,
     isDeletion: (change) => {
-      return (!change.addDate);
+      return (!change.postDate);
     },
     inputToGatherInto: (change) => {
       return {
-        convId: change.id
+        messageId: change.id,
+        date: change.postDate
       };
     },
     mutateChangeToResembleAdd: (change) => {
-      change.removeDate = null;
+      change.preDate = null;
+      change.freshlyAdded = true;
     },
     mutateChangeToResembleDeletion: (change) => {
       change.item = null;
-      change.addDate = null;
-      change.height = 0;
+      change.postDate = null;
     },
     onFilteredUpdate: (change) => {
-      this._boundListener(change);
+      this._boundTOCListener(change);
     }
   });
 
   this._bound_filteringTOCChange = this._filteringTOCChange.bind(this);
 }
-FilteringFolderQuery.prototype = {
+FilteringConversationQuery.prototype = {
   /**
    * Called by the TOC to initiate the initial fill and receive an initial big
    * glob of stuff.  For now we lie and pretend there are zero things and
@@ -54,18 +55,19 @@ FilteringFolderQuery.prototype = {
   execute: co.wrap(function*() {
     let idsWithDates;
     ({ idsWithDates,
-      drainEvents: this._drainEvents,
-      eventId: this._eventId } =
-        yield this._db.loadFolderConversationIdsAndListen(this.folderId));
+       drainEvents: this._drainEvents,
+       tocEventId: this._tocEventId,
+       convEventId: this._convEventId } =
+        yield this._db.loadConversationMessageIdsAndListen(
+          this.conversationId));
 
     for (let idWithDate of idsWithDates) {
       this._filteringStream.consider({
         id: idWithDate.id,
+        preDate: null,
+        postDate: idWithDate.date,
         item: null,
-        removeDate: null,
-        addDate: idWithDate.date,
-        height: idWithDate.height,
-        oldHeight: 0,
+        freshlyAdded: true,
         matchInfo: null
       });
     }
@@ -78,15 +80,20 @@ FilteringFolderQuery.prototype = {
    * buffered events that were fired between the time the DB query was issued
    * and now.
    */
-  bind: function(listenerObj, listenerMethod) {
-    this._boundListener = listenerMethod.bind(listenerObj);
-    this._db.on(this._eventId, this._bound_filteringTOCChange);
-    this._drainEvents(this._bound_filteringTOCChange);
+  bind: function(listenerObj, tocListenerMethod, convListenerMethod) {
+    this._boundTOCListener = tocListenerMethod.bind(listenerObj);
+    this._boundConvListener = convListenerMethod.bind(listenerObj);
+    // TOC changes need to go into our filter
+    this._db.on(this._tocEventId, this._bound_filteringTOCChange);
+    // but the death of the conversation might as well be passed through,
+    // for now.
+    this._db.on(this._convEventId, this._boundConvListener);
+    this._drainEvents(this._boundTOCListener);
     this._drainEvents = null;
   },
 
   /**
-   * Events from the database about the folder we're filtering on.  We cram
+   * Events from the database about the Conversation we're filtering on.  We cram
    * these into the filtering stream.
    */
   _filteringTOCChange: function(change) {
@@ -97,10 +104,11 @@ FilteringFolderQuery.prototype = {
    * Tear down everything.  Query's over.
    */
   destroy: function() {
-    this._db.removeListener(this._eventId, this._bound_filteringTOCChange);
+    this._db.removeListener(this._tocEventId, this._bound_filteringTOCChange);
+    this._db.removeListener(this._convEventId, this._boundConvListener);
     this._filteringStream.destroy();
   }
 };
 
-return FilteringFolderQuery;
+return FilteringConversationQuery;
 });
