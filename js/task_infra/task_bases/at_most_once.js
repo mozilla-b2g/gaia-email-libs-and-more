@@ -114,7 +114,7 @@ return {
         rval = {};
       }
       yield ctx.finishTask(rval);
-      return rval.result;
+      return ctx.returnValue(rval.result);
     }
 
     let rval = yield this.helped_plan(ctx, req);
