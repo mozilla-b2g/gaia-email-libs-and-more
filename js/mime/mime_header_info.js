@@ -2,8 +2,8 @@ define(function(require) {
 'use strict';
 
 const jsmime = require('jsmime');
-const dateMod = require('date');
-const util = require('util');
+const dateMod = require('../date');
+const util = require('../util');
 const { generateMessageIdHeaderValue } = require('../bodies/mailchew');
 
 /**

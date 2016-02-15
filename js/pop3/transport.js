@@ -1,8 +1,11 @@
 define(function(require, exports) {
+'use strict';
 
 var mimefuncs = require('mimefuncs');
-var streams = require('streams');
-var mimeStreams = require('mime-streams');
+const { ReadableStream, WritableStream } = require('streams');
+const SocketStream = require('../streamy/socket_stream');
+const LineTransformStream = require('../streamy/line_transform_stream');
+const readAllChunks = require('../streamy/read_all_chunks');
 var evt = require('evt');
 var setTimeout = window.setTimeout.bind(window);
 var clearTimeout = window.clearTimeout.bind(window);
@@ -17,11 +20,11 @@ var SPACE = ' '.charCodeAt(0);
 var textEncoder = new TextEncoder('utf-8', { fatal: false });
 
 exports.Pop3RequestStream = function(socket, greetingRequest) {
-  var { readable, writable } = new mimeStreams.SocketStream(socket);
+  var { readable, writable } = new SocketStream(socket);
 
   var requestsAwaitingResponse = [greetingRequest];
 
-  var writableRequestStream = new streams.WritableStream({
+  var writableRequestStream = new WritableStream({
     write: function(request) {
       if (socket.readyState === 'closed') {
         request._respondWithError('(connection closed before send)');
@@ -35,15 +38,15 @@ exports.Pop3RequestStream = function(socket, greetingRequest) {
       }
     },
     close: function() {
-      for (var request; request = requestsAwaitingResponse.shift(); ) {
+      for (var request; (request = requestsAwaitingResponse.shift()); ) {
         request._respondWithError('(connection closed, no response)');
-      };
+      }
     }
-  })
+  });
 
   readable
-    .pipeThrough(new mimeStreams.LineTransformStream())
-    .pipeTo(new streams.WritableStream({
+    .pipeThrough(new LineTransformStream())
+    .pipeTo(new WritableStream({
       write: function(line) {
         var currentRequest = requestsAwaitingResponse[0];
         if (!currentRequest) {
@@ -65,11 +68,11 @@ exports.Pop3RequestStream = function(socket, greetingRequest) {
         // Close the request stream when we lose the socket.
         writableRequestStream.close();
       }
-    }))
+    }));
 
 
   return writableRequestStream;
-}
+};
 
 var Request = exports.Request = function(command, args, expectMultiline) {
   this.command = command;
@@ -78,12 +81,12 @@ var Request = exports.Request = function(command, args, expectMultiline) {
 
   this.statusLine = null;
   this._dataLineStreamController = null;
-  this.dataLineStream = new streams.ReadableStream({
+  this.dataLineStream = new ReadableStream({
     start: (controller) => {
       this._dataLineStreamController = controller;
     }
   });
-}
+};
 
 Request.prototype = {
   /**
@@ -143,7 +146,7 @@ Request.prototype = {
   },
 
   then: function(thenFn, catchFn) {
-    return mimeStreams.readAllChunks(this.dataLineStream)
+    return readAllChunks(this.dataLineStream)
       .then(thenFn, catchFn);
   },
 
@@ -157,6 +160,5 @@ Request.prototype = {
   toString: function() {
     return this.command + ' => ' + this.getStatusLine();
   },
-}
-
+};
 });

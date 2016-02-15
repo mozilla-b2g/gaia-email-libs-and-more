@@ -125,11 +125,9 @@ AccountManager.prototype = {
    * some of the tasks to only be loaded when they are actually needed.
    */
   _ensureTasksLoaded: prereqify('_taskTypeLoads', function (engineId) {
-    return new Promise((resolve) => {
-      require([engineTaskMappings.get(engineId)], (tasks) => {
-        this.taskRegistry.registerPerAccountTypeTasks(engineId, tasks);
-        resolve(true);
-      });
+    return engineTaskMappings.get(engineId)().then((tasks) => {
+      this.taskRegistry.registerPerAccountTypeTasks(engineId, tasks);
+      return true;
     });
   }),
 
@@ -160,21 +158,19 @@ AccountManager.prototype = {
    */
   _ensureAccount: prereqify('_accountLoads', function(accountId) {
     return this._ensureAccountFoldersTOC(accountId).then((foldersTOC) => {
-      return new Promise((resolve) => {
-        let accountDef = this.getAccountDefById(accountId);
-        require([accountModules.get(accountDef.type)], (accountConstructor) => {
-          let stashedConn = this._stashedConnectionsByAccountId.get(accountId);
-          this._stashedConnectionsByAccountId.delete(accountId);
+      let accountDef = this.getAccountDefById(accountId);
+      accountModules.get(accountDef.type)().then((accountConstructor) => {
+        let stashedConn = this._stashedConnectionsByAccountId.get(accountId);
+        this._stashedConnectionsByAccountId.delete(accountId);
 
-          let account = new accountConstructor(
-            this.universe, accountDef, foldersTOC, this.db, stashedConn);
-          this.accounts.set(accountId, account);
-          // If we're online, issue a syncFolderList task.
-          if (this.universe.online) {
-            this.universe.syncFolderList(accountId, 'loadAccount');
-          }
-          resolve(account);
-        });
+        let account = new accountConstructor(
+          this.universe, accountDef, foldersTOC, this.db, stashedConn);
+        this.accounts.set(accountId, account);
+        // If we're online, issue a syncFolderList task.
+        if (this.universe.online) {
+          this.universe.syncFolderList(accountId, 'loadAccount');
+        }
+        return account;
       });
     });
   }),

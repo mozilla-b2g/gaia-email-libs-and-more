@@ -49,10 +49,11 @@
  * than we should.
  */
 define(function(require, exports, module) {
+  'use strict';
 
-  var router = require('worker-router');
+  var router = require('gelam/worker-router');
   var routerMaker = router.registerInstanceType('netsocket');
-  var DisasterRecovery = require('disaster-recovery');
+  var DisasterRecovery = require('gelam/disaster-recovery');
 
   function TCPSocketProxy(host, port, options) {
     options = options || {};

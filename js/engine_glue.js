@@ -2,8 +2,11 @@ define(function() {
 'use strict';
 
 /**
- * We map arbitrary engine-related identifiers to the module identifiers of the
- * modules that provide them.  It's on you to do the require() call yourself.
+ * The home for all engine abstractions; if you add a new account type or engine
+ * then this is ideally the only place it gets added.  Some changes may happen
+ * in the future to define these all as optional extensions that the app_logic
+ * gets to decide on.  This module provides a means of requiring/loading the
+ * givenengine modules on demand, as well as providing metadata about engines.
  *
  * Currently we use two type of identifiers:
  * - Account Type Strings (old, but not going away):
@@ -24,15 +27,33 @@ return {
   configuratorModules: new Map([
     [
       'activesync',
-      '../activesync/configurator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/activesync/configurator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'imap+smtp',
-      '../composite/configurator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/configurator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'pop3+smtp',
-      '../composite/configurator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/configurator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ]
   ]),
 
@@ -43,15 +64,33 @@ return {
   validatorModules: new Map([
     [
       'activesync',
-      '../activesync/validator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/activesync/validator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'imap+smtp',
-      '../composite/validator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/validator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'pop3+smtp',
-      '../composite/validator'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/validator'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ]
   ]),
 
@@ -62,15 +101,33 @@ return {
   accountModules: new Map([
     [
       'activesync',
-      '../activesync/account'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/activesync/account'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'imap+smtp',
-      '../composite/account'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/account'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'pop3+smtp',
-      '../composite/account'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/composite/account'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ]
   ]),
 
@@ -81,19 +138,43 @@ return {
   engineTaskMappings: new Map([
     [
       'gmailImap',
-      '../imap/gmail_tasks'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/imap/gmail_tasks'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'vanillaImap',
-      '../imap/vanilla_tasks'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/imap/vanilla_tasks'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'activesync',
-      '../activesync/activesync_tasks'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/activesync/activesync_tasks'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ],
     [
       'pop3',
-      '../pop3/pop3_tasks'
+      function() {
+        return new Promise(function(resolve) {
+          require(['gelam/pop3/pop3_tasks'], function(mod) {
+            resolve(mod);
+          });
+        });
+      }
     ]
   ]),
 

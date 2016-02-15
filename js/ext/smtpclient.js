@@ -1,3 +1,3 @@
-define(['ext/smtpclient/src/smtpclient'], function(SmtpClient) {
+define(['./smtpclient/src/smtpclient'], function(SmtpClient) {
   return SmtpClient;
 });

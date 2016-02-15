@@ -1451,7 +1451,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   // Diagnostics / Test Hacks
 
   /**
-   * After a setZeroTimeout, send a 'ping' to the bridge which will send a
+   * After a zero timeout, send a 'ping' to the bridge which will send a
    * 'pong' back, notifying the provided callback.  This is intended to be hack
    * to provide a way to ensure that some function only runs after all of the
    * notifications have been received and processed by the back-end.
@@ -1473,12 +1473,12 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     // ordering that should be done using better/more specific methods, so this
     // change is not any less of a hack/evil, although it does cause misuse to
     // potentially be more capable of causing intermittent failures.
-    window.setZeroTimeout(function() {
+    window.setTimeout(() => {
       this.__bridgeSend({
         type: 'ping',
         handle: handle,
       });
-    }.bind(this));
+    }, 0);
   },
 
   _recv_pong: function(msg) {

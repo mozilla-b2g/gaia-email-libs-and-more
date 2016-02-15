@@ -3,6 +3,22 @@ define(function(require) {
 
 const co = require('co');
 
+function gimmeProbers(isImap) {
+  return new Promise(function(resolve) {
+    if (isImap) {
+      require(['../imap/probe', '../smtp/probe'],
+              function(receiveMod, sendMod) {
+                resolve([receiveMod, sendMod]);
+              });
+    } else {
+      require(['../pop3/probe', '../smtp/probe'],
+              function(receiveMod, sendMod) {
+                resolve([receiveMod, sendMod]);
+              });
+    }
+  });
+}
+
 /**
  * Validate the credentials and connection configurations for the given account.
  * This is currently used for account creation, but could also be used for
@@ -19,15 +35,8 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
   let isImap = (typeFields.receiveType === 'imap');
 
   // - Dynamically load the required modules.
-  let receiveProbeId =  isImap ? '../imap/probe' : '../pop3/probe';
-
-  let [receiveProber, sendProber] = yield new Promise((resolve) => {
-    require(
-      [receiveProbeId, '../smtp/probe'],
-      (receiveMod, sendMod) => {
-        resolve([receiveMod, sendMod]);
-      });
-  });
+  // But in a statically traceable way.
+  let [receiveProber, sendProber] = yield gimmeProbers(isImap);
 
   // - Initiate the probes in parallel...
   // Note: For OAUTH accounts, the credentials may be updated

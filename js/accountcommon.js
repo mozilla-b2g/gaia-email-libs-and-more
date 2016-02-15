@@ -25,21 +25,6 @@ define(
 
 var latchedWithRejections = allback.latchedWithRejections;
 
-function requireConfigurator(type, fn) {
-  if (type === 'activesync') {
-    require(['activesync/configurator'], fn);
-  } else if (type === 'pop3+smtp' || type === 'imap+smtp') {
-    require(['composite/configurator'], fn);
-  }
-}
-
-function accountTypeToClass(type, callback) {
-  requireConfigurator(type, function(mod) {
-    callback(mod.account.Account);
-  });
-}
-exports.accountTypeToClass = accountTypeToClass;
-
 /**
  * Recreate an existing account, e.g. after a database upgrade.
  *

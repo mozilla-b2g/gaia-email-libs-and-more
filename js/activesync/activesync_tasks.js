@@ -2,7 +2,7 @@ define(function(require) {
 'use strict';
 
 /**
- * Standard IMAP.
+ * Activesync Tasks.
  */
 return [
   require('./tasks/sync_folder_list'),
@@ -12,6 +12,8 @@ return [
   require('./tasks/sync_refresh'),
   require('./tasks/sync_conv'),
   require('./tasks/sync_body'),
+
+  // TODO XXX implement download
 
   require('./tasks/store_flags'),
 

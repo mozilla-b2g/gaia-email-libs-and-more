@@ -4,6 +4,8 @@ define([
   '../composite/incoming',
   '../errorutils',
   '../disaster-recovery',
+  './pop3',
+  './probe',
   'module',
   'require',
   'exports'],
@@ -13,6 +15,8 @@ function(
   incoming,
   errorutils,
   DisasterRecovery,
+  pop3,
+  pop3probe,
   module,
   require,
   exports
@@ -146,58 +150,58 @@ var properties = {
     // we need to know that there's a pending connection request in
     // progress.
     this._conn = true;
-    // Dynamically load the probe/pop3 code to speed up startup.
-    require(['./pop3', './probe'], function(pop3, pop3probe) {
-      logic(this, 'createConnection', { label: whyLabel });
-      var opts = {
-        host: this._connInfo.hostname,
-        port: this._connInfo.port,
-        crypto: this._connInfo.crypto,
+    // NB: we used to dynamically load ./pop3 and ./probe here, but with all
+    // the overhauls going on, I'm removing this for now.  It may make sense
+    // to redo this later.
+    logic(this, 'createConnection', { label: whyLabel });
+    var opts = {
+      host: this._connInfo.hostname,
+      port: this._connInfo.port,
+      crypto: this._connInfo.crypto,
 
-        preferredAuthMethod: this._engineData.preferredAuthMethod,
+      preferredAuthMethod: this._engineData.preferredAuthMethod,
 
-        username: this._credentials.username,
-        password: this._credentials.password,
-      };
+      username: this._credentials.username,
+      password: this._credentials.password,
+    };
 
-      var conn = this._conn = new pop3.Pop3Client(opts, function(err) {
-        if (err) {
-          // Failed to get the connection:
-          console.error('Connect error:', err.name, 'formal:', err, 'on',
-                        this._connInfo.hostname, this._connInfo.port);
+    var conn = this._conn = new pop3.Pop3Client(opts, function(err) {
+      if (err) {
+        // Failed to get the connection:
+        console.error('Connect error:', err.name, 'formal:', err, 'on',
+                      this._connInfo.hostname, this._connInfo.port);
 
-          err = pop3probe.normalizePop3Error(err);
+        err = pop3probe.normalizePop3Error(err);
 
-          if (errorutils.shouldReportProblem(err)) {
-            this.universe.__reportAccountProblem(
-              this.compositeAccount, err, 'incoming');
-          }
-
-          callback && callback(err, null);
-          conn.close();
-
-          // Track this failure for backoff purposes.
-          if (errorutils.shouldRetry(err)) {
-            if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
-              errorutils.wasErrorFromReachableState(err))) {
-              this._backoffEndpoint.scheduleConnectAttempt(
-                this._makeConnection.bind(this));
-             } else {
-               this._backoffEndpoint.noteBrokenConnection();
-            }
-          } else {
-            this._backoffEndpoint.noteBrokenConnection();
-          }
+        if (errorutils.shouldReportProblem(err)) {
+          this.universe.__reportAccountProblem(
+            this.compositeAccount, err, 'incoming');
         }
-        // Succeeded:
-        else {
-          this._backoffEndpoint.noteConnectSuccess();
-          callback && callback(null, conn);
-        }
-      }.bind(this));
 
-      DisasterRecovery.associateSocketWithAccount(conn.socket, this);
+        callback && callback(err, null);
+        conn.close();
+
+        // Track this failure for backoff purposes.
+        if (errorutils.shouldRetry(err)) {
+          if (this._backoffEndpoint.noteConnectFailureMaybeRetry(
+            errorutils.wasErrorFromReachableState(err))) {
+            this._backoffEndpoint.scheduleConnectAttempt(
+              this._makeConnection.bind(this));
+           } else {
+             this._backoffEndpoint.noteBrokenConnection();
+          }
+        } else {
+          this._backoffEndpoint.noteBrokenConnection();
+        }
+      }
+      // Succeeded:
+      else {
+        this._backoffEndpoint.noteConnectSuccess();
+        callback && callback(null, conn);
+      }
     }.bind(this));
+
+    DisasterRecovery.associateSocketWithAccount(conn.socket, this);
   },
 
   /**

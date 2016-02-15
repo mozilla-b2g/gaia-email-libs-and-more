@@ -5,12 +5,12 @@ define(function(require) {
   const tcpSocket = require('tcp-socket');
   const md5 = require('md5');
   const transport = require('./transport');
-  const imapchew = require('imap/imapchew');
-  const syncbase = require('syncbase');
+  const imapchew = require('../imap/imapchew');
+  const syncbase = require('../syncbase');
   const co = require('co');
   const mimefuncs = require('mimefuncs');
-  const util = require('util');
-  const allback = require('allback');
+  const util = require('../util');
+  const allback = require('../allback');
 
   const ByteCounterTransformStream =
     require('../streamy/byte_counter_transform_stream');

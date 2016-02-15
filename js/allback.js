@@ -5,6 +5,7 @@
  **/
 
 define(['exports'], function(exports) {
+'use strict';
 
 /**
  * Create multiple named callbacks whose results are aggregated and a single
@@ -40,12 +41,14 @@ exports.allbackMaker = function allbackMaker(names, allDoneCallback) {
         throw new Error("Callback '" + name + "' fired multiple times!");
       }
       waitingFor.splice(i, 1);
-      if (arguments.length > 1)
+      if (arguments.length > 1) {
         aggrData[name] = arguments;
-      else
+      } else {
         aggrData[name] = callbackResult;
-      if (waitingFor.length === 0 && allDoneCallback)
+      }
+      if (waitingFor.length === 0 && allDoneCallback) {
         allDoneCallback(aggrData);
+      }
     };
   });
 
@@ -108,7 +111,7 @@ exports.latch = function() {
     var resolved = false;
     return function resolve() {
       if (resolved) {
-        var err = new Error("You have already resolved this deferred!");
+        var err = new Error('You have already resolved this deferred!');
         // Exceptions aren't always readily visible, but this is a
         // serious error and needs to be addressed.
         console.error(err + '\n' + err.stack);
@@ -122,9 +125,9 @@ exports.latch = function() {
         results[name] = Array.slice(arguments);
       }
       if (--count === 0) {
-        setZeroTimeout(function() {
+        setTimeout(function() {
           deferred.resolve(results);
-        });
+        }, 0);
       }
     };
   }
@@ -170,7 +173,7 @@ exports.extractErrFromCallbackArgs = function(results) {
 };
 
 exports.latchedWithRejections = function(namedPromises) {
-  return new Promise(function(resolve, reject) {
+  return new Promise(function(resolve) {
     // Avoid Object.prototype
     var results = Object.create(null);
     var pending = 0;
@@ -197,5 +200,4 @@ exports.latchedWithRejections = function(namedPromises) {
     }
   });
 };
-
 }); // end define

@@ -36,10 +36,15 @@ var $devicestorage = require('./worker-support/devicestorage-main');
 var $net = require('./worker-support/net-main');
 var $wakelocks = require('./worker-support/wakelocks-main');
 
+/**
+ * Builder/loader/runtime specific mechanism for worker instantiation.
+ */
+var makeWorker = require('app_logic/worker_maker');
+
 var control = {
   name: 'control',
   sendMessage: null,
-  process: function(uid, cmd, args) {
+  process: function(uid/*, cmd, args*/) {
     var online = navigator.onLine;
     control.sendMessage(uid, 'hello', [online]);
 
@@ -55,6 +60,7 @@ var control = {
 };
 
 var MailAPI = new $mailapi.MailAPI();
+var worker;
 
 var bridge = {
   name: 'bridge',
@@ -64,23 +70,23 @@ var bridge = {
 
     if (msg.type === 'hello') {
       delete MailAPI._fake;
-      MailAPI.__bridgeSend = function(msg) {
+      MailAPI.__bridgeSend = function(sendMsg) {
         try {
           worker.postMessage({
             uid: uid,
             type: 'bridge',
-            msg: msg
+            msg: sendMsg
           });
         } catch (ex) {
-          console.error('Presumed DataCloneError on:', msg);
+          console.error('Presumed DataCloneError on:', sendMsg);
         }
       };
 
       MailAPI.config = msg.config;
 
       // Send up all the queued messages to real backend now.
-      MailAPI._storedSends.forEach(function (msg) {
-        MailAPI.__bridgeSend(msg);
+      MailAPI._storedSends.forEach(function (storedMsg) {
+        MailAPI.__bridgeSend(storedMsg);
       });
       MailAPI._storedSends = [];
     } else {
@@ -90,10 +96,10 @@ var bridge = {
 };
 
 // Wire up the worker to the router
-var appLogicPath = module.config().appLogicPath;
-var worker = new Worker(
-  require.toUrl('./worker-bootstrap.js') +
-    '#appLogic=' + encodeURIComponent(appLogicPath));
+/* If using require.js this module should look something like:
+
+ */
+worker = makeWorker();
 $router.useWorker(worker);
 $router.register(control);
 $router.register(bridge);

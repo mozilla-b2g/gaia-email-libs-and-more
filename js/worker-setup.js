@@ -1,6 +1,10 @@
 define(function(require) {
 'use strict';
 
+/**
+ * This is the actual root module
+ **/
+
 let logic = require('logic');
 
 let $router = require('./worker-router');
@@ -36,7 +40,7 @@ let universe = null;
 
 function onUniverse() {
   createBridgePair(universe);
-  console.log("Mail universe/bridge created and notified!");
+  console.log('Mail universe/bridge created and notified!');
 }
 
 var sendControl = $router.registerSimple('control', function(data) {

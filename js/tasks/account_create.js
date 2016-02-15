@@ -58,17 +58,10 @@ return TaskDefiner.defineSimpleTask([
       let { userDetails, domainInfo } = planned;
       let accountType = domainInfo.type;
 
-      // - Dynamically require the configurator and validator modules.
-      let configuratorId = configuratorModules.get(accountType);
-      let validatorId = validatorModules.get(accountType);
-
-      let [configurator, validator] = yield new Promise((resolve) => {
-        require(
-          [configuratorId, validatorId],
-          (configuratorMod, validatorMod) => {
-            resolve([configuratorMod, validatorMod]);
-          });
-      });
+      let [configurator, validator] = yield Promise.all([
+        configuratorModules.get(accountType)(),
+        validatorModules.get(accountType)()
+      ]);
 
       let fragments = configurator(userDetails, domainInfo);
 

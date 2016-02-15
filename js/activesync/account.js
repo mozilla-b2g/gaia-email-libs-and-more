@@ -11,11 +11,11 @@ define(
     // We potentially create the synthetic inbox while offline, so this can't be
     // lazy-loaded.
     'activesync/codepages/FolderHierarchy',
-    './folder',
     '../util',
     '../db/folder_info_rep',
-    'module',
-    'require'
+    'wbxml',
+    'activesync/protocol',
+    'activesync/codepages'
   ],
   function(
     logic,
@@ -23,16 +23,13 @@ define(
     $acctmixins,
     $searchfilter,
     $FolderHierarchy,
-    $asfolder,
     $util,
     $folder_info,
-    $module,
-    require
+    $wbxml,
+    $asproto,
+    ASCP
   ) {
 'use strict';
-
-// Lazy loaded vars.
-var $wbxml, $asproto, ASCP;
 
 // XXX pull out of syncbase instead
 var DEFAULT_TIMEOUT_MS = 30 * 1000;
@@ -92,22 +89,6 @@ ActiveSyncAccount.prototype = {
    * initialized yet.
    */
   withConnection: function (errback, callback, failString) {
-    // lazy load our dependencies if they haven't already been fetched.  This
-    // occurs regardless of whether we have a connection already or not.  We
-    // do this because the connection may have been passed-in to us as a
-    // leftover of the account creation process.
-    if (!$wbxml) {
-      require(['wbxml', 'activesync/protocol', 'activesync/codepages'],
-              function (_wbxml, _asproto, _ASCP) {
-        $wbxml = _wbxml;
-        $asproto = _asproto;
-        ASCP = _ASCP;
-
-        this.withConnection(errback, callback, failString);
-      }.bind(this));
-      return;
-    }
-
     if (!this.conn) {
       var accountDef = this.accountDef;
       this.conn = new $asproto.Connection(accountDef.connInfo.deviceId);

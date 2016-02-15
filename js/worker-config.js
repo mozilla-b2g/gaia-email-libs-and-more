@@ -1,5 +1,11 @@
-/*global requirejs, setTimeout */
+/*global requirejs, setTimeout, gelamWorkerBaseUrl */
 // Note: No AMD module here since this file configures RequireJS.
+/**
+ * RequireJS/Alameda counterpart to app_logic/worker_bootstrap.  Lives in
+ * GELAM still because of the gelam-ext boot-logic below.  (Also, it's not
+ * as important to have it live in app_logic because the worker_bootstrap living
+ * there already has resulted in different trace paths being followed.)
+ */
 (function(root) {
   'use strict';
 
