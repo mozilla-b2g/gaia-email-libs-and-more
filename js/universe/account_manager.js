@@ -19,8 +19,18 @@ const FoldersTOC = require('../db/folders_toc');
  *
  * This is an attempt to reduce boilerplate while also allowing for very
  * explicit function names indicating what's being loaded, etc.
+ *
+ * @param {String} mapPropName
+ * @param {Function} func
+ * @param {Boolean} forgetOnResolve
+ *   Should we delete the promise from the map when it resolves?  This should
+ *   be used in cases where the results are maintained in some other canonical
+ *   map and us hanging onto the Promise could potentially result in a memory
+ *   leak.  Arguably it would be better if we expanded this helper mechanism to
+ *   also manage the canonical map too with clear life-cycles.  But things work
+ *   as-is.
  */
-function prereqify(mapPropName, func) {
+function prereqify(mapPropName, func, forgetOnResolve) {
   return function(id) {
     let map = this[mapPropName];
     let promise = map.get(id);
@@ -34,6 +44,11 @@ function prereqify(mapPropName, func) {
       return Promise.reject(ex);
     }
     map.set(id, promise);
+    if (forgetOnResolve) {
+      promise.then(() => {
+        map.delete(id);
+      });
+    }
     return promise;
   };
 }
@@ -151,7 +166,7 @@ AccountManager.prototype = {
       this.accountFoldersTOCs.set(accountId, foldersTOC);
       return foldersTOC;
     });
-  }),
+  }, true),
 
   /**
    * Ensure the given account has been loaded.
@@ -159,7 +174,7 @@ AccountManager.prototype = {
   _ensureAccount: prereqify('_accountLoads', function(accountId) {
     return this._ensureAccountFoldersTOC(accountId).then((foldersTOC) => {
       let accountDef = this.getAccountDefById(accountId);
-      accountModules.get(accountDef.type)().then((accountConstructor) => {
+      return accountModules.get(accountDef.type)().then((accountConstructor) => {
         let stashedConn = this._stashedConnectionsByAccountId.get(accountId);
         this._stashedConnectionsByAccountId.delete(accountId);
 
@@ -173,7 +188,7 @@ AccountManager.prototype = {
         return account;
       });
     });
-  }),
+  }, true),
 
   acquireAccountsTOC: function(ctx) {
     return ctx.acquire(this.accountsTOC);

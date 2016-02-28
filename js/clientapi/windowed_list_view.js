@@ -38,6 +38,7 @@ function WindowedListView(api, itemConstructor, handle) {
   this._api = api;
   this.handle = handle;
   this._itemConstructor = itemConstructor;
+  this.released = false;
 
   this.serial = 0;
 
@@ -308,6 +309,11 @@ WindowedListView.prototype = evt.mix({
   },
 
   release: function() {
+    if (this.released) {
+      return;
+    }
+    this.released = true;
+
     this._api.__bridgeSend({
         type: 'cleanupContext',
         handle: this.handle

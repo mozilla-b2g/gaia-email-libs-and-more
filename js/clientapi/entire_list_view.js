@@ -31,8 +31,9 @@ function EntireListView(api, itemConstructor, handle) {
   this.itemsById = new Map();
 
   /**
-   * Has this slice been completely initially populated?  If you want to wait
-   * for this, use once('complete').
+   * Has this slice been completely initially populated?  Use
+   * latestOnce(`complete`, callback) if you want a unified way of waiting for
+   * the event while processing ASAP if already available.
    */
   this.complete = false;
 }
@@ -80,7 +81,6 @@ EntireListView.prototype = evt.mix({
     this.complete = true;
     this.emit('complete', this);
   },
-
 
   release: function() {
     this._api.__bridgeSend({

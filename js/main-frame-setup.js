@@ -89,6 +89,8 @@ var bridge = {
         MailAPI.__bridgeSend(storedMsg);
       });
       MailAPI._storedSends = [];
+
+      MailAPI.__universeAvailable();
     } else {
       MailAPI.__bridgeReceive(msg);
     }

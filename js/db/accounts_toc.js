@@ -62,6 +62,11 @@ AccountsTOC.prototype = evt.mix({
     return this.accountDefs.map(this.accountDefToWireRep);
   },
 
+  getItemIndexById: function(id) {
+    const item = this.itemsById.get(id);
+    return this.items.indexOf(item);
+  },
+
   /**
    * Add the account with the given accountDef to be tracked by the TOC,
    * returning the wireRep for the account for any legacy needs.  (We otherwise

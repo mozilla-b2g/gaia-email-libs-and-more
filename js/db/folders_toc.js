@@ -171,6 +171,12 @@ FoldersTOC.prototype = evt.mix({
     return this.items;
   },
 
+  getItemIndexById: function(id) {
+    return this.items.findIndex((item) => {
+      return item.id === id;
+    });
+  },
+
   /**
    * Make a folder sorting function that groups folders by account, puts the
    * account header first in that group, maps priorities using

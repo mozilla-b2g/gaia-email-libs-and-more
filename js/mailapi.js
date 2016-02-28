@@ -29,7 +29,8 @@ const MessagesListView = require('./clientapi/messages_list_view');
 
 const MessageComposition = require('./clientapi/message_composition');
 
-const { accountIdFromConvId, accountIdFromMessageId, convIdFromMessageId } =
+const { accountIdFromFolderId, accountIdFromConvId, accountIdFromMessageId,
+        convIdFromMessageId } =
   require('./id_conversions');
 
 const Linkify = require('./clientapi/bodies/linkify');
@@ -108,6 +109,23 @@ function MailAPI() {
    */
   this.config = {};
 
+  /**
+   * Has the MailUniverse come up and reported in to us and provided us with the
+   * initial config?  You can use latestOnce('configLoaded') for this purpose.
+   * Note that you don't need to wait for this if you have other API calls to
+   * make since all messages are buffered and released once the universe is
+   * available.
+   */
+  this.configLoaded = false;
+  /**
+   * Has the MailUniverse finished loading its list of accounts and their
+   * folders and told us about them and our `accounts` view and each of their
+   * `folders` views has completed populating?  You can use
+   * latestOnce('accountsLoaded') in order to be notified once it has occurred
+   * (or immediately if it has already occurred).
+   */
+  this.accountsLoaded = false;
+
   /* PROPERLY DOCUMENT EVENT 'badlogin'
    * @func[
    *   @args[
@@ -137,25 +155,73 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return { type: 'MailAPI' };
   },
 
+  /**
+   * Invoked by main-frame-setup when it's done poking things into us so that
+   * we can set flags and emit events and such.  We can probably also move more
+   * of its logic into this file if it makes sense.
+   */
+  __universeAvailable: function() {
+    this.configLoaded = true;
+    this.emit('configLoaded');
+    logic(this, 'configLoaded');
+
+    // wait for the account view to be fully populated
+    this.accounts.latestOnce('complete', () => {
+      // wait for all of the accounts to have their folder views fully populated
+      Promise.all(this.accounts.items.map((account) => {
+        return new Promise((resolve) => {
+          account.folders.latestOnce('complete', resolve);
+        });
+      })).then(() => {
+        this.accountsLoaded = true;
+        logic(this, 'accountsLoaded');
+        this.emit('accountsLoaded');
+      });
+    });
+  },
+
   // This exposure as "utils" exists for legacy reasons right now, we should
   // probably just move consumers to directly require the module.
   utils: Linkify,
 
+  /**
+   * Return a Promise that will be resolved with a guaranteed-alive MailAccount
+   * instance from our `accounts` view.  You would use this if you can't
+   * guarantee that `accountsLoaded` is already true or if the account is
+   * potentially in the process of being created.
+   */
   eventuallyGetAccountById: function(accountId) {
     return this.accounts.eventuallyGetAccountById(accountId);
   },
 
+  /**
+   * Return a Promise that will be resolved with a guaranteed-alive MailFolder
+   * instance from one the corresponding `folders` view on the `MailAccount`
+   * from our `accounts` view that owns the folder.  You would use this if you
+   * can't guarantee that `accountsLoaded` is already true.  Some implementation
+   * changes are required if you want this to also cover folders that are not
+   * yet synchronized.
+   */
   eventuallyGetFolderById: function(folderId) {
-    var accountId = accountIdFromConvId(folderId);
+    var accountId = accountIdFromFolderId(folderId);
     return this.accounts.eventuallyGetAccountById(accountId).then(
       function gotAccount(account) {
-        console.log('got the account');
         return account.folders.eventuallyGetFolderById(folderId);
-      },
-      function() {
-        console.log('SOMEHOW REJECTED?!');
       }
     );
+  },
+
+  /**
+   * Synchronous version of eventuallyGetFolderById that will return null if
+   * either the account or folder don't currently exist.  If your logic is gated
+   * by latestOnce('accountsLoaded') and this isn't a newly created account,
+   * then you should be safe in using this.  Otherwise wait for `accountsLoaded`
+   * or use `eventuallyGetFolderById`.
+   */
+  getFolderById: function(folderId) {
+    const accountId = accountIdFromFolderId(folderId);
+    const account = this.accounts.getAccountById(accountId);
+    return account && account.folders.getFolderById(folderId);
   },
 
   /**
@@ -879,6 +945,10 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     var handle = this._nextHandle++,
         view = new ConversationsListView(this, handle);
     view.folderId = folder.id;
+    // Hackily save off the folder as a stop-gap measure to make it easier to
+    // describe the contents of the view until we enhance the tocMeta to
+    // better convey this.
+    view.folder = this.getFolderById(view.folderId);
     this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({
@@ -913,6 +983,10 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     var handle = this._nextHandle++,
         view = new ConversationsListView(this, handle);
     view.folderId = spec.folder.id;
+    // Hackily save off the folder as a stop-gap measure to make it easier to
+    // describe the contents of the view until we enhance the tocMeta to
+    // better convey this.
+    view.folder = this.getFolderById(view.folderId);
     this._trackedItemHandles.set(handle, { obj: view });
 
     this.__bridgeSend({

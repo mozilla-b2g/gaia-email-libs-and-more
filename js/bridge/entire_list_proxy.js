@@ -91,7 +91,7 @@ EntireListProxy.prototype = {
     this._idToChangeIndex.set(item.id, this._pendingChanges.length);
     this._pendingChanges.push({
       type: 'add',
-      index: index,
+      index,
       state: item,
       // since we're adding the item, we need to pull the overlay data.
       overlays: this.overlayResolver(item.id)
@@ -112,7 +112,7 @@ EntireListProxy.prototype = {
     this._idToChangeIndex.set(item.id, this._pendingChanges.length);
     this._pendingChanges.push({
       type: 'change',
-      index: index,
+      index,
       state: item,
       // we don't need to pull the overlay data because it will not have changed
       // unless we get a push.
@@ -145,7 +145,7 @@ EntireListProxy.prototype = {
       type: 'change',
       // This is absolutely essential; it's not freebie meta-data, it's how the
       // EntireListView currently retrieves the object from its list.
-      index: this.toc.items.indexOf(this.toc.itemsById.get(itemId)),
+      index: this.toc.getItemIndexById(itemId),
       state: null,
       overlays
     });
@@ -156,7 +156,7 @@ EntireListProxy.prototype = {
 
     this._pendingChanges.push({
       type: 'remove',
-      index: index
+      index
     });
     this._idToChangeIndex.delete(id);
   },
