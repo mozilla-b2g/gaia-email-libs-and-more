@@ -101,6 +101,12 @@ return TaskDefiner.defineAtMostOnceTask([
       // -- Enter the label's folder for estimate and heuristic purposes
       let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
+      // Failsafe: In the event the folder has no corresponding server path
+      // (which is the case for labels here in the gmail case too), bail by
+      // returning an empty result.
+      if (!folderInfo.serverPath) {
+        return {};
+      }
       let labelMailboxInfo = yield account.pimap.selectMailbox(ctx, folderInfo);
 
       // Unlike vanilla IMAP, our sync state does not track exactly how many
