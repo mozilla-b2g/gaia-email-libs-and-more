@@ -41,6 +41,7 @@ function WindowedListView(api, itemConstructor, handle) {
   this.released = false;
 
   this.serial = 0;
+  this.tocMetaSerial = 0;
 
   /**
    * The index of `items[0]` in the true entire list.  If this is zero, then we
@@ -165,6 +166,7 @@ WindowedListView.prototype = evt.mix({
 
     if (details.tocMeta) {
       this.tocMeta = details.tocMeta;
+      this.tocMetaSerial++;
       this.emit('metaChange', this.tocMeta);
     }
 
