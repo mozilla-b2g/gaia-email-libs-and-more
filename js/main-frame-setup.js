@@ -15,33 +15,29 @@
  * mailapi/testhelper.js (in the worker) and
  * mailapi/worker-support/testhelper-main.js establish the (bounced) bridge.
  **/
-
-// Install super-simple shims here.
-window.setZeroTimeout = function(fn) {
-  'use strict';
-  setTimeout(function() { fn(); }, 0);
-};
-
-define(function(require, exports, module) {
+define(function(require) {
 'use strict';
+
+const logic = require('logic');
 // Pretty much everything could be dynamically loaded after we kickoff the
 // worker thread.  We just would need to be sure to latch any received
 // messages that we receive before we finish setup.
 //
-var $mailapi = require('./mailapi');
-var $router = require('./worker-support/main-router');
-var $configparser = require('./worker-support/configparser-main');
-var $cronsync = require('./worker-support/cronsync-main');
-var $devicestorage = require('./worker-support/devicestorage-main');
-var $net = require('./worker-support/net-main');
-var $wakelocks = require('./worker-support/wakelocks-main');
+const $mailapi = require('./mailapi');
+const $router = require('./worker-support/main-router');
+const $configparser = require('./worker-support/configparser-main');
+const $cronsync = require('./worker-support/cronsync-main');
+const $devicestorage = require('./worker-support/devicestorage-main');
+const $net = require('./worker-support/net-main');
+const $wakelocks = require('./worker-support/wakelocks-main');
+
 
 /**
  * Builder/loader/runtime specific mechanism for worker instantiation.
  */
-var makeWorker = require('app_logic/worker_maker');
+const makeWorker = require('app_logic/worker_maker');
 
-var control = {
+const control = {
   name: 'control',
   sendMessage: null,
   process: function(uid/*, cmd, args*/) {
@@ -59,10 +55,10 @@ var control = {
   },
 };
 
-var MailAPI = new $mailapi.MailAPI();
+const MailAPI = new $mailapi.MailAPI();
 var worker;
 
-var bridge = {
+const bridge = {
   name: 'bridge',
   sendMessage: null,
   process: function(uid, cmd, args) {
@@ -102,6 +98,18 @@ var bridge = {
 
  */
 worker = makeWorker();
+logic.defineScope(worker, 'Worker');
+worker.onerror = (event) => {
+  logic(
+    worker, 'workerError',
+    {
+      message: event.message,
+      filename: event.filename,
+      lineno: event.lineno
+    });
+  // we do not preventDefault the event, we want as many other helpful error
+  // reporting mechanisms to fire, etc.
+};
 $router.useWorker(worker);
 $router.register(control);
 $router.register(bridge);

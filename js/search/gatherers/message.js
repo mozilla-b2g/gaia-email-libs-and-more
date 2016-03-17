@@ -2,7 +2,8 @@ define(function() {
 'use strict';
 
 /**
- * Given the ConversationInfo for the given conversation.
+ * Fetch a message give its `messageId` and `date`.  Used as a root/bootstrap
+ * gatherer, see `msg_gatherers.js` for more details.
  */
 function GatherMessage({ db, ctx }) {
   this._db = db;

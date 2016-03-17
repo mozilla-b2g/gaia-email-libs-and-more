@@ -53,9 +53,9 @@ define(function() {
  * ## Accumulated State ##
  *
  * At all times we know:
- * - validDataSet: The id's that the view has valid state for (based on what we told
- *   it.)  As we hear about changes that are in our validDataSet, we remove them so
- *   that when we flush we pull the value from the database cache.
+ * - validDataSet: The id's that the view has valid state for (based on what we
+ *   told it.)  As we hear about changes that are in our validDataSet, we remove
+ *   them so that when we flush we pull the value from the database cache.
  */
 function WindowedListProxy(toc, ctx) {
   this.toc = toc;
@@ -183,17 +183,23 @@ WindowedListProxy.prototype = {
    *
    * NOTE: If/when we implement key stability stuff, it goes here.
    *
-   * @param {String} [changeId=null]
+   * @param {String} [id=null]
    *   For the case where a specific record is now out-of-date and new state for
    *   it needs to be pushed, provide the id.  Note that if the record is not
    *   currently something we have reported, this method call becomes a no-op.
    *   Pass null if an ordering change has occurred.  If both things have
-   *   occurred, call us twice!
+   *   occurred, call us twice!  If all the data is completely reset, you can
+   *   pass `true` here because I'm adding the hack for the benefit of
+   *   DynamicFullTOC which is part of an impressive hack vertical that will
+   *   ideally evolve into something less hacky.
    * @param {Boolean} dataOnly
    *   Is this only a data change AKA the item ordering did not change?
    */
   onChange: function(id, dataOnly) {
-    if (id !== null) {
+    if (id === true) {
+      this.validDataSet.clear();
+    }
+    else if (id !== null) {
       // If we haven't told the view about the data, there's no need for us to
       // do anything.  Note that this also covers the case where we have an
       // async read in flight.
@@ -255,6 +261,18 @@ WindowedListProxy.prototype = {
    *
    */
   flush: function() {
+    // If the TOC supports flushing because it's lazy/pull-based and has
+    // explicitly caused us to dirty ourselves, invokes its flush method to give
+    // it a chance to synchronously bring itself up-to-date.  We do this prior
+    // to the index logic below because we this can impact ordering and thereby
+    // the 'focus' and 'coordinates' based mechanisms.  It's also important that
+    // we do this before clearing the `dirty` bit so that all dirty
+    // notifications that may occur as a result of this call get fast-pathed
+    // out.
+    if (this.dirty && this.toc.flush) {
+      this.toc.flush();
+    }
+
     let beginBufferedInclusive, beginVisibleInclusive, endVisibleExclusive,
         endBufferedExclusive, heightOffset;
     if (this.mode === 'top') {

@@ -35,9 +35,10 @@ const { shallowClone } = require('../util');
  *       ]
  *     }
  *
- * @return An o
+ * @param {}
  */
 return function FilteringStream({ ctx, filterRunner, rootGatherer,
+    preDerivers, postDerivers,
     isDeletion, inputToGatherInto, mutateChangeToResembleAdd,
     mutateChangeToResembleDeletion, onFilteredUpdate }) {
   // Implementation-wise this ends up slightly weird.  Our gathering transform
@@ -48,12 +49,12 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
   /**
    * The id's of items currently in the processing queue for consideration.
    * The intent is that if an item A is added that will match, but is removed
-   * prior to before being reported, that we can avoid ever reporting A.  This
-   * is not so much an optimization as a suspicious error-avoidance mechanism.
-   * We do not want to report anything to consumers that is already known to be
-   * moot.  Noisy error logs are ignored error logs.
+   * prior to being reported, that we can avoid ever reporting A.  This is not
+   * so much an optimization as a suspicious error-avoidance mechanism. We do
+   * not want to report anything to consumers that is already known to be moot.
+   * Noisy error logs are ignored error logs.
    */
-  let queuedSet = new Set();
+  const queuedSet = new Set();
   /**
    * The id's of all items that have been reported as filter matches.  Our
    * contract with TOCs is that we only tell them about removals for things we
@@ -63,7 +64,19 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
    * the TOC maintains an ordered array which is O(log N) to check, so that
    * would be bad that way too.
    */
-  let knownFilteredSet = new Set();
+  const knownFilteredSet = new Set();
+
+  const notifyAdded = (deriverList, gathered) => {
+    for (let deriver of deriverList) {
+      deriver.itemAdded(gathered);
+    }
+  };
+
+  const notifyRemoved = (deriverList, id) => {
+    for (let deriver of deriverList) {
+      deriver.itemRemoved(id);
+    }
+  };
 
   /**
    * Stream that allows us to keep some number of gathers in flight for pipeline
@@ -74,7 +87,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
    * then waits for the promises in its transform stage since it has a direct
    * data dependency and we do want to maintain ordering.
    */
-  let gatherStream = new TransformStream({
+  const gatherStream = new TransformStream({
     flush(enqueue, close) {
       close();
     },
@@ -95,7 +108,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
     readableStrategy: new CountQueuingStrategy({ highWaterMark: 1 })
   });
 
-  let filterStream = new TransformStream({
+  const filterStream = new TransformStream({
     flush(enqueue, close) {
       close();
     },
@@ -103,6 +116,10 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
       if (!gather) {
         // This is a deletion.  And we care about it or we wouldn't be here.
         enqueue(change);
+        notifyRemoved(preDerivers, change.id);
+        if (knownFilteredSet.delete(change.id)) {
+          notifyRemoved(postDerivers, change.id);
+        }
         done();
       } else {
         logic(ctx, 'gatherWait', { id: change.id });
@@ -118,6 +135,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
             return;
           }
           queuedSet.delete(change.id);
+          notifyAdded(preDerivers, gathered);
           let matchInfo = filterRunner.filter(gathered);
           logic(ctx, 'maybeMatch', { matched: !!matchInfo });
           if (matchInfo) {
@@ -131,6 +149,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
               // an add.  (If this actually is an add, this is a no-op.)
               mutateChangeToResembleAdd(change);
               knownFilteredSet.add(change.id);
+              notifyAdded(postDerivers, gathered);
             }
             // And this is how the matchInfo actually gets into the TOC...
             change.matchInfo = matchInfo;
@@ -142,6 +161,7 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
               change = shallowClone(change);
               mutateChangeToResembleDeletion(change);
               enqueue(change);
+              notifyRemoved(postDerivers, change.id);
             }
           }
           done();
@@ -179,14 +199,15 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
         gatherStream.writable.write(change);
       } else {
         // - removal
-        // We don't need to check if the value's in here, performing the
-        // deletion is sufficient for us to ensure that if it's in the pipeline
-        // that it does not get reported.
         queuedSet.delete(change.id);
         // If the item was already reported, however, we do need to propagate
         // this through, however.
         if (knownFilteredSet.has(change.id)) {
           gatherStream.writable.write(change);
+        } else {
+          notifyRemoved(preDerivers, change.id);
+          // postDerivers never heard about it since knownFilteredSet doesn't
+          // include it.
         }
       }
     },

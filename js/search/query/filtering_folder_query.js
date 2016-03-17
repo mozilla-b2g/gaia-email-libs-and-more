@@ -6,12 +6,10 @@ const co = require('co');
 const FilteringStream = require('../filtering_stream');
 
 /**
- * Query that directly exposes the entirety of a conversation folder index.
- * Basically just normalizes the pre-query implementation so we don't need
- * multiple TOC variants, etc.
+ * Query that filters a folder conversations index.
  */
 function FilteringFolderQuery({ ctx, db, folderId, filterRunner,
-                                rootGatherer }) {
+                                rootGatherer, preDerivers, postDerivers }) {
   this._db = db;
   this.folderId = folderId;
   this._eventId = null;
@@ -20,6 +18,7 @@ function FilteringFolderQuery({ ctx, db, folderId, filterRunner,
 
   this._filteringStream = new FilteringStream({
     ctx, filterRunner, rootGatherer,
+    preDerivers, postDerivers,
     isDeletion: (change) => {
       return (!change.addDate);
     },

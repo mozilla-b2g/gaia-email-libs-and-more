@@ -5,13 +5,15 @@ define(function(require) {
  * This is the actual root module
  **/
 
-let logic = require('logic');
+const logic = require('logic');
 
-let $router = require('./worker-router');
-let MailBridge = require('./mailbridge');
-let MailUniverse = require('./mailuniverse');
+const $router = require('./worker-router');
+const MailBridge = require('./mailbridge');
+const MailUniverse = require('./mailuniverse');
 
-let routerBridgeMaker = $router.registerInstanceType('bridge');
+const appExtensions = require('app_logic/worker_extensions');
+
+const routerBridgeMaker = $router.registerInstanceType('bridge');
 
 let bridgeUniqueIdentifier = 0;
 function createBridgePair(universe) {
@@ -47,7 +49,10 @@ var sendControl = $router.registerSimple('control', function(data) {
   var args = data.args;
   switch (data.cmd) {
     case 'hello':
-      universe = new MailUniverse(args[0]);
+      universe = new MailUniverse({
+        online: args[0],
+        appExtensions
+      });
       universe.init().then(onUniverse);
       break;
     case 'online':

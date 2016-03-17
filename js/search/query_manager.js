@@ -21,9 +21,10 @@ const messageGatherers = require('./msg_gatherers');
  * Abstraction for all persistent database queries.  Read "search.md" for the
  * deets.
  */
-function QueryManager({ db }) {
+function QueryManager({ db, derivedViewManager }) {
   logic.defineScope(this, 'QueryManager');
   this._db = db;
+  this._derivedViewManager = derivedViewManager;
 }
 QueryManager.prototype = {
   _buildFilters: function(filterSpec, filterers) {
@@ -46,6 +47,17 @@ QueryManager.prototype = {
    * Build the gatherer hierarchy by walking the dependency-graph (sorta
    * GraphQL-ish) specified on the filters/summarizers/etc. passed in.
    *
+   * @param [arg.consumers]
+   *   The list of filters/whatever that expose a `gather` object that expresses
+   *   what data they need gathered.
+   * @param [arg.rootGatherDefs]
+   *   The gatherer definition dictionary to start all gather traversals from.
+   *   This is different for when filtering messages versus conversations, etc.
+   * @param [arg.dbCtx]
+   *   Context dictionary of the form { db, ctx } where db is the `MailDB`
+   *   instance for database read needs and ctx is a `NamedContext` for logging
+   *   needs.  The intent is that this is where pass-through data for the
+   *   gatherers is provided.
    * @param {String} [arg.bootstrapKey]
    *   Explicit gather key to use to bootstrap the gather context.  This is
    *   for cases like message searching where we want "message" to always be
@@ -109,6 +121,17 @@ QueryManager.prototype = {
     return rootGatherer;
   },
 
+  _buildDerivedViews: function(viewDefsWithContexts) {
+    if (!viewDefsWithContexts) {
+      return [];
+    }
+    const derivedViews = viewDefsWithContexts.map((viewDefWithContext) => {
+      return this._derivedViewManager.createDerivedView(viewDefWithContext);
+    });
+
+    return derivedViews;
+  },
+
   /**
    * Find conversations that match a filter spec.
    */
@@ -122,14 +145,18 @@ QueryManager.prototype = {
     }
 
     // -- Build the list of filters and determine gatherer dependencies.
-    let filters = this._buildFilters(spec.filter, conversationFilters);
+    const filters = this._buildFilters(spec.filter, conversationFilters);
 
-    let dbCtx = {
+    const dbCtx = {
       db: this._db,
       ctx
     };
-    let rootGatherer = this._buildGatherHierarchy({
-      consumers: filters,
+
+    const preDerivers = this._buildDerivedViews(spec.viewDefsWithContexts);
+    const postDerivers = [];
+
+    const rootGatherer = this._buildGatherHierarchy({
+      consumers: [].concat(filters, preDerivers, postDerivers),
       rootGatherDefs: conversationGatherers,
       dbCtx
     });
@@ -138,7 +165,9 @@ QueryManager.prototype = {
       db: this._db,
       folderId: spec.folderId,
       filterRunner: new FilterRunner({ filters }),
-      rootGatherer
+      rootGatherer,
+      preDerivers,
+      postDerivers
     });
   },
 

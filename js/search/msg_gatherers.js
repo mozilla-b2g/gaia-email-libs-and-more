@@ -23,7 +23,18 @@ return {
     nested: null
   },
   bodyContents: {
-    constructor: require('./gatherers/message_bodies'),
+    constructor: require('./gatherers/message/message_bodies'),
+    params: null,
+    nested: null
+  },
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Computed Gatherers
+  //
+  //
+
+  daysAgo: {
+    constructor: require('./gatherers/message/days_ago'),
     params: null,
     nested: null
   }

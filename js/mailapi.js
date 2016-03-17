@@ -26,6 +26,7 @@ const AccountsViewSlice = require('./clientapi/accounts_view_slice');
 const FoldersListView = require('./clientapi/folders_list_view');
 const ConversationsListView = require('./clientapi/conversations_list_view');
 const MessagesListView = require('./clientapi/messages_list_view');
+const RawListView = require('./clientapi/raw_list_view');
 
 const MessageComposition = require('./clientapi/message_composition');
 
@@ -898,7 +899,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
 
     this.__bridgeSend({
       type: 'viewAccounts',
-      handle: handle,
+      handle
     });
     return view;
   },
@@ -930,11 +931,41 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
 
     this.__bridgeSend({
       type: 'viewFolders',
-      mode: mode,
-      handle: handle,
-      accountId: accountId
+      mode,
+      handle,
+      accountId
     });
 
+    return view;
+  },
+
+  /**
+   * View some list provided by an extension or a hack in the backend, returning
+   * a RawListView that holds RawItem instances.  If things get fancy and you
+   * aren't dealing in "raw" things, then we might want to create Additional
+   * explicit API calls for typing reasons.
+   *
+   * @param {String} namespace
+   *   Effectively identifies the extension/provider that will be providing the
+   *   data.  We call it a namespace because maybe multiple extensions will
+   *   service the same namespace or something.
+   * @param {String} name
+   *   Some string that describes to the extension(s)/provider(s) what you want
+   *   from inside their namespace.  We require it to be a String so that we
+   *   can use it as a key in a Map
+   */
+  viewRawList: function(namespace, name) {
+    var handle = this._nextHandle++,
+        view = new RawListView(this, handle);
+    view.source = { namespace, name };
+    this._trackedItemHandles.set(handle, { obj: view });
+
+    this.__bridgeSend({
+      type: 'viewRawList',
+      handle,
+      namespace,
+      name
+    });
     return view;
   },
 
@@ -960,6 +991,29 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return view;
   },
 
+  _makeDerivedViews: function(rootView, viewSpecs) {
+    const viewDefsWithHandles = [];
+    const createView = (viewDef) => {
+      const handle = this._nextHandle++;
+      const view = new RawListView(this, handle);
+      view.viewDef = viewDef;
+      this._trackedItemHandles.set(handle, { obj: view });
+      viewDefsWithHandles.push({
+        handle,
+        viewDef
+      });
+    };
+
+    let apiResult = {
+      root: rootView
+    };
+    for (let key of Object.keys(viewSpecs)) {
+      let viewDefs = viewSpecs[key];
+      apiResult[key] = viewDefs.map(createView);
+    }
+    return { apiResult, viewDefsWithHandles };
+  },
+
   /**
   * Search a folder's conversations for conversations matching the provided
   * filter constraints, returning a ConversationsListView.
@@ -978,6 +1032,11 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   *   Match against the authored message body.  Quoted blocks will be ignored.
   * @param {String} [spec.filter.bodyAndQuotes]
   *   Match against the authored message body and any included quoted blocks.
+  * @param {Object} spec.derivedViews
+  *   Derived view definitions.  The input should look like { foo: [viewDef1,
+  *   viewDef2], bar: [viewDef3] }.  When used, this will then alter the
+  *   return value of this method to be  { root: theNormalView, foo:
+  *   [derivedView1, derivedView2], bar: [derivedView3] }.
   */
   searchFolderConversations: function(spec) {
     var handle = this._nextHandle++,
@@ -989,15 +1048,23 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     view.folder = this.getFolderById(view.folderId);
     this._trackedItemHandles.set(handle, { obj: view });
 
+    let result = view;
+    let viewDefsWithHandles = null;
+    if (spec.derivedViews) {
+      ({ apiResult: result, viewDefsWithHandles } =
+        this._makeDerivedViews(view, spec.derivedViews));
+    }
+
     this.__bridgeSend({
       type: 'searchFolderConversations',
       handle,
       spec: {
         folderId: view.folderId,
-        filter: spec.filter
-      }
+        filter: spec.filter,
+      },
+      viewDefsWithHandles
     });
-    return view;
+    return result;
   },
 
   viewConversationMessages: function(convOrId) {

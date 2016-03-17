@@ -46,6 +46,11 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
   },
 
   /**
+   * Optional hook to let lazy/pull-based TOC's
+   */
+  flush: null,
+
+  /**
    * A helper that takes a dictionary and applies it to `tocMeta`.  Exists as
    * a central logging point and to have a quick/easy way to do simple diffing
    * to know whether anything is actually changing to avoid emitting events if
@@ -83,10 +88,12 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
 // TODO more rigorous mixin magic
 BaseTOC.mix = function(obj) {
   Object.keys(BaseTOC.prototype).forEach(function(prop) {
-    if (obj.hasOwnProperty(prop)) {
-      throw new Error('Object already has a property "' + prop + '"');
+    // allow optional methods like "flush" which we only define as null.
+    if (!obj.hasOwnProperty(prop)) {
+      obj[prop] = BaseTOC.prototype[prop];
+    } else if (BaseTOC.prototype[prop]) {
+      throw new Error('object and base both have truthy property: ' + prop);
     }
-    obj[prop] = BaseTOC.prototype[prop];
   });
   return obj;
 };

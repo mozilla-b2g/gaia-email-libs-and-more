@@ -11,6 +11,7 @@ function NamedContext(name, type, bridgeContext) {
   this._active = true;
 
   this._stuffToRelease = [];
+  this.__childContexts = [];
 
   /**
    * If the bridge is currently processing an async command for this context,
@@ -104,9 +105,33 @@ function BridgeContext({ bridge, batchManager, dataOverlayManager }) {
   this._namedContexts = new Map();
 }
 BridgeContext.prototype = {
-  createNamedContext: function(name, type) {
+  /**
+   *
+   * @param {String} name
+   *   The context name/id.  This should usually be the MailAPI-allocated handle
+   *   (which is namespaced by the bridge).
+   * @param {String} type
+   *   The context type, used as the label of the logic scope.  Get as generic
+   *   or specific as your logging needs require.
+   * @param {NamedContext} [parentContext=null]
+   *   The parent context of this new context, specified to enable automated
+   *   cleanup of this new child context when the parent is cleaned up.  This is
+   *   intended for use with mechanisms like derived views where a single bridge
+   *   request returns multiple logically separate abstractions but whose
+   *   life-cycle is definitively bound to the root/parent.  It's also expected
+   *   and fine if the individual child contexts are explicitly cleaned up.
+   *   Cleanup via `cleanupNamedContext` is idempotent.
+   *
+   *   We're exposing this only on the `BridgeContext` rather than the
+   *   NamedContexts because from a life-cycle perspective we want these child
+   *   contexts all created up at the same time with the parent.
+   */
+  createNamedContext: function(name, type, parentContext) {
     let ctx = new NamedContext(name, type, this);
     this._namedContexts.set(name, ctx);
+    if (parentContext) {
+      parentContext.__childContexts.push(ctx);
+    }
     return ctx;
   },
 
@@ -127,7 +152,10 @@ BridgeContext.prototype = {
       return;
     }
 
-    let ctx = this._namedContexts.get(name);
+    const ctx = this._namedContexts.get(name);
+    for (let childContext of ctx.__childContexts) {
+      this.cleanupNamedContext(childContext.name);
+    }
     this._namedContexts.delete(name);
     ctx.cleanup();
   },

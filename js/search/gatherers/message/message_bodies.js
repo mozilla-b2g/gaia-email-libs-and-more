@@ -3,8 +3,8 @@ define(function(require) {
 
 const co = require('co');
 
-const asyncFetchBlob = require('../../async_blob_fetcher');
-const { generateSearchableTextVersion } = require('../../bodies/htmlchew');
+const asyncFetchBlob = require('../../../async_blob_fetcher');
+const { generateSearchableTextVersion } = require('../../../bodies/htmlchew');
 
 /**
  * Fetch the contents of the body part Blobs as strings, also normalizing HTML

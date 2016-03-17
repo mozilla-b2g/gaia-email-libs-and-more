@@ -98,10 +98,13 @@ BatchManager.prototype = {
    *
    * @param {false|'soon'|'immediate'} [flushMode=false]
    *   If false, we will use our regular flushing semantics.  If 'soon', we will
-   *   use a setTimeout(0) in order to
-   *
-   * You would want an immediate flush when servicing a request from the
-   * front-end and therefore where latency is likely of the essence.
+   *   use a setTimeout(0) in order to schedule it as soon as we can after
+   *   letting all Promise/micro-task-based things run to completion.  If
+   *   'immediate' we do it right now.  You would want an immediate flush when
+   *   servicing a request from the front-end and where you are certain that the
+   *   result answer is one of: final/stable, latency-sensitive, or preliminary
+   *   but the final answer will take at least a user-perceptible amount of
+   *   time.
    */
   registerDirtyView: function(proxy, flushMode) {
     logic(

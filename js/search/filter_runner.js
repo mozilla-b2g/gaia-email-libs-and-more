@@ -21,7 +21,7 @@ function FilterRunner({ filters }) {
 FilterRunner.prototype = {
   filter: function(gathered) {
     let matchInfo = {};
-    let matched = false;
+    let matched = this.filters.length === 0;
     for (let filter of this.filters) {
       let matchDetails = null;
       if (!matched || filter.alwaysRun) {

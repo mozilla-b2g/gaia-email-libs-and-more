@@ -18,12 +18,10 @@ NestedGatherer.prototype = {
   },
 
   addGatherer: function(key, gatherer) {
-    console.log('adding gatherer:', key);
     this.gatherers.set(key, gatherer);
   },
 
   makeNestedGatherer: function(key, rootKey, rootGatherer) {
-    console.log('adding nested gatherer', key, 'rootKey', rootKey);
     let nestedGatherer = new NestedGatherer(rootKey, rootGatherer);
     this.gatherers.set(key, nestedGatherer);
     return nestedGatherer;

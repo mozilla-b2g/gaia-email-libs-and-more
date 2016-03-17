@@ -11,6 +11,9 @@ const MailDB = require('./maildb');
 
 const AccountManager = require('./universe/account_manager');
 const CronSyncSupport = require('./universe/cronsync_support');
+const ExtensionManager = require('./universe/extension_manager');
+const TOCManager = require('./universe/toc_manager');
+const DerivedViewManager = require('./universe/derived_view_manager');
 
 const DataOverlayManager = require('./db/data_overlay_manager');
 const FolderConversationsTOC = require('./db/folder_convs_toc');
@@ -44,9 +47,10 @@ const { accountIdFromFolderId, accountIdFromMessageId, accountIdFromConvId,
  * @constructor
  * @memberof module:mailuniverse
  */
-function MailUniverse(online, testOptions) {
+function MailUniverse({ online, testOptions, appExtensions }) {
   logic.defineScope(this, 'Universe');
   this._initialized = false;
+  this._appExtensions = appExtensions;
 
   // -- Initialize everything
   // We use locals here with the same name as instance variables in order to get
@@ -56,8 +60,13 @@ function MailUniverse(online, testOptions) {
     universe: this,
     testOptions
   });
+
+  const tocManager = this.tocManager = new TOCManager();
+  const derivedViewManager = this.derivedViewManager = new DerivedViewManager();
+
   this.queryManager = new QueryManager({
-    db
+    db,
+    derivedViewManager
   });
   const triggerManager = this.triggerManager = new TriggerManager({
     db,
@@ -109,6 +118,11 @@ function MailUniverse(online, testOptions) {
     universe: this,
     db,
     accountManager
+  });
+
+  this.extensionManager = new ExtensionManager({
+    derivedViewManager,
+    tocManager
   });
 
   /** Fake navigator to use for navigator.onLine checks */
@@ -249,6 +263,10 @@ MailUniverse.prototype = {
     logic(this, 'configLoaded', { config });
 
     this._bindStandardBroadcasts();
+
+    // register app extensions first
+    this.extensionManager.registerExtensions(this._appExtensions, 'app');
+    // user-defined/installed extensions would get registered here.
 
     // For reasons of sanity, we bring up the account manager (which is
     // responsible for registering tasks with the task registry as needed) in
@@ -410,6 +428,14 @@ MailUniverse.prototype = {
    */
   acquireAccountFoldersTOC: function(ctx, accountId) {
     return this.accountManager.acquireAccountFoldersTOC(ctx, accountId);
+  },
+
+  /**
+   * Acquire a TOC provided by the extension mechanism.  Other TOC exposures
+   * could be migrated to go through this in the future, yes.
+   */
+  acquireExtensionTOC: function(ctx, namespace, name) {
+    return this.tocManager.acquireExtensionTOC(ctx, namespace, name);
   },
 
   acquireFolderConversationsTOC: function(ctx, folderId) {
@@ -1013,8 +1039,8 @@ MailUniverse.prototype = {
    *   create sub-folders, in which case one would have to pass this.
    * ]
    */
-  createFolder: function(accountId, parentFolderId, folderName, folderType,
-                         containOtherFolders) {
+  createFolder: function(/*accountId, parentFolderId, folderName, folderType,
+                         containOtherFolders*/) {
     // XXX implement!
     return;
   },

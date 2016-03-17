@@ -304,6 +304,21 @@ MailBridge.prototype = {
     ctx.proxy.populateFromList();
   }),
 
+  _cmd_viewRawList: co.wrap(function*(msg) {
+    let ctx = this.bridgeContext.createNamedContext(msg.handle,
+                                                    'RawListView');
+    ctx.viewing = {
+      type: 'raw',
+      namespace: msg.namespace,
+      name: msg.name
+    };
+    let toc = yield this.universe.acquireExtensionTOC(
+      ctx, msg.namespace, msg.name);
+
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    yield ctx.acquire(ctx.proxy);
+  }),
+
   _cmd_viewFolderConversations: co.wrap(function*(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'FolderConversationsView');
@@ -323,9 +338,24 @@ MailBridge.prototype = {
       msg.handle, 'FolderConversationsSearchView');
     ctx.viewing = {
       type: 'folder',
-      folderId: msg.folderId
+      folderId: msg.spec.folderId
     };
-    let toc = yield this.universe.acquireSearchConversationsTOC(ctx, msg.spec);
+    let spec = msg.spec;
+    if (msg.viewDefsWithHandles) {
+      let viewDefsWithContexts = msg.viewDefsWithHandles.map(
+        ({ handle, viewDef }) => {
+          let viewCtx = this.bridgeContext.createNamedContext(
+            handle, 'DerivedView', ctx);
+          ctx.viewing = {
+            type: 'derived'
+          };
+          // It's up to the `DerivedViewManager` to call a provider to provide
+          // a TOC and derived view and bind the TOC to a proxy.
+          return { ctx: viewCtx, viewDef };
+        });
+      spec = Object.assign({}, spec, { viewDefsWithContexts });
+    }
+    let toc = yield this.universe.acquireSearchConversationsTOC(ctx, spec);
     ctx.proxy = new WindowedListProxy(toc, ctx);
     yield ctx.acquire(ctx.proxy);
   }),
