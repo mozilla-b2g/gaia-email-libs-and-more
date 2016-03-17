@@ -1002,6 +1002,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
         handle,
         viewDef
       });
+      return view;
     };
 
     let apiResult = {

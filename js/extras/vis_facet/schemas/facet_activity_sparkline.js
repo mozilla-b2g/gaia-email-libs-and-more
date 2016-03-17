@@ -47,6 +47,13 @@ return {
       emailAddress: ['message', 'author', 'address'],
       daysAgo: ['daysAgo']
     },
+    aggregate: {
+      maxDaysAgo: {
+        op: 'max',
+        field: ['daysAgo'],
+        initial: 0
+      }
+    },
     orderingKey: 'emailAddress',
     vegaData: [
       {
@@ -60,7 +67,6 @@ return {
             type: 'bin',
             field: 'daysAgo',
             min: 0,
-            max: 60,
             maxbins: 60
           }
         ]
@@ -102,36 +108,52 @@ return {
           },
           {
             type: 'filter',
-            test: 'datum.rank < 10'
+            test: 'datum.rank < 20'
           }
         ]
       }
     ]
   },
   frontend: {
+    header: 'Authors',
     labelFrom: 'emailAddress',
     dataFrom: 'values',
     injectDataInto: 'bars',
+    tocMetaData: [
+      {
+        table: 'scale-hack',
+        sourceField: 'maxDaysAgo',
+        targetField: 'x',
+        otherValues: [0]
+      }
+    ],
     spec: {
-      width: 60,
+      width: 180,
       height: 20,
       padding: 0,
-      data: {
-        name: 'bars'
-      },
+      data: [
+        {
+          name: 'bars',
+          values: []
+        },
+        {
+          name: 'scale-hack',
+          values: []
+        }
+      ],
       // we might need to let the backend calculate scales and propagate them
       // through as tocMeta.
       scales: [
         {
           name: 'x',
           type: 'linear',
-          domain: [60, 0], // daysAgo, so we want 0 on the right.
-          range: 'width',
+          domain: { data: 'scale-hack', field: 'x' },
+          range: [180, 0]
         },
         {
           name: 'y',
           type: 'linear',
-          domain: [0, 10],
+          domain: [0, 20],
           range: 'height'
         }
       ],
@@ -142,7 +164,7 @@ return {
           properties: {
             update: {
               x: { scale: 'x', field: 'bin_start' },
-              x2: { scale: 'x2', field: 'bin_end' },
+              x2: { scale: 'x', field: 'bin_end' },
               y: { scale: 'y', field: 'count' },
               y2: { scale: 'y', value: 0 },
               fill: { value: 'steelblue' }

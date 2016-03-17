@@ -740,7 +740,7 @@ MailUniverse.prototype = {
     return this.taskManager.scheduleTasks([
       {
         type: 'sync_folder_list',
-        accountId: accountId
+        accountId
       }
     ], why);
   },
@@ -750,12 +750,13 @@ MailUniverse.prototype = {
    * resolved when the task group associated with the request completes.
    */
   syncGrowFolder: function(folderId, why) {
-    let accountId = folderId.split(/\./g)[0];
+    console.log('in syncGrowFolder', folderId);
+    const accountId = accountIdFromFolderId(folderId);
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'sync_grow',
-        accountId: accountId,
-        folderId: folderId
+        accountId,
+        folderId
       }, why);
   },
 
@@ -764,7 +765,7 @@ MailUniverse.prototype = {
    * resolved when the task group associated with the request completes.
    */
   syncRefreshFolder: function(folderId, why) {
-    let accountId = folderId.split(/\./g)[0];
+    const accountId = accountIdFromFolderId(folderId);
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'sync_refresh',

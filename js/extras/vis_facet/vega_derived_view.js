@@ -59,15 +59,19 @@ function makeFacetingView(viewDef) {
     return a[orderingKey].localeCompare(b[orderingKey]);
   };
 
+  const extractor = new FieldExtractor({
+    extract: viewDef.backend.extract,
+    aggregate: viewDef.backend.aggregate
+  });
 
   // vegaHack.flush
   const toc = new DynamicFullTOC({
     comparator,
+    idKey: '_id',
     topOrderingKey: null,
     onFlush: () => {
       vegaHack.flush();
       let values = vegaHack.getValues();
-      console.log('VALUES', values);
       // TODO: be able to better determine when facets have changed.
       // Hacky debug investigation reveals that the _id is stable
       // for the facets across multiple calls, so we can't rely on them changing
@@ -75,13 +79,14 @@ function makeFacetingView(viewDef) {
       // directly into the data graph or use object identity.  For the time
       // being, full rebuilds with persistence of id's is probably fine.
       toc.setItems(values);
+      toc.applyTOCMetaChanges(extractor.aggregated);
     }
   });
 
 
   const derivedView = new VegaDerivedView({
     gather: viewDef.backend.gather,
-    extractor: new FieldExtractor(viewDef.backend.extract),
+    extractor,
     toc,
     vegaHack
   });

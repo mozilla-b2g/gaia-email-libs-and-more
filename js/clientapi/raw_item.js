@@ -6,6 +6,11 @@ var evt = require('evt');
 function RawItem(api, wireRep, overlays, matchInfo) {
   evt.Emitter.call(this);
 
+  // TODO: have the keying id be parameterized, easiest is probably just to have
+  // caller pass the id in since in the windowed case it already knows the id
+  // since that's how the naming/mapping occurs.
+  this.id = wireRep.id || wireRep._id;
+
   this.__update(wireRep);
   this.__updateOverlays(overlays);
   this.matchInfo = matchInfo;

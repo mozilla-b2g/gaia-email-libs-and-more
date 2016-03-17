@@ -58,7 +58,6 @@ return function makeHackyVegaDataflow({ backendDef, idKey }) {
      *
      */
     addItem: function(item) {
-      console.log('inserting', item);
       inputSource.insert([item]);
     },
 

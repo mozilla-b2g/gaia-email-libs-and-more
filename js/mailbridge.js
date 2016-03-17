@@ -48,46 +48,54 @@ MailBridge.prototype = {
    * we should not process seek() commands for a list view until the command
    * creating the list view has been fully processed.
    */
-  __receiveMessage: function mb___receiveMessage(msg) {
+  __receiveMessage: function(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
-      logic(this, 'badMessageType', { type: msg.type });
+      logic(this, 'badMessageTypeError', { type: msg.type });
       return;
     }
-    let namedContext = msg.handle &&
-                       this.bridgeContext.maybeGetNamedContext(msg.handle);
-    if (namedContext) {
-      if (namedContext.pendingCommand) {
-        console.warn('deferring', msg);
-        namedContext.commandQueue.push(msg);
+    try {
+      let namedContext = msg.handle &&
+                         this.bridgeContext.maybeGetNamedContext(msg.handle);
+      if (namedContext) {
+        if (namedContext.pendingCommand) {
+          console.warn('deferring', msg);
+          namedContext.commandQueue.push(msg);
+        } else {
+          let promise = namedContext.pendingCommand =
+            this._processCommand(msg, implCmdName);
+          if (promise) {
+            this._trackCommandForNamedContext(namedContext, promise);
+          }
+        }
       } else {
-        let promise = namedContext.pendingCommand =
-          this._processCommand(msg, implCmdName);
-        if (promise) {
-          this._trackCommandForNamedContext(namedContext, promise);
+        let promise = this._processCommand(msg, implCmdName);
+        // If the command went async, then it's also possible that the command
+        // grew a namedContext and that we therefore need to get it and set up the
+        // bookkeeping so that if any other commands come in on this handle before
+        // the promise is resolved that we can properly queue them.
+        if (promise && msg.handle) {
+          namedContext = this.bridgeContext.maybeGetNamedContext(msg.handle);
+          if (namedContext) {
+            namedContext.pendingCommand = promise;
+            this._trackCommandForNamedContext(namedContext, promise);
+          }
         }
       }
-    } else {
-      let promise = this._processCommand(msg, implCmdName);
-      // If the command went async, then it's also possible that the command
-      // grew a namedContext and that we therefore need to get it and set up the
-      // bookkeeping so that if any other commands come in on this handle before
-      // the promise is resolved that we can properly queue them.
-      if (promise && msg.handle) {
-        namedContext = this.bridgeContext.maybeGetNamedContext(msg.handle);
-        if (namedContext) {
-          namedContext.pendingCommand = promise;
-          this._trackCommandForNamedContext(namedContext, promise);
-        }
-      }
+    } catch (ex) {
+      logic(this, 'cmdError', { type: msg.type, ex, stack: ex.stack });
     }
   },
 
   _trackCommandForNamedContext: function(namedContext, promise) {
-    let runNext = () => {
+    let successNext = () => {
       this._commandCompletedProcessNextCommandInQueue(namedContext);
     };
-    promise.then(runNext, runNext);
+    let errorNext = (err) => {
+      logic(this, 'cmdAsyncError', { err, stack: err.stack })
+      this._commandCompletedProcessNextCommandInQueue(namedContext);
+    };
+    promise.then(successNext, errorNext);
   },
 
   _commandCompletedProcessNextCommandInQueue: function(namedContext) {
@@ -346,7 +354,7 @@ MailBridge.prototype = {
         ({ handle, viewDef }) => {
           let viewCtx = this.bridgeContext.createNamedContext(
             handle, 'DerivedView', ctx);
-          ctx.viewing = {
+          viewCtx.viewing = {
             type: 'derived'
           };
           // It's up to the `DerivedViewManager` to call a provider to provide
@@ -398,7 +406,7 @@ MailBridge.prototype = {
       // the conversation, which means trawling for new messages and triggering
       // backfilling, which is also trawling for new messages if we managed
       // to comprehensively backfill.)
-      this.universe.syncRefreshFolder(null, 'refreshView');
+      //this.universe.syncRefreshFolder(null, 'refreshView');
     }
   },
 
