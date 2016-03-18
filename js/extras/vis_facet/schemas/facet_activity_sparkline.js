@@ -33,6 +33,11 @@ return {
   provider: 'vis_facet',
   type: 'facet',
 
+  filterAction: {
+    filterName: 'authorAddress',
+    extractFilterValueFrom: 'emailAddress'
+  },
+
   backend: {
     gather: {
       messages: {

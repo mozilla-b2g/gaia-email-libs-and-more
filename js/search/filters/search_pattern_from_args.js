@@ -19,9 +19,17 @@ function regExpEscape(str) {
  * We now upconvert the search pattern to a case-insensitive regexp if it was
  * a string.  Explicitly providing a RegExp was always possible and indeed was
  * what gaia mail did.
+ *
+ * @param args
+ * @param opts
+ * @param Boolean [opts.exact=false]
+ *   Should this require an exact, albeit case-insensitive match?
  */
-return function searchPatternFromArgs(args) {
+return function searchPatternFromArgs(args, opts) {
   let phrase;
+  if (!opts) {
+    opts = {};
+  }
   if ((typeof(args) === 'string') || (args instanceof RegExp)) {
     phrase = args;
   }
@@ -33,7 +41,11 @@ return function searchPatternFromArgs(args) {
   }
 
   if (typeof(phrase) === 'string') {
-    return new RegExp(regExpEscape(phrase), 'i');
+    let pattern = regExpEscape(phrase);
+    if (opts.exact) {
+      pattern = '^' + pattern + '$';
+    }
+    return new RegExp(pattern, 'i');
   } else {
     return phrase;
   }

@@ -13,6 +13,10 @@ return {
     constructor: require('./filters/message/author_filter'),
     params: null
   },
+  authorAddress: {
+    constructor: require('./filters/message/author_address_filter'),
+    params: null
+  },
   recipients: {
     constructor: require('./filters/message/recipients_filter'),
     params: null
