@@ -527,6 +527,24 @@ exports.generateSnippet = function generateSnippet(htmlString) {
                                                     BLEACH_SNIPPET_SETTINGS));
 };
 
+/**
+ * Upper-bound the searchable text string we'll build.  Note that this is
+ * bounding the text content, not the size of the input document.
+ *
+ * The triggering motivation is that when we implemented snippet support for
+ * bleach.js we gated the whitespace normalization on a maxLength being
+ * specified.  Which was and is reasonable and somewhat desirable.  And thinking
+ * about it, humans can only write so much text, so it's very possible that if
+ * we pick a high limit, then only spammers or corrupted HTML are likely to
+ * hit the limit in a meaningful fashion.  And in those cases, it's arguably
+ * preferable to cap things.
+ *
+ * The choice of 256k is somewhat arbitrary.  I did some very brief searching
+ * and it turns out 128k is probably good enough for your average Shakespeare
+ * play, so we double it.
+ */
+const MAX_SEARCHABLE_TEXT_LENGTH = 256 * 1024;
+
 var BLEACH_SEARCHABLE_TEXT_WITH_QUOTES_SETTINGS = {
   tags: [],
   strip: true,
@@ -541,6 +559,7 @@ var BLEACH_SEARCHABLE_TEXT_WITH_QUOTES_SETTINGS = {
     'title' // (non-body)
   ],
   asNode: true,
+  maxLength: MAX_SEARCHABLE_TEXT_LENGTH
 };
 
 var BLEACH_SEARCHABLE_TEXT_WITHOUT_QUOTES_SETTINGS = {
@@ -559,6 +578,7 @@ var BLEACH_SEARCHABLE_TEXT_WITHOUT_QUOTES_SETTINGS = {
     'blockquote'
   ],
   asNode: true,
+  maxLength: MAX_SEARCHABLE_TEXT_LENGTH
 };
 
 
@@ -629,5 +649,4 @@ var RE_QUOTE_CHAR = /"/g;
 exports.escapeAttrValue = function(s) {
   return s.replace(RE_QUOTE_CHAR, '&quot;');
 };
-
 }); // end define

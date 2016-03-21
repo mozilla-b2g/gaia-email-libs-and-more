@@ -38,13 +38,14 @@ VegaDerivedView.prototype = {
   }
 };
 
-function makeFacetingView(viewDef) {
+function makeView(viewDef) {
   const vegaHack = makeHackyVegaDataflow({
     backendDef: viewDef.backend,
     // XXX this is part of the convId/plurality hardcoding dumbness.
     idKey: 'convId'
   });
-  const orderingKey = viewDef.backend.orderingKey;
+  const orderingKey = (viewDef.type === 'facet') ? viewDef.backend.orderingKey
+    : 'id';
 
   /**
    *
@@ -72,13 +73,38 @@ function makeFacetingView(viewDef) {
     onFlush: () => {
       vegaHack.flush();
       let values = vegaHack.getValues();
-      // TODO: be able to better determine when facets have changed.
-      // Hacky debug investigation reveals that the _id is stable
-      // for the facets across multiple calls, so we can't rely on them changing
-      // to let us know when data has been dirtied.  We might be able to hook
-      // directly into the data graph or use object identity.  For the time
-      // being, full rebuilds with persistence of id's is probably fine.
-      toc.setItems(values);
+      // The difference between facet and overview *for now* is how we map the
+      // results into the TOC.  In a facet, we expect each value to be a faceted
+      // item that should be its own item in the TOC.  For an overview, we
+      // just tunnel all of the resulting items across the wire inside a single
+      // item.  This overview approach is probably excessively limiting and
+      // is horrible in terms of minimizing deltas on the front-end.
+      if (viewDef.type === 'facet') {
+        // TODO: be able to better determine when facets have changed.
+        // Hacky debug investigation reveals that the _id is stable
+        // for the facets across multiple calls, so we can't rely on them changing
+        // to let us know when data has been dirtied.  We might be able to hook
+        // directly into the data graph or use object identity.  For the time
+        // being, full rebuilds with persistence of id's is probably fine.
+        toc.setItems(values);
+      } else {
+        // TODO: similar issues to the above, although in this case we're not
+        // benefitting from the consistent use of the TOC/view abstraction as
+        // much since there's logically only one item.  This might be a good
+        // simpler driving case for buffering accumulated changesets and
+        // sending them over the wire.  This would entail a new streamlike
+        // object that uses the batch manager and __update() call idiom
+        // transparently but otherwise is not a normal view.  The streamlike
+        // object could then also be used for the actual items used by the
+        // windowed list view/proxy.  The proxy might need a minor enhancement
+        // so that it understands the idea of accumulating delta data for an
+        // object that's already fully known to the front-end, but that it has
+        // to ask for and provide the full data when requested.  Although this
+        // would probably be needless complexity/overkill in most cases, there
+        // is an argument for making it the normal case that most logic simply
+        // does not use/trigger.
+        toc.setItems([{ id: 'single', values }]);
+      }
       toc.applyTOCMetaChanges(extractor.aggregated);
     }
   });
@@ -95,8 +121,9 @@ function makeFacetingView(viewDef) {
 }
 
 function makeVisFacetDerivedView(viewDef) {
-  if (viewDef.type === 'facet') {
-    return makeFacetingView(viewDef);
+  if (viewDef.type === 'facet' ||
+      viewDef.type === 'overview') {
+    return makeView(viewDef);
   }
   throw new Error('NoneSuch');
 }

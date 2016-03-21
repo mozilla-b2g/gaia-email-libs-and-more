@@ -32,7 +32,11 @@ return {
   // Computed Gatherers
   //
   //
-
+  authorDomain: {
+    constructor: require('./gatherers/message/author_domain'),
+    params: null,
+    nested: null
+  },
   daysAgo: {
     constructor: require('./gatherers/message/days_ago'),
     params: null,

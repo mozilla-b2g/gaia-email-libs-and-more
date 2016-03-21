@@ -65,7 +65,10 @@ DynamicFullTOC.prototype = BaseTOC.mix({
 
   setItems: function(items) {
     this.items = items.concat();
-    this.emit('change');
+    // XXX true is currently a temporary hack for us to indicate that we should
+    // treat all data as invalidated.
+    this.items.sort(this._comparator);
+    this.emit('change', true);
   },
 
   /**

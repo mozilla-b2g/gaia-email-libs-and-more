@@ -40,6 +40,7 @@ define(
   function(
     exports
   ) {
+'use strict';
 
 ////////////////////////////////////////////////////////////////////////////////
 // Content Type Encoding
@@ -934,5 +935,22 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
   }
 
   return strBits.join('');
+};
+
+exports.estimateAuthoredBodySize = function(bodyRep) {
+  let authoredBodySize = 0;
+  for (var iRep = 0; iRep < bodyRep.length; iRep += 2) {
+    var etype = bodyRep[iRep]&0xf, block = bodyRep[iRep + 1];
+
+    // Ignore blocks that are not message-author authored unless we are
+    // told to match quotes.
+    if (etype !== CT_AUTHORED_CONTENT) {
+      continue;
+    }
+
+    authoredBodySize += block.length;
+  }
+
+  return authoredBodySize;
 };
 }); // end define

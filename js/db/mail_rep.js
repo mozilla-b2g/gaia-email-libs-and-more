@@ -83,10 +83,20 @@ define(function() {
  *   '>' removed) message-id's.  If there was no header, this is null.  The
  *   references go from oldest to newest.  That is, the 0th reference should be
  *   the root message and the last reference should be the parent.
+ * @property {Number} [authoredBodySize]
+ *   Best-effort sorta-unitless approximation of the amount of body content that
+ *   is new content/authored by the message's author.  The idea is that for a
+ *   message that is 10 pages of quoted text from an earlier reply with "+1"
+ *   being the only new content, this value conveys that only "+1" is new.
+ *
+ *   While in the future servers may able to asssist us in estimation, right now
+ *   this is the sum of the authoredBodySize over all BodyPartInfo objects, and
+ *   they will only be populated as the parts are downloaded.  For both text and
+ *   HTML body parts we use the length of the JS string that would be searched
+ *   with quotes ignored.  (And all the Unicode implications that go along with
+ *   that implementation.)
  * @property {BodyPartInfo[]} bodyReps
- *   Information on the message body that is only for full message display.
- *   The to/cc/bcc information may get moved up to the header in the future,
- *   but our driving UI doesn't need it right now.
+ *   The body parts that make up the message.
  * @property {DraftInfo} [draftInfo=null]
  *   If this is a draft, the metadata about the draft.  Note that with our
  *   current continued localdrafts requirement, this also serves as our magic
@@ -132,6 +142,7 @@ function makeMessageInfo(raw) {
     relatedParts: raw.relatedParts || null,
     references: raw.references || null,
     bodyReps: raw.bodyReps,
+    authoredBodySize: raw.authoredBodySize || 0,
     draftInfo: raw.draftInfo || null
   };
 }
@@ -220,6 +231,10 @@ function makeDraftInfo(raw) {
   *   A Blob either containing a JSON-serialized quotechew.js representation or
   *   an htmlchew.js sanitized HTML representation, depending on our `type`.
   *   See the relevant files for more detail.
+  * @prop {Number} authoredBodySize
+  *   See comment for `MessageInfo.authoredBodySize`.  But, in short, the
+  *   best-effort length of the newly authored content in this body part, as
+  *   far as our quoting/boilerplate detection can figure at this time.
   */
 function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
@@ -239,7 +254,8 @@ function makeBodyPart(raw) {
     amountDownloaded: raw.amountDownloaded || 0,
     isDownloaded: raw.isDownloaded || false,
     _partInfo: raw._partInfo || null,
-    contentBlob: raw.contentBlob || null
+    contentBlob: raw.contentBlob || null,
+    authoredBodySize: raw.authoredBodySize || 0,
   };
 }
 

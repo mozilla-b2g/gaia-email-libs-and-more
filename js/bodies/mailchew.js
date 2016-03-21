@@ -40,7 +40,6 @@ exports.generateBaseComposeParts = function generateBaseComposeBody(identity) {
   if (identity.signatureEnabled &&
       identity.signature &&
       identity.signature.length > 0) {
-
     textMsg = '\n\n--\n' + identity.signature;
   } else {
     textMsg = '';
@@ -353,9 +352,7 @@ exports.generateForwardParts = function*(sourceMessage, identity) {
       else {
         textMsg += forwardText;
       }
-
-    }
-    else if (repType === 'html') {
+    } else if (repType === 'html') {
       rep = yield asyncFetchBlob(repBlob, 'text');
       if (!htmlMsg) {
         htmlMsg = '';
@@ -408,20 +405,22 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
  * @param {Boolean} generateSnippet
  *   Should we try and generate a snippet from however much content we have
  *   here.
+ * @return {{ contentBlob, snippet }}
  */
 exports.processMessageContent = function processMessageContent(
     content, type, isDownloaded, generateSnippet) {
-
   // Strip any trailing newline.
   if (content.slice(-1) === '\n') {
     content = content.slice(0, -1);
   }
 
-  var parsedContent, contentBlob, snippet;
+  let parsedContent, contentBlob, snippet;
+  let authoredBodySize = 0;
   switch (type) {
     case 'plain':
       try {
         parsedContent = $quotechew.quoteProcessTextBody(content);
+        authoredBodySize = $quotechew.estimateAuthoredBodySize(parsedContent);
       }
       catch (ex) {
         logic(scope, 'textChewError', { ex: ex });
@@ -459,6 +458,11 @@ exports.processMessageContent = function processMessageContent(
           // TODO: Should we use a MIME type to convey this is sanitized HTML?
           // (Possibly also including our sanitizer version as a parameter?)
           contentBlob = new Blob([parsedContent], { type: 'text/html' });
+          // bleach.js explicitly normalizes whitespace as part of its chars()
+          // method, although
+          authoredBodySize =
+            $htmlchew.generateSearchableTextVersion(
+              parsedContent, /* include quotes */ false).length;
         }
         catch (ex) {
           logic(scope, 'htmlParseError', { ex: ex });
@@ -466,9 +470,12 @@ exports.processMessageContent = function processMessageContent(
         }
       }
       break;
+
+    default: {
+      throw new Error('unpossible!');
+    }
   }
 
-  return { contentBlob, snippet };
+  return { contentBlob, snippet, authoredBodySize };
 };
-
 }); // end define

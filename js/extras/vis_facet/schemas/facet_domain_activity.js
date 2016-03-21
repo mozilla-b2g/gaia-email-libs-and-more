@@ -2,34 +2,12 @@ define(function() {
 'use strict';
 
 /**
- * Create a top-N list of author facets, each of which contains limited author
- * summary info (email address for now), plus a histogram of author activity.
- *
- * Our conceptual pipeline and their instances look like this:
- * - "messages":  { id, emailAddress, daysAgo }
- *   This is where GELAM crams the extracted data in via the streaming API.
- *   This is done outside Vega to ensure we've created a minimal data
- *   representation for vega to hold onto.  (We categorically don't want to
- *   have a full representation of every message stored in memory.)
- *   `daysAgo` is a computed extractor
- * - "binnedMessages": {... bin_start, bin_end }
- *   We run a binning transform on the messages before fragmenting the streams
- *   so that all facets are consistently binned.  We will destructively
- *   aggregate the bins inside the author facets.
- * - "allAuthors": { emailAddress: "foo@bar", key: "foo@bar", count: 100,
- *   values: [{ bin_start: x, bin_end: x, count: 10 }, ...]}
- *   We facet by the email address and run an aggregation inside the faceted
- *   values so that we only have the per-bin counts and the specific data points
- *   that we're counting are discarded.  This aggregation is one of our two
- *   fundamental reductions.  We don't sort the email facets; we defer that to
- *   topAuthors.
- * - "topAuthors":
- *   We sort the authors by total message count, establish a rank, then filter
- *   it down to the top N authors using that rank.  We currently don't re-sort
- *   alphabetically or anything
+ * Lightly modified version of facet_activity_sparkline altered to aggregate
+ * based on sender domain rather than specific email addresses.  Really it's
+ * just some label changes plus the change in "gather" and "extract".
  */
 return {
-  name: 'Activity Sparkline',
+  name: 'Domain Activity Sparkline',
   provider: 'vis_facet',
   type: 'facet',
 
@@ -42,6 +20,7 @@ return {
     gather: {
       messages: {
         daysAgo: true,
+        authorDomain: true
       },
     },
     inputDataSource: 'messages',
@@ -49,7 +28,7 @@ return {
     extractFrom: 'messages',
     extract: {
       msgId: ['message', 'id'],
-      emailAddress: ['message', 'author', 'address'],
+      emailAddress: ['authorDomain'],
       daysAgo: ['daysAgo']
     },
     aggregate: {
@@ -125,7 +104,7 @@ return {
     ]
   },
   frontend: {
-    header: 'Prolific Authors',
+    header: 'Prolific Domains',
     labelFrom: 'emailAddress',
     dataFrom: 'values',
     injectDataInto: 'bars',

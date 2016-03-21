@@ -318,14 +318,22 @@ exports.updateMessageWithFetch = function(message, req, res) {
 
   bodyRep.amountDownloaded += res.bytesFetched;
 
-  var { contentBlob, snippet } = $mailchew.processMessageContent(
-    res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet);
+  var { contentBlob, snippet, authoredBodySize } =
+    $mailchew.processMessageContent(
+      res.text, bodyRep.type, bodyRep.isDownloaded, req.createSnippet);
 
   if (req.createSnippet) {
     message.snippet = snippet;
   }
   if (bodyRep.isDownloaded) {
     bodyRep.contentBlob = contentBlob;
+    // (Avoid generating partial authored body size values because they are
+    // inherently misleading.)
+    bodyRep.authoredBodySize = authoredBodySize;
+    // Re-sum the authoredBodySize over all body parts.
+    message.authoredBodySize = message.bodyReps.reduce((tally, rep) => {
+      return rep.authoredBodySize + tally;
+    }, 0);
   }
 };
 
