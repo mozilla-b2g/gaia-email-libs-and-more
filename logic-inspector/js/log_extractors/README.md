@@ -2,6 +2,7 @@ This directory contains helpers that know how to extract logic style logs from
 various textual log formats.
 
 The stuffs:
+- extract_ndjson.js: Newline-delimited JSON.
 - simple_logic_prefixed.js: Find log lines of the form "logic: JSON\n"
 
 NB: I would love to use WHATWG streams, but npm doesn't know how to install

@@ -116,7 +116,7 @@ export class EventList extends React.Component {
 }
 
 /**
- * Somehwat hardcoded-specialized hierarchical log event rendering.
+ * Somewhat hardcoded-specialized hierarchical log event rendering.
  */
 class Event extends React.Component {
 

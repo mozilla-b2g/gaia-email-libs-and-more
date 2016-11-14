@@ -137,6 +137,8 @@ class LogicInspector extends React.Component {
           data = this.filterToMostRecentSessionOnly(data);
         }
         this.setState({ data, dataType });
+      }, (ex) => {
+        console.error('Problem fetching/extracting:', ex);
       });
     }
   }
@@ -178,7 +180,7 @@ class LogicInspector extends React.Component {
     switch (dataType) {
       case 'gelam-test':
         return this.renderTestLog();
-      case 'raw-events':
+      case 'raw-logic-events':
         return this.renderRawEvents();
       default:
         return (

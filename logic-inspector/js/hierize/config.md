@@ -35,7 +35,8 @@ namespaces and whose values are mappings.  These mappings' keys are event names
 whose values are in turn mappings consisting of (named) directives.
 
 Example:
-```yaml
+
+```
 LoggerNamespace1:
   event1:
     directive-a: whatever
