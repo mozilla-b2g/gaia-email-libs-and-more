@@ -58,7 +58,9 @@ class LogicInspector extends React.Component {
           indexData.some((testRunSummary) => {
             return testRunSummary.suites.some((result) => {
               if (result.filename === this.state.data.filename &&
-                  result.variant === this.state.data.variant) {
+                  result.tests[0] && this.state.data.tests[0] &&
+                  (result.tests[0].variant ===
+                   this.state.data.tests[0].variant)) {
                 latestHref = result.href;
                 return true; // break out!
               }
