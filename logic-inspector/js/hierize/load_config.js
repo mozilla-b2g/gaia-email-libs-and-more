@@ -10,9 +10,9 @@ import { ConfigBuilder } from './config';
 function buildFromYaml(rootObj) {
   const builder = new ConfigBuilder();
 
-  const processEventDirectives(loggerNS, eventName, obj) {
+  const processEventDirectives = (loggerNS, eventName, obj) => {
 
-  }
+  };
 
   const walkLoggerNamespace = (loggerNS) => {
 
