@@ -61,12 +61,14 @@ export function coerceMozLogToLogic(objs) {
 // - 7: " reply" if this is a sync reply.
 // - 8: The specific message being sent/received.
 const RE_IPC = /^\[time: (\d+)\]\[(\d+)([<]?-[>]?)(\d+)\] \[([^\]]+)\] (Received|Sending)( reply)? {2}(.+)$/;
-function maybeParseUnstructuredMessage(msg) {
+export function maybeParseUnstructuredMessage(msg) {
   const match = RE_IPC.exec(msg);
 
   if (!match) {
     return null;
   }
+
+  const time = parseInt(match[1].slice(0, -3), 10) / 1000;
 
   const selfTid = parseInt(match[2], 10);
   const otherTid = parseInt(match[4], 10);
@@ -81,7 +83,8 @@ function maybeParseUnstructuredMessage(msg) {
         sender: selfTid,
         receiver: otherTid,
         msg: messageType
-      }
+      },
+      time
     };
   } else {
     return {
@@ -91,7 +94,8 @@ function maybeParseUnstructuredMessage(msg) {
         sender: otherTid,
         receiver: selfTid,
         msg: messageType
-      }
+      },
+      time
     };
   }
 }

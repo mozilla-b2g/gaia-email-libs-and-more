@@ -1,7 +1,7 @@
 import { extractSimpleLogicPrefixedEvents } from './simple_logic_prefixed';
 import { extractNewlineDelimitedJsonEvents } from './extract_ndjson';
 
-import { coerceMozLogToLogic } from './coerce_mozlog';
+import { coerceMozLogToLogic, maybeParseUnstructuredMessage } from './coerce_mozlog';
 
 import { inferDataType } from './infer_data_type';
 
@@ -57,7 +57,7 @@ export function fetchDetectExtract(urlStr) {
       console.debug('consuming as interleaved "logic: " prefixed JSON');
       return response.text().then((str) => {
         return {
-          data: extractSimpleLogicPrefixedEvents(str),
+          data: extractSimpleLogicPrefixedEvents(str, maybeParseUnstructuredMessage),
           dataType: 'raw-logic-events'
         };
       });
