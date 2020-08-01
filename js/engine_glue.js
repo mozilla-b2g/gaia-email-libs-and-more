@@ -18,6 +18,13 @@ define(function() {
  *   - vanillaImap
  *   - activesync
  *   - pop3
+ *
+ * ## Note: Disabled Account Types
+ * - ActiveSync is disabled because some UMD stuff in its codepages.js was
+ *   breaking the build with `the request of a dependency is an expression` and
+ *   the reality is that there is no situation where it will ever be a supported
+ *   account type ever again unless magic funding appears with that string
+ *   attached.
  */
 return {
   /**
@@ -25,6 +32,7 @@ return {
    * module requiring them is under ./tasks.
    */
   configuratorModules: new Map([
+    /*
     [
       'activesync',
       function() {
@@ -35,6 +43,7 @@ return {
         });
       }
     ],
+    */
     [
       'imap+smtp',
       function() {
@@ -62,6 +71,7 @@ return {
    * module requiring them is under ./tasks.
    */
   validatorModules: new Map([
+    /*
     [
       'activesync',
       function() {
@@ -72,6 +82,7 @@ return {
         });
       }
     ],
+    */
     [
       'imap+smtp',
       function() {
@@ -99,6 +110,7 @@ return {
    * module requiring them is ./universe/account_manager.
    */
   accountModules: new Map([
+    /*
     [
       'activesync',
       function() {
@@ -109,6 +121,7 @@ return {
         });
       }
     ],
+    */
     [
       'imap+smtp',
       function() {
@@ -156,6 +169,7 @@ return {
         });
       }
     ],
+    /*
     [
       'activesync',
       function() {
@@ -166,6 +180,7 @@ return {
         });
       }
     ],
+    */
     [
       'pop3',
       function() {
@@ -194,7 +209,7 @@ return {
           // this point.  This will turn out badly.
           'all',
           // The sync engine doesn't know how to deal with folders that aren't
-          // covered by all mail.
+          // covered by all mail (yet).
           'junk', 'trash'
         ])
       }
@@ -205,12 +220,14 @@ return {
         unselectableFolderTypes: new Set()
       }
     ],
+    /*
     [
       'activesync',
       {
         unselectableFolderTypes: new Set()
       }
     ],
+    */
     [
       'pop3',
       {
@@ -242,12 +259,14 @@ return {
         syncGranularity: 'folder'
       }
     ],
+    /*
     [
       'activesync',
       {
         syncGranularity: 'folder'
       }
     ],
+    */
     [
       'pop3',
       {
@@ -288,6 +307,7 @@ return {
         usesArchiveMetaphor: false
       }
     ],
+    /*
     [
       'activesync',
       {
@@ -297,6 +317,7 @@ return {
         usesArchiveMetaphor: false
       }
     ],
+    */
     [
       'pop3',
       {
@@ -334,12 +355,14 @@ return {
         syncGranularity: 'folder'
       }
     ],
+    /*
     [
       'activesync',
       {
         syncGranularity: 'folder'
       }
     ],
+    */
     [
       'pop3',
       {

@@ -1,11 +1,23 @@
 define(function(require) {
 'use strict';
 
-// We do more targeted requires in order to avoid pulling in more than we need.
-const Model = require('vega/src/core/Model');
-const parse = require('vega/src/parse/');
+const vega = require('vega');
 
 /**
+ * ### TODO: de-bitrot vega
+ *
+ * We were previously using vega 2.5.  Current vega is 5.x.  Vega 3 removed the
+ * Model class that we were using.  I think the comments below capture the
+ * intent sufficiently well.  The main question going forward would be if
+ * something clever and aware of the internals is necessary to perform the
+ * propagation, or if that was only necessary due to concern over JS bundle
+ * size.
+ *
+ * Note: I've just disabled the extension inclusion, so it's still necessary to
+ * change the below to use vega.parse() and views, etc.
+ *
+ * ### old docs
+ *
  * Create a vega model that exists only for our backend dataflow needs and hook
  * it up to our custom API for putting changes in and getting changes out.
  *

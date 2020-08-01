@@ -32,7 +32,7 @@ space historically is a mess.  (See CSS z-index for example.)
 
 So the only numerical assignment done by tasks is to indicate a `relPriority`
 which is intended for use by tasks of a single type to differentiate amongst
-themselves.  For example, sync_refres/sync_grow will generate a number of
+themselves.  For example, sync_refresh/sync_grow will generate a number of
 sync_conv tasks.  We want the more recent conversations to be prioritized, and
 the sync_conv task can accomplish that itself by assigning a `relPriority`.
 
@@ -194,9 +194,10 @@ the user what the problem is.
 
 For accounts, we have the following resources defined in order of severity:
 - 'online': We have a global concept of being online.  In order to do things
-  like sync an account, we need to be online. Sync-related tasks will report they are syncBlocked because they are
-  'offline' if this resource is not available for their account.
-- 'credentials!<AccountId>'': To do anything online with an account, we need to
+  like sync an account, we need to be online. Sync-related tasks will report
+  they are syncBlocked because they are 'offline' if this resource is not
+  available for their account.
+- 'credentials!<AccountId>': To do anything online with an account, we need to
   believe we have valid credentials for the account.  Sync-related tasks will
   report 'bad-auth' if this resource is not available for their account.
 - 'happy!<AccountId>':
