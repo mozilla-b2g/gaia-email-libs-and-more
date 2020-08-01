@@ -71,7 +71,7 @@ var BAD_RESOURCE_RETRY_DELAYS_MS = [
   2 * 60 * 1000,
 ];
 
-var setTimeoutFunc = window.setTimeout.bind(window);
+var setTimeoutFunc = globalThis.setTimeout.bind(globalThis);
 
 exports.TEST_useTimeoutFunc = function(func) {
   setTimeoutFunc = func;

@@ -12,15 +12,15 @@ function setZeroTimeout(fn) {
 }
 
 // Add the one thing we want added to the window object.
-window.setZeroTimeout = setZeroTimeout;
+globalThis.setZeroTimeout = setZeroTimeout;
 
-window.process = {
+globalThis.process = {
   immediate: false,
   nextTick: function(cb) {
     if (this.immediate)
       cb();
     else
-      window.setZeroTimeout(cb);
+      globalThis.setZeroTimeout(cb);
   }
 };
 

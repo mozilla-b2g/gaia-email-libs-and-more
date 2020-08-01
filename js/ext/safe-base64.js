@@ -60,7 +60,7 @@ define(function(require, exports, module) {
       sbits[i] = String.fromCharCode(view[i]);
     }
     // (btoa is binary JS string -> base64 ASCII string)
-    return window.btoa(sbits.join(''));
+    return globalThis.btoa(sbits.join(''));
   }
 
   /**

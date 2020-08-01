@@ -54,8 +54,8 @@ define(function(require) {
    */
 
   // Allow setTimeout and clearTimeout to be shimmed for unit tests.
-  var setTimeout = window.setTimeout.bind(window);
-  var clearTimeout = window.clearTimeout.bind(window);
+  var setTimeout = globalThis.setTimeout.bind(window);
+  var clearTimeout = globalThis.clearTimeout.bind(window);
 
   /***************************************************************************
    * Pop3Client

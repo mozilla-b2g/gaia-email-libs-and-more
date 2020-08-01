@@ -7,8 +7,8 @@ const SocketStream = require('../streamy/socket_stream');
 const LineTransformStream = require('../streamy/line_transform_stream');
 const readAllChunks = require('../streamy/read_all_chunks');
 var evt = require('evt');
-var setTimeout = window.setTimeout.bind(window);
-var clearTimeout = window.clearTimeout.bind(window);
+var setTimeout = globalThis.setTimeout.bind(window);
+var clearTimeout = globalThis.clearTimeout.bind(window);
 
 var CR = '\r'.charCodeAt(0);
 var LF = '\n'.charCodeAt(0);

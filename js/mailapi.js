@@ -1615,7 +1615,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     // ordering that should be done using better/more specific methods, so this
     // change is not any less of a hack/evil, although it does cause misuse to
     // potentially be more capable of causing intermittent failures.
-    window.setTimeout(() => {
+    globalThis.setTimeout(() => {
       this.__bridgeSend({
         type: 'ping',
         handle: handle,

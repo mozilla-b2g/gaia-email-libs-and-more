@@ -41,7 +41,7 @@ TOCManager.prototype = {
 
   acquireExtensionTOC: function(ctx, namespace, name) {
     const provider = this._namespaceProviders.get(namespace);
-    if (!namespace) {
+    if (!provider) {
       throw new Error('No such namespace:' + namespace);
     }
 

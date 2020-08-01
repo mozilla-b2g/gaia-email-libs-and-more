@@ -26,7 +26,7 @@
     if (typeof define === 'function' && define.amd) {
         // AMD in browser environment
         define(['tcp-socket', 'stringencoding', 'axe', './smtpclient-response-parser'], function(TCPSocket, encoding, axe, SmtpClientResponseParser) {
-            return factory(TCPSocket, encoding.TextEncoder, encoding.TextDecoder, axe, SmtpClientResponseParser, window.btoa);
+            return factory(TCPSocket, encoding.TextEncoder, encoding.TextDecoder, axe, SmtpClientResponseParser, globalThis.btoa);
         });
     } else if (typeof exports === 'object' && typeof navigator !== 'undefined') {
         // common.js in browser environment

@@ -10,8 +10,8 @@ define(function(require, exports) {
   var syncbase = require('../syncbase');
   var oauth = require('../oauth');
 
-  var setTimeout = window.setTimeout;
-  var clearTimeout = window.clearTimeout;
+  var setTimeout = globalThis.setTimeout;
+  var clearTimeout = globalThis.clearTimeout;
   exports.setTimeoutFunctions = function(setFn, clearFn) {
     setTimeout = setFn;
     clearTimeout = clearFn;

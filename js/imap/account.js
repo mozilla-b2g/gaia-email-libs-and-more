@@ -205,7 +205,7 @@ var properties = {
     // If we are offline, invoke the deathback soon and don't bother trying to
     // get a connection.
     if (dieOnConnectFailure && !this.universe.online) {
-      window.setTimeout(deathback, 0);
+      globalThis.setTimeout(deathback, 0);
       return;
     }
 

@@ -69,7 +69,7 @@ BatchManager.prototype = {
 
   _flushPending: function(timerFired) {
     if (!timerFired) {
-      window.clearTimeout(this._timer);
+      globalThis.clearTimeout(this._timer);
     }
     this._timer = null;
 
@@ -126,14 +126,14 @@ BatchManager.prototype = {
         // scheduled.
         if (this._timer) {
           // which means this is a timer we need to clear if truthy.
-          window.clearTimeout(this._timer);
+          globalThis.clearTimeout(this._timer);
         }
         Promise.resolve().then(() => { this._flushPending(false); });
         this._timer = true;
       }
     } else if (!this._timer) {
-      this._timer = window.setTimeout(this._bound_timerFired,
-                                      this.flushDelayMillis);
+      this._timer = globalThis.setTimeout(this._bound_timerFired,
+                                          this.flushDelayMillis);
     }
   }
 };

@@ -15,27 +15,26 @@
  * mailapi/testhelper.js (in the worker) and
  * mailapi/worker-support/testhelper-main.js establish the (bounced) bridge.
  **/
-define(function(require) {
-'use strict';
 
-const logic = require('logic');
+import logic from 'logic';
+
 // Pretty much everything could be dynamically loaded after we kickoff the
 // worker thread.  We just would need to be sure to latch any received
 // messages that we receive before we finish setup.
 //
-const $mailapi = require('./mailapi');
-const $router = require('./worker-support/main-router');
-const $configparser = require('./worker-support/configparser-main');
-const $cronsync = require('./worker-support/cronsync-main');
-const $devicestorage = require('./worker-support/devicestorage-main');
-const $net = require('./worker-support/net-main');
-const $wakelocks = require('./worker-support/wakelocks-main');
+import $mailapi from './mailapi';
+import $router from './worker-support/main-router';
+import $configparser from './worker-support/configparser-main';
+import $cronsync from './worker-support/cronsync-main';
+import $devicestorage from './worker-support/devicestorage-main';
+import $net from './worker-support/net-main';
+import $wakelocks from './worker-support/wakelocks-main';
 
 
 /**
  * Builder/loader/runtime specific mechanism for worker instantiation.
  */
-const makeWorker = require('app_logic/worker_maker');
+import makeWorker from 'app_logic/worker_maker';
 
 const control = {
   name: 'control',
@@ -119,5 +118,5 @@ $router.register($devicestorage);
 $router.register($net);
 $router.register($wakelocks);
 
-return MailAPI;
-}); // end define
+export default MailAPI;
+

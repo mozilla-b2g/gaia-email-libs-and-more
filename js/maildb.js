@@ -787,7 +787,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     if (this._emptyingCache) {
       return;
     }
-    this._emptyingCache = window.setTimeout(
+    this._emptyingCache = globalThis.setTimeout(
       () => {
         this._emptyingCache = null;
         this.emptyCache();
