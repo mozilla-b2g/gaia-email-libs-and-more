@@ -1,13 +1,6 @@
-define(function(require) {
-'use strict';
+import { shallowClone } from '../util';
 
-const co = require('co');
-const mix = require('mix');
-const { shallowClone } = require('../util');
-
-const AtMostOnceBase = require('./task_bases/at_most_once');
-
-//const AtMostOnceTaskBase = require('./task_bases/at_most_once');
+import AtMostOnceBase from './task_bases/at_most_once';
 
 const SimpleTaskBase = {
   isSimple: true,
@@ -16,7 +9,7 @@ const SimpleTaskBase = {
   /**
    * No-op planning phase that just handles prioritization.
    */
-  plan: co.wrap(function*(ctx, rawTask) {
+  async plan(ctx, rawTask) {
     let decoratedTask = shallowClone(rawTask);
     if (this.exclusiveResources) {
       decoratedTask.exclusiveResources = this.exclusiveResources(rawTask);
@@ -24,10 +17,10 @@ const SimpleTaskBase = {
     if (this.priorityTags) {
       decoratedTask.priorityTags = this.priorityTags(rawTask);
     }
-    yield ctx.finishTask({
+    await ctx.finishTask({
       taskState: decoratedTask
     });
-  }),
+  },
   execute: null,
 };
 
@@ -39,7 +32,7 @@ const ComplexTaskBase = {
 /**
  * Given a base implementation and one or more mix-in parts from the task that
  * is being defined, collapse the `mixparts` down, giving the task base a chance
- * to
+ * to participate via hooks.
  */
 function mixInvokingBaseHooks(baseImpl, mixparts) {
   // If the base doesn't care, just do the naive mixing.
@@ -69,7 +62,7 @@ TaskDefiner.prototype = {
    * with some other simple configuration, the task infrastructure is able to
    * handle all the state management.
    */
-  defineSimpleTask: function(mixparts) {
+  defineSimpleTask(mixparts) {
     return mixInvokingBaseHooks(SimpleTaskBase, mixparts);
   },
 
@@ -127,7 +120,7 @@ TaskDefiner.prototype = {
    *     state that caused our overlay implementations to claim the bin was
    *     still `inProgress`.
    */
-  defineAtMostOnceTask: function(mixparts) {
+  defineAtMostOnceTask(mixparts) {
     return mixInvokingBaseHooks(AtMostOnceBase, mixparts);
   },
 
@@ -135,10 +128,9 @@ TaskDefiner.prototype = {
    * Define a task that maintains its own aggregate state and handles all task
    * mooting, unification, etc.
    */
-  defineComplexTask: function(mixparts) {
+  defineComplexTask(mixparts) {
     return mixInvokingBaseHooks(ComplexTaskBase, mixparts);
   }
 };
 
-return new TaskDefiner();
-});
+export default new TaskDefiner();

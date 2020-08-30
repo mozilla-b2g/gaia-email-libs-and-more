@@ -1,14 +1,10 @@
-define(function() {
-'use strict';
-
-
 /**
  * Common logic used by all sync_refresh/sync_grow overlays.  This has been
  * factored out because it's gotten sufficiently verbose and complex and likely
  * to change that the copy-and-paste no longer provides clarity but instead
  * would be a nighmare.
  */
-function syncNormalOverlay(id, marker, inProgress, blockedBy) {
+export function syncNormalOverlay(id, marker, inProgress, blockedBy) {
   let status;
   if (inProgress) {
     status = 'active';
@@ -42,12 +38,6 @@ function syncNormalOverlay(id, marker, inProgress, blockedBy) {
 /**
  * Like syncNormalOverlay but for prefix overlays.
  */
-function syncPrefixOverlay(fullId, binId, marker, inProgress, blockedBy) {
+export function syncPrefixOverlay(fullId, binId, marker, inProgress, blockedBy) {
   return syncNormalOverlay(binId, marker, inProgress, blockedBy);
 }
-
-return {
-  syncNormalOverlay,
-  syncPrefixOverlay
-};
-});

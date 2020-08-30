@@ -1,16 +1,11 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
+import $mailchewStrings from './bodies/mailchew_strings';
 
-let co = require('co');
+import BridgeContext from './bridge/bridge_context';
+import BatchManager from './bridge/batch_manager';
 
-let logic = require('logic');
-let $mailchewStrings = require('./bodies/mailchew_strings');
-
-let BridgeContext = require('./bridge/bridge_context');
-let BatchManager = require('./bridge/batch_manager');
-
-let EntireListProxy = require('./bridge/entire_list_proxy');
-let WindowedListProxy = require('./bridge/windowed_list_proxy');
+import EntireListProxy from './bridge/entire_list_proxy';
+import WindowedListProxy from './bridge/windowed_list_proxy';
 
 /**
  * There is exactly one `MailBridge` instance for each `MailAPI` instance.
@@ -35,7 +30,7 @@ function MailBridge(universe, db, name) {
   });
 }
 MailBridge.prototype = {
-  __sendMessage: function() {
+  __sendMessage() {
     throw new Error('This is supposed to get hidden by an instance var.');
   },
 
@@ -48,7 +43,7 @@ MailBridge.prototype = {
    * we should not process seek() commands for a list view until the command
    * creating the list view has been fully processed.
    */
-  __receiveMessage: function(msg) {
+  __receiveMessage(msg) {
     var implCmdName = '_cmd_' + msg.type;
     if (!(implCmdName in this)) {
       logic(this, 'badMessageTypeError', { type: msg.type });
@@ -87,18 +82,18 @@ MailBridge.prototype = {
     }
   },
 
-  _trackCommandForNamedContext: function(namedContext, promise) {
+  _trackCommandForNamedContext(namedContext, promise) {
     let successNext = () => {
       this._commandCompletedProcessNextCommandInQueue(namedContext);
     };
     let errorNext = (err) => {
-      logic(this, 'cmdAsyncError', { err, stack: err.stack })
+      logic(this, 'cmdAsyncError', { err, stack: err.stack });
       this._commandCompletedProcessNextCommandInQueue(namedContext);
     };
     promise.then(successNext, errorNext);
   },
 
-  _commandCompletedProcessNextCommandInQueue: function(namedContext) {
+  _commandCompletedProcessNextCommandInQueue(namedContext) {
     if (namedContext.commandQueue.length) {
       console.warn('processing deferred command');
       let promise = namedContext.pendingCommand =
@@ -118,7 +113,7 @@ MailBridge.prototype = {
    * Used by MailUniverse.broadcastOverBridges to send a message to the MailAPI
    * instance to be emitted.
    */
-  broadcast: function(name, data) {
+  broadcast(name, data) {
     this.__sendMessage({
       type: 'broadcast',
       payload: { name, data }
@@ -134,7 +129,7 @@ MailBridge.prototype = {
    *   fast-fail purposes and still available.  In async cases we may not have
    *   it anymore because it's not worth the hassle to cart it around.
    */
-  _processCommand: function(msg, implCmdName) {
+  _processCommand(msg, implCmdName) {
     if (!implCmdName) {
       implCmdName = '_cmd_' + msg.type;
     }
@@ -156,22 +151,22 @@ MailBridge.prototype = {
     return null;
   },
 
-  _cmd_ping: function(msg) {
+  _cmd_ping(msg) {
     this.__sendMessage({
       type: 'pong',
       handle: msg.handle,
     });
   },
 
-  _cmd_setInteractive: function(/*msg*/) {
+  _cmd_setInteractive(/*msg*/) {
     this.universe.setInteractive();
   },
 
-  _cmd_localizedStrings: function(msg) {
+  _cmd_localizedStrings(msg) {
     $mailchewStrings.set(msg.strings);
   },
 
-  _cmd_learnAboutAccount: function(msg) {
+  _cmd_learnAboutAccount(msg) {
     this.universe.learnAboutAccount(msg.details).then(
       (info) => {
         this.__sendMessage({
@@ -189,7 +184,7 @@ MailBridge.prototype = {
       });
   },
 
-  _cmd_tryToCreateAccount: function(msg) {
+  _cmd_tryToCreateAccount(msg) {
     this.universe.tryToCreateAccount(msg.userDetails, msg.domainInfo)
       .then((result) => {
         this.__sendMessage({
@@ -204,11 +199,11 @@ MailBridge.prototype = {
       });
   },
 
-  _cmd_syncFolderList: function(msg) {
+  _cmd_syncFolderList(msg) {
     this.universe.syncFolderList(msg.accountId, 'bridge');
   },
 
-  _cmd_clearAccountProblems: async function(msg) {
+  async _cmd_clearAccountProblems(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;
     let [incomingErr, outgoingErr] = await account.checkAccount();
@@ -235,7 +230,7 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_modifyAccount: function(msg) {
+  _cmd_modifyAccount(msg) {
     this.universe.modifyAccount(msg.accountId, msg.mods, 'bridge')
       .then(() => {
         this.__sendMessage({
@@ -246,15 +241,15 @@ MailBridge.prototype = {
       });
   },
 
-  _cmd_recreateAccount: function(msg) {
+  _cmd_recreateAccount(msg) {
     this.universe.recreateAccount(msg.accountId, 'bridge');
   },
 
-  _cmd_deleteAccount: function(msg) {
+  _cmd_deleteAccount(msg) {
     this.universe.deleteAccount(msg.accountId, 'bridge');
   },
 
-  _cmd_modifyIdentity: function(msg) {
+  _cmd_modifyIdentity(msg) {
     this.universe.modifyIdentity(msg.identityId, msg.mods, 'bridge')
     .then(() => {
       this.__sendMessage({
@@ -272,7 +267,7 @@ MailBridge.prototype = {
    * @param {string} problem
    * @param {'incoming'|'outgoing'} whichSide
    */
-  notifyBadLogin: function(account, problem, whichSide) {
+  notifyBadLogin(account, problem, whichSide) {
     this.__sendMessage({
       type: 'badLogin',
       account: account.toBridgeWire(),
@@ -281,7 +276,7 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_requestBodies: function(msg) {
+  _cmd_requestBodies(msg) {
     var self = this;
     this.universe.downloadBodies(msg.messages, msg.options, function() {
       self.__sendMessage({
@@ -292,27 +287,27 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_viewAccounts: co.wrap(function*(msg) {
+  async _cmd_viewAccounts(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'AccountsView');
 
-    let toc = yield this.universe.acquireAccountsTOC(ctx);
+    let toc = await this.universe.acquireAccountsTOC(ctx);
 
     ctx.proxy = new EntireListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
+    await ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
-  }),
+  },
 
-  _cmd_viewFolders: co.wrap(function*(msg) {
+  async _cmd_viewFolders(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle, 'FoldersView');
 
-    let toc = yield this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
+    let toc = await this.universe.acquireAccountFoldersTOC(ctx, msg.accountId);
 
     ctx.proxy = new EntireListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
+    await ctx.acquire(ctx.proxy);
     ctx.proxy.populateFromList();
-  }),
+  },
 
-  _cmd_viewRawList: co.wrap(function*(msg) {
+  async _cmd_viewRawList(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'RawListView');
     ctx.viewing = {
@@ -320,28 +315,28 @@ MailBridge.prototype = {
       namespace: msg.namespace,
       name: msg.name
     };
-    let toc = yield this.universe.acquireExtensionTOC(
+    let toc = await this.universe.acquireExtensionTOC(
       ctx, msg.namespace, msg.name);
 
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
-  }),
+    await ctx.acquire(ctx.proxy);
+  },
 
-  _cmd_viewFolderConversations: co.wrap(function*(msg) {
+  async _cmd_viewFolderConversations(msg) {
     let ctx = this.bridgeContext.createNamedContext(msg.handle,
                                                     'FolderConversationsView');
     ctx.viewing = {
       type: 'folder',
       folderId: msg.folderId
     };
-    let toc = yield this.universe.acquireFolderConversationsTOC(ctx,
+    let toc = await this.universe.acquireFolderConversationsTOC(ctx,
                                                                 msg.folderId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
+    await ctx.acquire(ctx.proxy);
     this.universe.syncRefreshFolder(msg.folderId, 'viewFolderConversations');
-  }),
+  },
 
-  _cmd_searchFolderConversations: co.wrap(function*(msg) {
+  async _cmd_searchFolderConversations(msg) {
     let ctx = this.bridgeContext.createNamedContext(
       msg.handle, 'FolderConversationsSearchView');
     ctx.viewing = {
@@ -363,25 +358,25 @@ MailBridge.prototype = {
         });
       spec = Object.assign({}, spec, { viewDefsWithContexts });
     }
-    let toc = yield this.universe.acquireSearchConversationsTOC(ctx, spec);
+    let toc = await this.universe.acquireSearchConversationsTOC(ctx, spec);
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
-  }),
+    await ctx.acquire(ctx.proxy);
+  },
 
-  _cmd_viewConversationMessages: co.wrap(function*(msg) {
+  async _cmd_viewConversationMessages(msg) {
     let ctx = this.bridgeContext.createNamedContext(
       msg.handle, 'ConversationMessagesView');
     ctx.viewing = {
       type: 'conversation',
       conversationId: msg.conversationId
     };
-    let toc = yield this.universe.acquireConversationTOC(ctx,
+    let toc = await this.universe.acquireConversationTOC(ctx,
                                                          msg.conversationId);
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
-  }),
+    await ctx.acquire(ctx.proxy);
+  },
 
-  _cmd_searchConversationMessages: co.wrap(function*(msg) {
+  async _cmd_searchConversationMessages(msg) {
     let ctx = this.bridgeContext.createNamedContext(
       msg.handle, 'ConversationSearchView');
     ctx.viewing = {
@@ -389,13 +384,13 @@ MailBridge.prototype = {
       conversationId: msg.conversationId
     };
     let toc =
-      yield this.universe.acquireSearchConversationMessagesTOC(ctx, msg.spec);
+      await this.universe.acquireSearchConversationMessagesTOC(ctx, msg.spec);
     ctx.proxy = new WindowedListProxy(toc, ctx);
-    yield ctx.acquire(ctx.proxy);
-  }),
+    await ctx.acquire(ctx.proxy);
+  },
 
 
-  _cmd_refreshView: function(msg) {
+  _cmd_refreshView(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
     if (ctx.viewing.type === 'folder') {
       this.universe.syncRefreshFolder(ctx.viewing.folderId, 'refreshView');
@@ -410,7 +405,7 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_growView: function(msg) {
+  _cmd_growView(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
     if (ctx.viewing.type === 'folder') {
       this.universe.syncGrowFolder(ctx.viewing.folderId, 'growView');
@@ -420,12 +415,12 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_seekProxy: function(msg) {
+  _cmd_seekProx(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
     ctx.proxy.seek(msg);
   },
 
-  _cmd_getItemAndTrackUpdates: co.wrap(function*(msg) {
+  async _cmd_getItemAndTrackUpdates(msg) {
     // XXX implement priority tags support
 
     // - Fetch the raw data from disk
@@ -468,7 +463,7 @@ MailBridge.prototype = {
     let eventId = msg.itemType + '!' + normId + '!change';
     let ctx = this.bridgeContext.createNamedContext(msg.handle, eventId);
 
-    let fromDb = yield this.db.read(ctx, requests);
+    let fromDb = await this.db.read(ctx, requests);
 
     // Normalize to wire rep form
     let dbWireRep = rawToWireRep(fromDb[readKey].get(normId));
@@ -525,13 +520,13 @@ MailBridge.prototype = {
         state: dbWireRep,
         overlays: boundOverlayResolver(normId)
       });
-  }),
+  },
 
-  _cmd_updateTrackedItemPriorityTags: function(msg) {
+  _cmd_updateTrackedItemPriorityTags(/*msg*/) {
     // XXX implement priority tags support
   },
 
-  _cmd_cleanupContext: function(msg) {
+  _cmd_cleanupContext(msg) {
     this.bridgeContext.cleanupNamedContext(msg.handle);
 
     this.__sendMessage({
@@ -540,17 +535,17 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_fetchSnippets: function(msg) {
+  _cmd_fetchSnippets(msg) {
     if (msg.convIds) {
       this.universe.fetchConversationSnippets(msg.convIds, 'bridge');
     }
   },
 
-  _cmd_downloadBodyReps: function(msg) {
+  _cmd_downloadBodyReps(msg) {
     this.universe.fetchMessageBody(msg.id, msg.date, 'bridge');
   },
 
-  _cmd_downloadAttachments: function(msg) {
+  _cmd_downloadAttachments(msg) {
     this.universe.downloadMessageAttachments(msg.downloadReq).then(() => {
       this.__sendMessage({
         type: 'promisedResult',
@@ -586,7 +581,7 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_store_labels: function(msg) {
+  _cmd_store_labels(msg) {
     this.__accumulateUndoTasksAndReply(
       msg,
       msg.conversations.map((convInfo) => {
@@ -600,7 +595,7 @@ MailBridge.prototype = {
       }));
   },
 
-  _cmd_store_flags: function(msg) {
+  _cmd_store_flags(msg) {
     this.__accumulateUndoTasksAndReply(
       msg,
       msg.conversations.map((convInfo) => {
@@ -614,7 +609,7 @@ MailBridge.prototype = {
       }));
   },
 
-  _cmd_outboxSetPaused: function(msg) {
+  _cmd_outboxSetPaused(msg) {
     this.universe.outboxSetPaused(
       msg.accountId,
       msg.bePaused
@@ -627,14 +622,14 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_undo: function(msg) {
+  _cmd_undo(msg) {
     this.universe.undo(msg.undoTasks);
   },
 
   //////////////////////////////////////////////////////////////////////////////
   // Composition
 
-  _cmd_createDraft: function(msg) {
+  _cmd_createDraft(msg) {
     this.universe.createDraft({
       draftType: msg.draftType,
       mode: msg.mode,
@@ -653,14 +648,14 @@ MailBridge.prototype = {
     });
   },
 
-  _cmd_attachBlobToDraft: function(msg) {
+  _cmd_attachBlobToDraft(msg) {
     this.universe.attachBlobToDraft(
       msg.messageId,
       msg.attachmentDef
     );
   },
 
-  _cmd_detachAttachmentFromDraft: function(msg) {
+  _cmd_detachAttachmentFromDraft(msg) {
     this.universe.detachAttachmentFromDraft(
       msg.messageId,
       msg.attachmentRelId
@@ -673,7 +668,7 @@ MailBridge.prototype = {
    * Drafts are saved in our IndexedDB storage. This is notable because we are
    * told about attachments via their Blobs.
    */
-  _cmd_doneCompose: function(msg) {
+  _cmd_doneCompose(msg) {
     // Delete and be done if delete.
     if (msg.command === 'delete') {
       this.universe.deleteDraft(msg.messageId);
@@ -694,21 +689,21 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_clearNewTrackingForAccount: function(msg) {
+  _cmd_clearNewTrackingForAccount(msg) {
     this.universe.clearNewTrackingForAccount({
       accountId: msg.accountId,
       silent: msg.silent
     });
   },
 
-  _cmd_flushNewAggregates: function() {
+  _cmd_flushNewAggregates() {
     this.universe.flushNewAggregates();
   },
 
   //////////////////////////////////////////////////////////////////////////////
   // Debug Stuff
 
-  _cmd_debugForceCronSync: function(msg) {
+  _cmd_debugForceCronSync(msg) {
     this.universe.cronSyncSupport.onAlarm(
       msg.accountIds,
       'fake-interval', // this is not a real sync and the logic doesn't care.
@@ -719,5 +714,4 @@ MailBridge.prototype = {
 
 };
 
-return MailBridge;
-}); // end define
+export default MailBridge;

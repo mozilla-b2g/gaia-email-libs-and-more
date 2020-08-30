@@ -1,40 +1,33 @@
-/**
- * @module
- */
-define(function(require, exports) {
-'use strict';
-
-var logic = require('logic');
+import logic from 'logic';
 // XXX proper logging configuration for the front-end too once things start
 // working happily.
 logic.realtimeLogEverything = true;
 
 // Use a relative link so that consumers do not need to create
 // special config to use main-frame-setup.
-const addressparser = require('./ext/addressparser');
-const evt = require('evt');
+import addressparser from './ext/addressparser';
+import evt from 'evt';
 
-const MailFolder = require('./clientapi/mail_folder');
+import MailFolder from './clientapi/mail_folder';
 
-const MailConversation = require('./clientapi/mail_conversation');
-const MailMessage = require('./clientapi/mail_message');
+import MailConversation from './clientapi/mail_conversation';
+import MailMessage from './clientapi/mail_message';
 
-const ContactCache = require('./clientapi/contact_cache');
-const UndoableOperation = require('./clientapi/undoable_operation');
+import ContactCache from './clientapi/contact_cache';
+import UndoableOperation from './clientapi/undoable_operation';
 
-const AccountsViewSlice = require('./clientapi/accounts_view_slice');
-const FoldersListView = require('./clientapi/folders_list_view');
-const ConversationsListView = require('./clientapi/conversations_list_view');
-const MessagesListView = require('./clientapi/messages_list_view');
-const RawListView = require('./clientapi/raw_list_view');
+import AccountsViewSlice from './clientapi/accounts_view_slice';
+import FoldersListView from './clientapi/folders_list_view';
+import ConversationsListView from './clientapi/conversations_list_view';
+import MessagesListView from './clientapi/messages_list_view';
+import RawListView from './clientapi/raw_list_view';
 
-const MessageComposition = require('./clientapi/message_composition');
+import MessageComposition from './clientapi/message_composition';
 
-const { accountIdFromFolderId, accountIdFromConvId, accountIdFromMessageId,
-        convIdFromMessageId } =
-  require('./id_conversions');
+import { accountIdFromFolderId, accountIdFromConvId, accountIdFromMessageId,
+        convIdFromMessageId } from './id_conversions';
 
-const Linkify = require('./clientapi/bodies/linkify');
+import Linkify from './clientapi/bodies/linkify';
 
 /**
  * Given a list of MailFolders (that may just be null and not a list), map those
@@ -48,7 +41,7 @@ let normalizeFoldersToIds = (folders) => {
 };
 
 // For testing
-exports._MailFolder = MailFolder;
+export { MailFolder as _MailFolder };
 
 const LEGAL_CONFIG_KEYS = ['debugLogging'];
 
@@ -62,7 +55,7 @@ const LEGAL_CONFIG_KEYS = ['debugLogging'];
  * @constructor
  * @memberof module:mailapi
  */
-function MailAPI() {
+export default function MailAPI() {
   evt.Emitter.call(this);
   logic.defineScope(this, 'MailAPI', {});
   this._nextHandle = 1;
@@ -147,12 +140,11 @@ function MailAPI() {
   // Default slices:
   this.accounts = this.viewAccounts({ autoViewFolders: true });
 }
-exports.MailAPI = MailAPI;
 MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
-  toString: function() {
+  toString() {
     return '[MailAPI]';
   },
-  toJSON: function() {
+  toJSON() {
     return { type: 'MailAPI' };
   },
 
@@ -161,7 +153,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * we can set flags and emit events and such.  We can probably also move more
    * of its logic into this file if it makes sense.
    */
-  __universeAvailable: function() {
+  __universeAvailable() {
     this.configLoaded = true;
     this.emit('configLoaded');
     logic(this, 'configLoaded');
@@ -191,7 +183,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * guarantee that `accountsLoaded` is already true or if the account is
    * potentially in the process of being created.
    */
-  eventuallyGetAccountById: function(accountId) {
+  eventuallyGetAccountById(accountId) {
     return this.accounts.eventuallyGetAccountById(accountId);
   },
 
@@ -203,7 +195,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * changes are required if you want this to also cover folders that are not
    * yet synchronized.
    */
-  eventuallyGetFolderById: function(folderId) {
+  eventuallyGetFolderById(folderId) {
     var accountId = accountIdFromFolderId(folderId);
     return this.accounts.eventuallyGetAccountById(accountId).then(
       function gotAccount(account) {
@@ -219,7 +211,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * then you should be safe in using this.  Otherwise wait for `accountsLoaded`
    * or use `eventuallyGetFolderById`.
    */
-  getFolderById: function(folderId) {
+  getFolderById(folderId) {
     const accountId = accountIdFromFolderId(folderId);
     const account = this.accounts.getAccountById(accountId);
     return account && account.folders.getFolderById(folderId);
@@ -233,7 +225,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * the account is known to us.  We should generally be fine, but we don't have
    * the guards in place to actually protect us.
    */
-  _mapLabels: function(messageId, folderIds) {
+  _mapLabels(messageId, folderIds) {
     let accountId = accountIdFromMessageId(messageId);
     let account = this.accounts.getAccountById(accountId);
     if (!account) {
@@ -250,7 +242,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Send a message over/to the bridge.  The idea is that we (can) communicate
    * with the backend using only a postMessage-style JSON channel.
    */
-  __bridgeSend: function(msg) {
+  __bridgeSend(msg) {
     // This method gets clobbered eventually once back end worker is ready.
     // Until then, it will store calls to send to the back end.
 
@@ -260,7 +252,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   /**
    * Process a message received from the bridge.
    */
-  __bridgeReceive: function(msg) {
+  __bridgeReceive(msg) {
     // Pong messages are used for tests
     if (this._processingMessage && msg.type !== 'pong') {
       logic(this, 'deferMessage', { type: msg.type });
@@ -272,7 +264,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     }
   },
 
-  _processMessage: function(msg) {
+  _processMessage(msg) {
     var methodName = '_recv_' + msg.type;
     if (!(methodName in this)) {
       logic.fail(new Error('Unsupported message type:', msg.type));
@@ -298,7 +290,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     }
   },
 
-  _doneProcessingMessage: function(msg) {
+  _doneProcessingMessage(msg) {
     if (this._processingMessage && this._processingMessage !== msg) {
       throw new Error('Mismatched message completion!');
     }
@@ -310,7 +302,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   },
 
   /** @see ContactCache.shoddyAutocomplete */
-  shoddyAutocomplete: function(phrase) {
+  shoddyAutocomplete(phrase) {
     return ContactCache.shoddyAutocomplete(phrase);
   },
 
@@ -318,7 +310,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Return a promise that's resolved with a MailConversation instance that is
    * live-updating with events until `release` is called on it.
    */
-  getConversation: function(conversationId, priorityTags) {
+  getConversation(conversationId, priorityTags) {
     // We need the account for the conversation in question to be loaded for
     // safety, dependency reasons.
     return this.eventuallyGetAccountById(accountIdFromConvId(conversationId))
@@ -336,7 +328,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *
    * @param {[MessageId, DateMS]} messageNamer
    */
-  getMessage: function(messageNamer, priorityTags) {
+  getMessage(messageNamer, priorityTags) {
     let messageId = messageNamer[0];
     // We need the account for the conversation in question to be loaded for
     // safety, dependency reasons.
@@ -354,7 +346,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Promise that will be resolved when the MailBridge responds to the message.
    * (Someday it may also be rejected if we lose the back-end.)
    */
-  _sendPromisedRequest: function(sendMsg) {
+  _sendPromisedRequest(sendMsg) {
     return new Promise((resolve) => {
       let handle = sendMsg.handle = this._nextHandle++;
       this._pendingRequests[handle] = {
@@ -365,7 +357,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _recv_promisedResult: function(msg) {
+  _recv_promisedResult(msg) {
     let handle = msg.handle;
     let pending = this._pendingRequests[handle];
     delete this._pendingRequests[handle];
@@ -376,7 +368,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Create an UndoableOperation for synchronous return to the caller that will
    * have its actual tasks to undo filled in asynchronously.  Idiom glue logic.
    */
-  _sendUndoableRequest: function(undoableInfo, requestPayload) {
+  _sendUndoableRequest(undoableInfo, requestPayload) {
     let id = this._nextHandle;
     let undoableTasksPromise = this._sendPromisedRequest(requestPayload);
     let undoableOp = new UndoableOperation({
@@ -391,7 +383,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return undoableOp;
   },
 
-  __scheduleUndoTasks: function(undoableOp, undoTasks) {
+  __scheduleUndoTasks(undoableOp, undoTasks) {
     this.emit('undoing', undoableOp);
     this.__bridgeSend({
       type: 'undo',
@@ -404,7 +396,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * conversation-with-selector objects of the form/type { id, messageIds,
    * messageSelector }.
    */
-  _normalizeConversationSelectorArgs: function(arrayOfStuff, args) {
+  _normalizeConversationSelectorArgs(arrayOfStuff, args) {
     let { detectType: argDetect, conversations: argConversations,
           messages: argMessages, messageSelector } = args;
     let convSelectors;
@@ -456,7 +448,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return { convSelectors, affectedType, affectedCount };
   },
 
-  _recv_broadcast: function(msg) {
+  _recv_broadcast(msg) {
     let { name, data } = msg.payload;
     this.emit(name, data);
   },
@@ -479,8 +471,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * on our value or we'll end up clobbering the value from a chronologically
    * later call to our method.
    */
-  _getItemAndTrackUpdates: function(itemType, itemId, itemConstructor,
-                                    priorityTags) {
+  _getItemAndTrackUpdates(itemType, itemId, itemConstructor, priorityTags) {
     return new Promise((resolve, reject) => {
       let handle = this._nextHandle++;
       this._trackedItemHandles.set(handle, {
@@ -515,7 +506,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _recv_gotItemNowTrackingUpdates: function(msg) {
+  _recv_gotItemNowTrackingUpdates(msg) {
     let details = this._trackedItemHandles.get(msg.handle);
     details.callback(msg);
   },
@@ -524,7 +515,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Internal-only API to update the priority associated with an instantiated
    * object.
    */
-  _updateTrackedItemPriorityTags: function(handle, priorityTags) {
+  _updateTrackedItemPriorityTags(handle, priorityTags) {
     this.__bridgeSend({
       type: 'updateTrackedItemPriorityTags',
       handle: handle,
@@ -534,7 +525,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
 
   // update event for list views.  This used to be shared logic with updateItem
   // but when overlays came into the picture the divergence got too crazy.
-  _recv_update: function(msg) {
+  _recv_update(msg) {
     let details = this._trackedItemHandles.get(msg.handle);
     if (details && details.obj) {
       let obj = details.obj;
@@ -545,7 +536,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   },
 
   // update event for tracked items (rather than list views)
-  _recv_updateItem: function(msg) {
+  _recv_updateItem(msg) {
     let details = this._trackedItemHandles.get(msg.handle);
     if (details && details.obj) {
       let obj = details.obj;
@@ -570,7 +561,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     }
   },
 
-  _cleanupContext: function(handle) {
+  _cleanupContext(handle) {
     this.__bridgeSend({
       type: 'cleanupContext',
       handle: handle
@@ -586,11 +577,11 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * variant of this for cases where the mailbridge/backend can send effectively
    * unsolicited notifications of this.
    */
-  _recv_contextCleanedUp: function(msg) {
+  _recv_contextCleanedUp(msg) {
     this._trackedItemHandles.delete(msg.handle);
   },
 
-  _downloadBodyReps: function(messageId, messageDate) {
+  _downloadBodyReps(messageId, messageDate) {
     this.__bridgeSend({
       type: 'downloadBodyReps',
       id: messageId,
@@ -598,7 +589,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _downloadAttachments: function(downloadReq) {
+  _downloadAttachments(downloadReq) {
     return this._sendPromisedRequest({
       type: 'downloadAttachments',
       downloadReq
@@ -656,7 +647,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   'autoconfig-subdomain', 'autoconfig-wellknown', 'mx local', 'mx ispdb',
    *   'autodiscover'.
    */
-  learnAboutAccount: function(details) {
+  learnAboutAccount(details) {
     return this._sendPromisedRequest({
       type: 'learnAboutAccount',
       details
@@ -807,7 +798,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   ]
    * ]
    */
-  tryToCreateAccount: function(userDetails, domainInfo) {
+  tryToCreateAccount(userDetails, domainInfo) {
     return this._sendPromisedRequest({
       type: 'tryToCreateAccount',
       userDetails,
@@ -832,7 +823,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _clearAccountProblems: function ma__clearAccountProblems(account, callback) {
+  _clearAccountProblems(account, callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'clearAccountProblems',
@@ -845,13 +836,13 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _recv_clearAccountProblems: function ma__recv_clearAccountProblems(msg) {
+  _recv_clearAccountProblems(msg) {
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback && req.callback();
   },
 
-  _modifyAccount: function(account, mods) {
+  _modifyAccount(account, mods) {
     return this._sendPromisedRequest({
       type: 'modifyAccount',
       accountId: account.id,
@@ -860,21 +851,21 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   },
 
 
-  _recreateAccount: function(account) {
+  _recreateAccount(account) {
     this.__bridgeSend({
       type: 'recreateAccount',
       accountId: account.id,
     });
   },
 
-  _deleteAccount: function(account) {
+  _deleteAccount(account) {
     this.__bridgeSend({
       type: 'deleteAccount',
       accountId: account.id,
     });
   },
 
-  _modifyIdentity: function(identity, mods) {
+  _modifyIdentity(identity, mods) {
     return this._sendPromisedRequest({
       type: 'modifyIdentity',
       identityId: identity.id,
@@ -892,7 +883,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   Should the `MailAccount` instances automatically issue viewFolders
    *   requests and assign them to a "folders" property?
    */
-  viewAccounts: function(opts) {
+  viewAccounts(opts) {
     var handle = this._nextHandle++,
         view = new AccountsViewSlice(this, handle, opts);
     this._trackedItemHandles.set(handle, { obj: view });
@@ -923,7 +914,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   }
    * ]
    */
-  viewFolders: function(mode, accountId) {
+  viewFolders(mode, accountId) {
     var handle = this._nextHandle++,
         view = new FoldersListView(this, handle);
 
@@ -954,7 +945,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   from inside their namespace.  We require it to be a String so that we
    *   can use it as a key in a Map
    */
-  viewRawList: function(namespace, name) {
+  viewRawList(namespace, name) {
     var handle = this._nextHandle++,
         view = new RawListView(this, handle);
     view.source = { namespace, name };
@@ -972,7 +963,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   /**
    * View the conversations in a folder.
    */
-  viewFolderConversations: function(folder) {
+  viewFolderConversations(folder) {
     var handle = this._nextHandle++,
         view = new ConversationsListView(this, handle);
     view.folderId = folder.id;
@@ -991,7 +982,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return view;
   },
 
-  _makeDerivedViews: function(rootView, viewSpecs) {
+  _makeDerivedViews(rootView, viewSpecs) {
     const viewDefsWithHandles = [];
     const createView = (viewDef) => {
       const handle = this._nextHandle++;
@@ -1039,7 +1030,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   *   return value of this method to be  { root: theNormalView, foo:
   *   [derivedView1, derivedView2], bar: [derivedView3] }.
   */
-  searchFolderConversations: function(spec) {
+  searchFolderConversations(spec) {
     var handle = this._nextHandle++,
         view = new ConversationsListView(this, handle);
     view.folderId = spec.folder.id;
@@ -1068,7 +1059,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     return result;
   },
 
-  viewConversationMessages: function(convOrId) {
+  viewConversationMessages(convOrId) {
     var handle = this._nextHandle++,
         view = new MessagesListView(this, handle);
     view.conversationId = (typeof(convOrId) === 'string' ? convOrId :
@@ -1103,7 +1094,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * @param {String} [spec.filter.bodyAndQuotes]
    *   Match against the authored message body and any included quoted blocks.
    */
-  searchConversationMessages: function(spec) {
+  searchConversationMessages(spec) {
     var handle = this._nextHandle++,
         view = new MessagesListView(this, handle);
     view.conversationId = spec.conversation.id;
@@ -1154,7 +1145,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  trash: function(arrayOfStuff, opts) {
+  trash(arrayOfStuff, opts) {
     let { convSelectors, affectedType, affectedCount } =
       this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
     return this._sendUndoableRequest(
@@ -1203,7 +1194,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  move: function(arrayOfStuff, targetFolder, opts) {
+  move(arrayOfStuff, targetFolder, opts) {
     let { convSelectors, affectedType, affectedCount } =
       this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
     return this._sendUndoableRequest(
@@ -1242,7 +1233,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  markRead: function(arrayOfStuff, beRead) {
+  markRead(arrayOfStuff, beRead) {
     return this.modifyTags(
       arrayOfStuff,
       {
@@ -1273,7 +1264,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  markStarred: function(arrayOfStuff, beStarred) {
+  markStarred(arrayOfStuff, beStarred) {
     return this.modifyTags(
       arrayOfStuff,
       {
@@ -1314,7 +1305,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  modifyLabels: function(arrayOfStuff, opts) {
+  modifyLabels(arrayOfStuff, opts) {
     let { convSelectors, affectedType, affectedCount } =
       this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
     return this._sendUndoableRequest(
@@ -1354,7 +1345,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   An `undoableOp` event will also be emitted on the base MailAPI instance
    *   if that simplifies your life.
    */
-  modifyTags: function(arrayOfStuff, opts) {
+  modifyTags(arrayOfStuff, opts) {
     let { convSelectors, affectedType, affectedCount } =
       this._normalizeConversationSelectorArgs(arrayOfStuff, opts);
     return this._sendUndoableRequest(
@@ -1379,7 +1370,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * does _not_ persist; it's meant to be used only for brief periods
    * of time, not as a "sync schedule" coordinator.
    */
-  setOutboxSyncEnabled: function (account, enabled) {
+  setOutboxSyncEnabled(account, enabled) {
     return this._sendPromisedRequest({
       type: 'outboxSetPaused',
       accountId: account.id,
@@ -1395,7 +1386,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * @param {String} email A email address.
    * @return {Object} An object of the form { name, address }.
    */
-  parseMailbox: function(email) {
+  parseMailbox(email) {
     try {
       var mailbox = addressparser.parse(email);
       return (mailbox.length >= 1) ? mailbox[0] : null;
@@ -1408,7 +1399,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   //////////////////////////////////////////////////////////////////////////////
   // Contact Support
 
-  resolveEmailAddressToPeep: function(emailAddress, callback) {
+  resolveEmailAddressToPeep(emailAddress, callback) {
     var peep = ContactCache.resolvePeep({ name: null, address: emailAddress });
     if (ContactCache.pendingLookupCount) {
       ContactCache.callbacks.push(callback.bind(null, peep));
@@ -1445,7 +1436,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   A MessageComposition instance populated for use.  You need to call
    *   release on it when you are done.
    */
-  beginMessageComposition: function(message, folder, options) {
+  beginMessageComposition(message, folder, options) {
     if (!options) {
       options = {};
     }
@@ -1473,14 +1464,14 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *
    * @param {MailMessage|MessageObjNamer} namer
    */
-  resumeMessageComposition: function(namer) {
+  resumeMessageComposition(namer) {
     return this.getMessage([namer.id, namer.date.valueOf()]).then((msg) => {
       let composer = new MessageComposition(this);
       return composer.__asyncInitFromMessage(msg);
     });
   },
 
-  _composeAttach: function(messageId, attachmentDef) {
+  _composeAttach(messageId, attachmentDef) {
     this.__bridgeSend({
       type: 'attachBlobToDraft',
       messageId,
@@ -1488,7 +1479,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _composeDetach: function(messageId, attachmentRelId) {
+  _composeDetach(messageId, attachmentRelId) {
     this.__bridgeSend({
       type: 'detachAttachmentFromDraft',
       messageId,
@@ -1496,7 +1487,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     });
   },
 
-  _composeDone: function(messageId, command, draftFields) {
+  _composeDone(messageId, command, draftFields) {
     return this._sendPromisedRequest({
       type: 'doneCompose',
       messageId, command, draftFields
@@ -1507,7 +1498,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   // mode setting for back end universe. Set interactive
   // if the user has been exposed to the UI and it is a
   // longer lived application, not just a cron sync.
-  setInteractive: function() {
+  setInteractive() {
     this.__bridgeSend({
       type: 'setInteractive'
     });
@@ -1533,7 +1524,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   - to
    *   - cc
    */
-  useLocalizedStrings: function(strings) {
+  useLocalizedStrings(strings) {
     this.__bridgeSend({
       type: 'localizedStrings',
       strings: strings
@@ -1551,7 +1542,8 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    */
   l10n_folder_names: {},
 
-  l10n_folder_name: function(name, type) {
+  l10n_folder_name(name, type) {
+    // eslint-disable-next-line no-prototype-builtins
     if (this.l10n_folder_names.hasOwnProperty(type)) {
       var lowerName = name.toLowerCase();
       // Many of the names are the same as the type, but not all.
@@ -1573,7 +1565,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Change one-or-more backend-wide settings; use `MailAccount.modifyAccount`
    * to chang per-account settings.
    */
-  modifyConfig: function(mods) {
+  modifyConfig(mods) {
     for (var key in mods) {
       if (LEGAL_CONFIG_KEYS.indexOf(key) === -1) {
         throw new Error(key + ' is not a legal config key!');
@@ -1585,7 +1577,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     }).then(() => null);
   },
 
-  _recv_config: function(msg) {
+  _recv_config(msg) {
     this.config = msg.config;
   },
 
@@ -1601,7 +1593,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * Note that ping messages are always processed as they are received; they do
    * not get deferred like other messages.
    */
-  ping: function(callback) {
+  ping(callback) {
     var handle = this._nextHandle++;
     this._pendingRequests[handle] = {
       type: 'ping',
@@ -1623,7 +1615,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     }, 0);
   },
 
-  _recv_pong: function(msg) {
+  _recv_pong(msg) {
     var req = this._pendingRequests[msg.handle];
     delete this._pendingRequests[msg.handle];
     req.callback();
@@ -1634,7 +1626,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * in favor of just using modifyConfig directly.  Other debugging-y stuff
    * probably will operate similarly or get its own explicit API calls.
    */
-  debugSupport: function(command, argument) {
+  debugSupport(command, argument) {
     if (command === 'setLogging') {
       this.config.debugLogging = argument;
       return this.modifyConfig({
@@ -1643,13 +1635,14 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
     } else if (command === 'dumpLog') {
       throw new Error('XXX circular logging currently not implemented');
     }
+    throw new Error(`unsupported debug command: ${command}`);
   },
 
   /**
    * Clear the set of new messages associated with the given account.  Also
    * exposed on MailAccount as clearNewTracking.
    */
-  clearNewTrackingForAccount: function({ account, accountId, silent }) {
+  clearNewTrackingForAccount({ account, accountId, silent }) {
     if (account && !accountId) {
       accountId = account.id;
     }
@@ -1670,7 +1663,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    * I would prefix this with `debug` but it's possible there's a reason to
    * expose this that's not horrible.
    */
-  flushNewAggregates: function() {
+  flushNewAggregates() {
     this.__bridgeSend({
       type: 'flushNewAggregates'
     });
@@ -1687,7 +1680,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *   (so as to not trigger a new_tracking status clearing).  If omitted, the
    *   list of all accounts is used.
    */
-  debugForceCronSync: function({ accountIds, notificationAccountIds }) {
+  debugForceCronSync({ accountIds, notificationAccountIds }) {
     let allAccountIds = this.accounts.items.map(account => account.id);
 
     if (!accountIds) {
@@ -1709,7 +1702,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
    *
    * @return {Promise<Object[]>}
    */
-  getPersistedLogs: function() {
+  getPersistedLogs() {
     return this._sendPromisedRequest({
       type: 'getPersistedLogs'
     });
@@ -1717,4 +1710,3 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
 
   //////////////////////////////////////////////////////////////////////////////
 });
-}); // end define
