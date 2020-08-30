@@ -1,20 +1,18 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import MixSyncConv from '../../task_mixins/mix_sync_conv';
 
 /**
  * Planning-only task that applies modifications to a conversation based on
  * other sync logic.
  */
-return TaskDefiner.defineSimpleTask([
-  require('../../task_mixins/mix_sync_conv'),
+export default TaskDefiner.defineSimpleTask([
+  MixSyncConv,
   {
     name: 'sync_conv',
 
-    applyChanges: function(message, newFlags) {
+    applyChanges(message, newFlags) {
       message.flags = newFlags;
     },
   }
 ]);
-});

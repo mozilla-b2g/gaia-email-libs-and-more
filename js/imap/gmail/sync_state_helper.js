@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Gmail helper logic for sync tasks to handle interpreting the sync state,
@@ -372,5 +369,4 @@ SyncStateHelper.prototype = {
   }
 };
 
-return SyncStateHelper;
-});
+export default SyncStateHelper;

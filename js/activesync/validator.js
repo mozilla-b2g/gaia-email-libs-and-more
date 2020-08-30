@@ -83,7 +83,7 @@ function getFullDetailsFromAutodiscover(userDetails, url) {
  * but we're currently trying to keep the configurator stage offline-only with
  * the validator as the spot the online stuff happens.
  */
-return co.wrap(function*(fragments) {
+return co.wrap(function* (fragments) {
   let { credentials, connInfoFields } = fragments;
   // - Need to run an autodiscover?
   if (connInfoFields.connInfo.autodiscoverEndpoint) {

@@ -1,11 +1,6 @@
-define(function(require) {
-'use strict';
+import { makeFolderMeta } from '../db/folder_info_rep';
 
-let co = require('co');
-
-const { makeFolderMeta } = require('../db/folder_info_rep');
-
-const { shallowClone } = require('../util');
+import { shallowClone } from '../util';
 
 /**
  * Mix-in for folder list synchronization and ensuring that an account has all
@@ -38,7 +33,7 @@ const { shallowClone } = require('../util');
  * XXX this implementation should probably be moved into the global tasks
  * location.
  */
-return {
+const MixinSyncFolderList = {
   name: 'sync_folder_list',
   args: ['accountId'],
 
@@ -100,7 +95,7 @@ return {
   /**
    * Ensure offline folders.
    */
-  plan: co.wrap(function*(ctx, rawTask) {
+  async plan(ctx, rawTask) {
     let decoratedTask = shallowClone(rawTask);
 
     decoratedTask.exclusiveResources = [
@@ -111,12 +106,12 @@ return {
       'view:folders'
     ];
 
-    let account = yield ctx.universe.acquireAccount(ctx, rawTask.accountId);
+    let account = await ctx.universe.acquireAccount(ctx, rawTask.accountId);
 
     let { newFolders, modifiedFolders } =
-      yield this.ensureEssentialOfflineFolders(ctx, account);
+      await this.ensureEssentialOfflineFolders(ctx, account);
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         folders: modifiedFolders
       },
@@ -126,13 +121,13 @@ return {
       // If we don't have an execute method, we're all done already. (POP3)
       taskState: this.execute ? decoratedTask : null
     });
-  }),
+  },
 
-  execute: co.wrap(function*(ctx, planned) {
-    let account = yield ctx.universe.acquireAccount(ctx, planned.accountId);
+  async execute(ctx, planned) {
+    let account = await ctx.universe.acquireAccount(ctx, planned.accountId);
 
     let { modifiedFolders, newFolders, newTasks, modifiedSyncStates } =
-      yield* this.syncFolders(ctx, account);
+      await this.syncFolders(ctx, account);
 
     // XXX migrate ensureEssentialOnlineFolders to be something the actual
     // instance provides and that we convert into a list of create_folder tasks.
@@ -144,7 +139,7 @@ return {
     // account.ensureEssentialOnlineFolders();
 
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         folders: modifiedFolders,
         syncStates: modifiedSyncStates
@@ -156,6 +151,7 @@ return {
       // all done!
       taskState: null
     });
-  })
+  }
 };
-});
+
+export default MixinSyncFolderList;

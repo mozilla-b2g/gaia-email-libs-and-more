@@ -208,30 +208,30 @@ MailBridge.prototype = {
     this.universe.syncFolderList(msg.accountId, 'bridge');
   },
 
-  _cmd_clearAccountProblems: function(msg) {
+  _cmd_clearAccountProblems: async function(msg) {
     var account = this.universe.getAccountForAccountId(msg.accountId),
         self = this;
-    account.checkAccount(function(incomingErr, outgoingErr) {
-      // Note that ActiveSync accounts won't have an outgoingError,
-      // but that's fine. It just means that outgoing never errors!
-      let canIgnoreError = function(err) {
-        // If we succeeded or the problem was not an authentication,
-        // assume everything went fine. This includes the case we're
-        // offline.
-        return (!err || (
-          err !== 'bad-user-or-pass' &&
-          err !== 'bad-address' &&
-          err !== 'needs-oauth-reauth' &&
-          err !== 'imap-disabled'
-        ));
-      };
-      if (canIgnoreError(incomingErr) && canIgnoreError(outgoingErr)) {
-        self.universe.clearAccountProblems(account);
-      }
-      self.__sendMessage({
-        type: 'clearAccountProblems',
-        handle: msg.handle,
-      });
+    let [incomingErr, outgoingErr] = await account.checkAccount();
+
+    // Note that ActiveSync accounts won't have an outgoingError,
+    // but that's fine. It just means that outgoing never errors!
+    let canIgnoreError = function(err) {
+      // If we succeeded or the problem was not an authentication,
+      // assume everything went fine. This includes the case we're
+      // offline.
+      return (!err || (
+        err !== 'bad-user-or-pass' &&
+        err !== 'bad-address' &&
+        err !== 'needs-oauth-reauth' &&
+        err !== 'imap-disabled'
+      ));
+    };
+    if (canIgnoreError(incomingErr) && canIgnoreError(outgoingErr)) {
+      self.universe.clearAccountProblems(account);
+    }
+    self.__sendMessage({
+      type: 'clearAccountProblems',
+      handle: msg.handle,
     });
   },
 

@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * @typedef {Object} FolderMeta
  * @property {FolderId} id
@@ -76,7 +73,7 @@ define(function() {
  * @property {Number} localUnreadConversations
  *   The number of locally-known unread conversations in this folder.
  */
-function makeFolderMeta(raw) {
+export function makeFolderMeta(raw) {
   return {
     id: raw.id || null,
     serverId: raw.serverId || null,
@@ -113,15 +110,9 @@ function makeFolderMeta(raw) {
  * @param {String} type
  *   The type of the folderStorage, e.g. 'inbox' or 'localdrafts'.
  */
-function isTypeLocalOnly(type) {
+export function isTypeLocalOnly(type) {
   if (typeof type !== 'string') {
     throw new Error('isTypeLocalOnly() expects a string, not ' + type);
   }
   return (type === 'outbox' || type === 'localdrafts');
 }
-
-return {
-	makeFolderMeta: makeFolderMeta,
-  isTypeLocalOnly: isTypeLocalOnly
-};
-}); // end define

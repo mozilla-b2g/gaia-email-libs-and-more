@@ -1,35 +1,31 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { shallowClone } from '../../util';
 
-const { shallowClone } = require('../../util');
+import { NOW } from '../../date';
 
-const { NOW } = require('../../date');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import GmailLabelMapper from '../gmail/gmail_label_mapper';
+import SyncStateHelper from '../gmail/sync_state_helper';
 
-const GmailLabelMapper = require('../gmail/gmail_label_mapper');
-const SyncStateHelper = require('../gmail/sync_state_helper');
-
-const imapchew = require('../imapchew');
+import imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-const a64 = require('../../a64');
+import a64 from '../../a64';
 const parseGmailConvId = a64.parseUI64;
 const parseGmailMsgId = a64.parseUI64;
 
-const { accountIdFromFolderId } = require('../../id_conversions');
+import { accountIdFromFolderId } from '../../id_conversions';
 
-const { syncNormalOverlay, syncPrefixOverlay } =
-  require('../../task_helpers/sync_overlay_helpers');
+import { syncNormalOverlay, syncPrefixOverlay } from
+  '../../task_helpers/sync_overlay_helpers';
 
 /**
  * This is the steady-state sync task that drives all of our gmail sync.
  * See sync.md for detailed documentation on our algorithm/strategy.
  */
-return TaskDefiner.defineAtMostOnceTask([
+export default TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
     binByArg: 'accountId',
@@ -48,14 +44,14 @@ return TaskDefiner.defineAtMostOnceTask([
       syncPrefixOverlay
     ],
 
-    helped_invalidate_overlays: function(accountId, dataOverlayManager) {
+    helped_invalidate_overlays(accountId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData(
         'accounts', accountId);
       dataOverlayManager.announceUpdatedOverlayData(
         'accountCascadeToFolders', accountId);
     },
 
-    helped_already_planned: function(ctx, rawTask) {
+    helped_already_planned(ctx, rawTask) {
       // The group should already exist; opt into its membership to get a
       // Promise
       return Promise.resolve({
@@ -67,7 +63,7 @@ return TaskDefiner.defineAtMostOnceTask([
      * In our planning phase we discard nonsensical requests to refresh
      * local-only folders.
      */
-    helped_plan: function(ctx, rawTask) {
+    helped_plan(ctx, rawTask) {
       // - Plan!
       let plannedTask = shallowClone(rawTask);
       plannedTask.resources = [
@@ -92,9 +88,9 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the account
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
       let rawSyncState = fromDb.syncStates.get(req.accountId);
@@ -145,7 +141,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       // -- Okay, we're going to go through with this sync directly
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
+        await ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
       // - sync_folder_list dependency-failsafe
@@ -157,13 +153,13 @@ return TaskDefiner.defineAtMostOnceTask([
       }
 
 
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
       let syncDate = NOW();
 
       logic(ctx, 'syncStart', { modseq: syncState.modseq });
-      let { mailboxInfo, result: messages } = yield account.pimap.listMessages(
+      let { mailboxInfo, result: messages } = await account.pimap.listMessages(
         ctx,
         allMailFolderInfo,
         '1:*',
@@ -301,7 +297,6 @@ return TaskDefiner.defineAtMostOnceTask([
             ]])
         }
       };
-    })
+    }
   }
 ]);
-});

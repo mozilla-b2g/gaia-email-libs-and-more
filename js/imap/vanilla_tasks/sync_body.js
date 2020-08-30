@@ -1,29 +1,27 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let co = require('co');
+import MixinSyncBody from '../../task_mixins/mix_sync_body';
+import MixinImapSyncBody from '../task_mixins/imap_mix_sync_body';
 
-let TaskDefiner = require('../../task_infra/task_definer');
-
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_sync_body'),
-  require('../task_mixins/imap_mix_sync_body'),
+export default TaskDefiner.defineComplexTask([
+  MixinSyncBody,
+  MixinImapSyncBody,
   {
-    prepForMessages: co.wrap(function*(ctx, account, messages) {
+    async prepForMessages(ctx, account, messages) {
       let umidLocations = new Map();
       for (let message of messages) {
         umidLocations.set(message.umid, null);
       }
 
       // We need to look up all the umidLocations.
-      yield ctx.read({
+      await ctx.read({
         umidLocations
       });
 
       return umidLocations;
-    }),
+    },
 
-    getFolderAndUidForMesssage: function(umidLocations, account, message) {
+    getFolderAndUidForMesssage(umidLocations, account, message) {
       let [folderId, uid] = umidLocations.get(message.umid);
       return {
         folderInfo: account.getFolderById(folderId),
@@ -32,4 +30,4 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-});
+

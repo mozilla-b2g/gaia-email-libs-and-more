@@ -1,36 +1,32 @@
-define(function(require) {
-'use strict';
+import { shallowClone } from '../../util';
 
-const co = require('co');
-const { shallowClone } = require('../../util');
+import { NOW } from '../../date';
 
-const { NOW } = require('../../date');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import FolderSyncStateHelper from '../vanilla/folder_sync_state_helper';
 
-const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
-
-const imapchew = require('../imapchew');
+import imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-const { syncNormalOverlay } =
-  require('../../task_helpers/sync_overlay_helpers');
+import { syncNormalOverlay } from
+  '../../task_helpers/sync_overlay_helpers';
 
 /**
  * Steady state vanilla IMAP folder sync.
  */
-return TaskDefiner.defineAtMostOnceTask([
+export default TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
     binByArg: 'folderId',
 
     helped_overlay_folders: syncNormalOverlay,
 
-    helped_invalidate_overlays: function(folderId, dataOverlayManager) {
+    helped_invalidate_overlays(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
     },
 
-    helped_already_planned: function(ctx, rawTask) {
+    helped_already_planned(ctx, rawTask) {
       // The group should already exist; opt into its membership to get a
       // Promise
       return Promise.resolve({
@@ -42,10 +38,10 @@ return TaskDefiner.defineAtMostOnceTask([
      * In our planning phase we discard nonsensical requests to refresh
      * local-only folders.
      */
-    helped_plan: co.wrap(function*(ctx, rawTask) {
+    async helped_plan(ctx, rawTask) {
       // Get the folder
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+        await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
       let folderInfo = foldersTOC.foldersById.get(rawTask.folderId);
 
       // - Only plan if the folder is real AKA it has a path.
@@ -81,11 +77,11 @@ return TaskDefiner.defineAtMostOnceTask([
         remainInProgressUntil: groupPromise,
         result: groupPromise
       };
-    }),
+    },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
       });
 
@@ -115,7 +111,7 @@ return TaskDefiner.defineAtMostOnceTask([
         ctx, rawSyncState, req.accountId, req.folderId, 'refresh');
 
       // -- Parallel 1/2: Issue find new messages
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
 
       let syncDate = NOW();
@@ -167,13 +163,13 @@ return TaskDefiner.defineAtMostOnceTask([
         // XXX have range-generation logic
         uid: syncState.getAllUids().join(',')
       };
-      let { result: searchedUids } = yield account.pimap.search(
+      let { result: searchedUids } = await account.pimap.search(
         ctx, folderInfo, searchSpec, { byUid: true });
       syncState.inferDeletionFromExistingUids(searchedUids);
 
       // - Do envelope fetches on the non-deleted messages
       // XXX use SEARCHRES here when possible!
-      let { result: currentFlagMessages } = yield account.pimap.listMessages(
+      let { result: currentFlagMessages } = await account.pimap.listMessages(
         ctx,
         folderInfo,
         searchedUids.join(','),
@@ -206,7 +202,7 @@ return TaskDefiner.defineAtMostOnceTask([
       // calls because otherwise we would infer the deletion of all the new
       // messages we find!
       let highestUid = syncState.lastHighUid;
-      let { result: newMessages } = yield parallelNewMessages;
+      let { result: newMessages } = await parallelNewMessages;
       for (let msg of newMessages) {
         // We want to filter out already known UIDs.  As an edge case we can end
         // up hearing about the highest message again.  But additionally it's
@@ -225,7 +221,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       // -- Issue name reads if needed.
       if (syncState.umidNameReads.size) {
-        yield ctx.read({
+        await ctx.read({
           umidNames: syncState.umidNameReads // mutated as a side-effect.
         });
         syncState.generateSyncConvTasks();
@@ -253,7 +249,6 @@ return TaskDefiner.defineAtMostOnceTask([
             ]])
         }
       };
-    })
+    }
   }
 ]);
-});

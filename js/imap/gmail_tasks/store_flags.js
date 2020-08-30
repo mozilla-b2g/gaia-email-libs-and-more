@@ -1,17 +1,16 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import MixinStore from './mix_store';
 
-return TaskDefiner.defineComplexTask([
-  require('./mix_store'),
+export default TaskDefiner.defineComplexTask([
+  MixinStore,
   {
     name: 'store_flags',
     attrName: 'flags',
     // We don't care about the fetch return, so don't bother.
     imapDataName: 'FLAGS.SILENT',
 
-    prepNormalizationLogic: function(ctx, accountId) {
+    prepNormalizationLogic: function(/*ctx, accountId*/) {
       return Promise.resolve(null);
     },
 
@@ -20,5 +19,3 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-
-});

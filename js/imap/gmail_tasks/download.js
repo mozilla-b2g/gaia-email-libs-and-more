@@ -1,13 +1,13 @@
-define(function(require) {
-'use strict';
+import { numericUidFromMessageId } from '../../id_conversions';
 
-const { numericUidFromMessageId } = require('../../id_conversions');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import MixinDownload from '../../task_mixins/mix_download';
+import MixinImapDownload from '../task_mixins/imap_mix_download';
 
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_download'),
-  require('../task_mixins/imap_mix_download'),
+export default TaskDefiner.defineComplexTask([
+  MixinDownload,
+  MixinImapDownload,
   {
     getFolderAndUidForMesssage: function(ctx, account, message) {
       return Promise.resolve({
@@ -17,4 +17,3 @@ return TaskDefiner.defineComplexTask([
     },
   }
 ]);
-});

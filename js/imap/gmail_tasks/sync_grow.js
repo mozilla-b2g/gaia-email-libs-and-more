@@ -1,40 +1,35 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { shallowClone } from '../../util';
 
-const { shallowClone } = require('../../util');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import { quantizeDate, NOW } from '../../date';
 
-const { quantizeDate, NOW } = require('../../date');
-
-const imapchew = require('../imapchew');
+import imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-const a64 = require('../../a64');
+import a64 from '../../a64';
 const parseGmailConvId = a64.parseUI64;
 
 
-const GmailLabelMapper = require('../gmail/gmail_label_mapper');
-const SyncStateHelper = require('../gmail/sync_state_helper');
+import GmailLabelMapper from '../gmail/gmail_label_mapper';
+import SyncStateHelper from '../gmail/sync_state_helper';
 
-const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
-        GROWTH_MESSAGE_COUNT_TARGET } =
-  require('../../syncbase');
+import { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+        GROWTH_MESSAGE_COUNT_TARGET } from '../../syncbase';
 
-const { syncNormalOverlay } =
-  require('../../task_helpers/sync_overlay_helpers');
+import { syncNormalOverlay } from
+  '../../task_helpers/sync_overlay_helpers';
 
-
+import MixinImapProbeForDate from '../task_mixins/imap_mix_probe_for_date';
 
 /**
  * Expand the date-range of known messages for the given folder/label.
  * See sync.md for detailed documentation on our algorithm/strategy.
  */
-return TaskDefiner.defineAtMostOnceTask([
-  require('../task_mixins/imap_mix_probe_for_date'),
+export default TaskDefiner.defineAtMostOnceTask([
+  MixinImapProbeForDate,
   {
     name: 'sync_grow',
     // Note that we are tracking grow status on folders while we track refresh
@@ -43,11 +38,11 @@ return TaskDefiner.defineAtMostOnceTask([
 
     helped_overlay_folders: syncNormalOverlay,
 
-    helped_invalidate_overlays: function(folderId, dataOverlayManager) {
+    helped_invalidate_overlays(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
     },
 
-    helped_already_planned: function(ctx, rawTask) {
+    helped_already_planned(ctx, rawTask) {
       // The group should already exist; opt into its membership to get a
       // Promise
       return Promise.resolve({
@@ -55,7 +50,7 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_plan: function(ctx, rawTask) {
+    helped_plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
       plannedTask.resources = [
         'online',
@@ -77,9 +72,9 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the account
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
 
@@ -87,7 +82,7 @@ return TaskDefiner.defineAtMostOnceTask([
         ctx, fromDb.syncStates.get(req.accountId), req.accountId, 'grow');
 
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
+        await ctx.universe.acquireAccountFoldersTOC(ctx, req.accountId);
       let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
       // - sync_folder_list dependency-failsafe
@@ -99,7 +94,7 @@ return TaskDefiner.defineAtMostOnceTask([
       }
 
       // -- Enter the label's folder for estimate and heuristic purposes
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
       // Failsafe: In the event the folder has no corresponding server path
       // (which is the case for labels here in the gmail case too), bail by
@@ -107,7 +102,7 @@ return TaskDefiner.defineAtMostOnceTask([
       if (!folderInfo.serverPath) {
         return {};
       }
-      let labelMailboxInfo = yield account.pimap.selectMailbox(ctx, folderInfo);
+      let labelMailboxInfo = await account.pimap.selectMailbox(ctx, folderInfo);
 
       // Unlike vanilla IMAP, our sync state does not track exactly how many
       // messages are known to be in each folder.  As things are currently
@@ -140,7 +135,7 @@ return TaskDefiner.defineAtMostOnceTask([
                                              GROWTH_MESSAGE_COUNT_TARGET)) {
         newSinceDate = OLDEST_SYNC_DATE;
       } else {
-        newSinceDate = yield this._probeForDateUsingSequenceNumbers({
+        newSinceDate = await this._probeForDateUsingSequenceNumbers({
           ctx, account, folderInfo,
           startSeq: labelMailboxInfo.exists - folderInfo.localMessageCount,
           curDate: existingSinceDate || quantizeDate(NOW())
@@ -157,11 +152,11 @@ return TaskDefiner.defineAtMostOnceTask([
       logic(ctx, 'searching', { searchSpec: searchSpec });
       let allMailFolderInfo = account.getFirstFolderWithType('all');
       // Find out new UIDs covering the range in question.
-      let { mailboxInfo, result: uids } = yield account.pimap.search(
+      let { mailboxInfo, result: uids } = await account.pimap.search(
         ctx, allMailFolderInfo, searchSpec, { byUid: true });
 
       if (uids.length) {
-        let { result: messages } = yield account.pimap.listMessages(
+        let { result: messages } = await account.pimap.listMessages(
           ctx,
           allMailFolderInfo,
           uids,
@@ -244,7 +239,6 @@ return TaskDefiner.defineAtMostOnceTask([
         },
         atomicClobbers
       };
-    })
+    }
   }
 ]);
-});

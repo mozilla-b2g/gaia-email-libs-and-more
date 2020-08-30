@@ -1,12 +1,9 @@
-define(function(require) {
-'use strict';
 
-let co = require('co');
-let { shallowClone } = require('../../util');
+import { shallowClone } from '../../util';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import  TaskDefiner from '../../task_infra/task_definer';
 
-const { Composer }= require('../../drafts/composer');
+import { Composer } from '../../drafts/composer';
 
 /**
  * Perform an IMAP APPEND of the provided message to a folder on the server.
@@ -16,11 +13,11 @@ const { Composer }= require('../../drafts/composer');
  *
  * This is not appropriate for verbatim transfers of messages between servers.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'append_message',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
       // TODO: account online resource
@@ -38,19 +35,19 @@ return TaskDefiner.defineSimpleTask([
       // TODO: have relPriority prioritize older messages so they more or less
       // go out in FIFO order.
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         taskState: plannedTask
       });
-    }),
+    },
 
-    execute: co.wrap(function*(ctx, req) {
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+    async execute(ctx, req) {
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
 
       // -- Create the composer.
       const composer = new Composer(req.messageInfo, account);
 
-      yield composer.buildMessage({
+      await composer.buildMessage({
         includeBcc: true
       });
 
@@ -65,16 +62,15 @@ return TaskDefiner.defineSimpleTask([
       // TODO: implement heartbeat/renewWakeLock support.  Ideally this happens
       // naturally as part of the fix for the blob deficiency above, but if not,
       // we can do the same monkeypatch/hack that SMTP uses to get this.
-      yield account.pimap.upload(
+      await account.pimap.upload(
         ctx,
         folderInfo.path,
         composedString,
         { flags: ['\\Seen'] }
       );
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
       });
-    }),
+    },
   }
 ]);
-});

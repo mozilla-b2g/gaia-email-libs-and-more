@@ -1,7 +1,6 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import MixinOutboxSend from '../../task_mixins/mix_outbox_send';
 
 /**
  * Vanilla IMAP conditionally generates an "append_message" job to save the
@@ -15,17 +14,16 @@ const TaskDefiner = require('../../task_infra/task_definer');
  * someday we could make understand that.  Or not, since we expect fastmail to
  * move to JMAP soon.
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_outbox_send'),
+export default TaskDefiner.defineComplexTask([
+  MixinOutboxSend,
   {
-    shouldIncludeBcc: function(account) {
+    shouldIncludeBcc(account) {
       // If the SMTP send automatically saves the message in the sent folder,
       // we need to put the BCC's in there while sending.
       return account.sentMessagesAutomaticallyAppearInSentFolder;
     },
 
-    saveSentMessage: function({ ctx, account, newTasks, messages,
-                                messageInfo }) {
+    saveSentMessage({ ctx, account, newTasks, messages, messageInfo }) {
       // - Locally forget about the message
       messages.splice(messages.indexOf(messageInfo), 1);
 
@@ -42,4 +40,3 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-});

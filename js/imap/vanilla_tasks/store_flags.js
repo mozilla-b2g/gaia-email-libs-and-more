@@ -1,30 +1,24 @@
-define(function(require) {
-'use strict';
-
-let co = require('co');
-
-let TaskDefiner = require('../../task_infra/task_definer');
+import TaskDefiner from '../../task_infra/task_definer';
 
 /**
  * @see MixStoreFlagsMixin
  */
-return TaskDefiner.defineComplexTask([
+export default TaskDefiner.defineComplexTask([
   require('../../task_mixins/mix_store_flags'),
   {
     name: 'store_flags',
     // We don't care about the fetch return, so don't bother.
     imapDataName: 'FLAGS.SILENT',
 
-    execute: co.wrap(function*(ctx, persistentState, memoryState,
-                               marker) {
+    async execute(ctx, persistentState, memoryState, marker) {
       let { umidChanges } = persistentState;
 
       let changes = umidChanges.get(marker.umid);
 
-      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
 
       // -- Read the umidLocation
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         umidLocations: new Map([[marker.umid, null]])
       });
 
@@ -33,7 +27,7 @@ return TaskDefiner.defineComplexTask([
 
       // -- Issue the manipulations to the server
       if (changes.add && changes.add.length) {
-        yield account.pimap.store(
+        await account.pimap.store(
           ctx,
           folderInfo,
           [uid],
@@ -42,7 +36,7 @@ return TaskDefiner.defineComplexTask([
           { byUid: true });
       }
       if (changes.remove && changes.remove.length) {
-        yield account.pimap.store(
+        await account.pimap.store(
           ctx,
           folderInfo,
           [uid],
@@ -55,10 +49,9 @@ return TaskDefiner.defineComplexTask([
       umidChanges.delete(marker.umid);
 
       // - Return / finalize
-      yield ctx.finishTask({
+      await ctx.finishTask({
         complexTaskState: persistentState
       });
-    })
+    }
   }
 ]);
-});

@@ -1,28 +1,24 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-let logic = require('logic');
-let co = require('co');
-let { shallowClone } = require('../../util');
+import { shallowClone } from '../../util';
 
-let { prioritizeNewer } = require('../../date_priority_adjuster');
+import { prioritizeNewer } from '../../date_priority_adjuster';
 
 
-let TaskDefiner = require('../../task_infra/task_definer');
-let a64 = require('../../a64');
-let expandGmailConvId = a64.decodeUI64;
+import TaskDefiner from '../../task_infra/task_definer';
+import a64 from '../../a64';
+const expandGmailConvId = a64.decodeUI64;
 
-let { encodedGmailConvIdFromConvId } = require('../../id_conversions');
+import { encodedGmailConvIdFromConvId } from '../../id_conversions';
 
-let { chewMessageStructure, parseImapDateTime } =
-  require('../imapchew');
+import { chewMessageStructure, parseImapDateTime } from '../imapchew';
 
-let { conversationMessageComparator } = require('../../db/comparators');
+import { conversationMessageComparator } from '../../db/comparators';
 
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
-let SyncStateHelper = require('../gmail/sync_state_helper');
-let GmailLabelMapper = require('../gmail/gmail_label_mapper');
+import SyncStateHelper from '../gmail/sync_state_helper';
+import GmailLabelMapper from '../gmail/gmail_label_mapper';
 
 
 /**
@@ -90,11 +86,11 @@ let INITIAL_FETCH_PARAMS = [
  * This does not require loading or mutating the syncState; sync_refresh already
  * updated itself.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'sync_conv',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
       plannedTask.exclusiveResources = [
@@ -116,10 +112,10 @@ return TaskDefiner.defineSimpleTask([
         plannedTask.relPriority = prioritizeNewer(rawTask.mostRecent);
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         taskState: plannedTask
       });
-    }),
+    },
 
     /**
      * Shared code for processing new-to-us messages based on their UID.
@@ -136,8 +132,8 @@ return TaskDefiner.defineSimpleTask([
      *   that server state has changed since the sync_refresh/sync_grow task ran
      *   and that some of those messages will actually be "yay".
      */
-    _fetchAndChewUids: function*(ctx, account, allMailFolderInfo, convId,
-                                 uids, syncState) {
+    async _fetchAndChewUids(ctx, account, allMailFolderInfo, convId,
+                            uids, syncState) {
       let messages = [];
 
       let rawConvId;
@@ -147,10 +143,10 @@ return TaskDefiner.defineSimpleTask([
 
       if (uids && uids.length) {
         let foldersTOC =
-          yield ctx.universe.acquireAccountFoldersTOC(ctx, account.id);
+          await ctx.universe.acquireAccountFoldersTOC(ctx, account.id);
         let labelMapper = new GmailLabelMapper(ctx, foldersTOC);
 
-        let { result: rawMessages } = yield account.pimap.listMessages(
+        let { result: rawMessages } = await account.pimap.listMessages(
           ctx,
           allMailFolderInfo,
           uids,
@@ -212,31 +208,31 @@ return TaskDefiner.defineSimpleTask([
      * - Fetch their envelopes, creating HeaderInfo/BodyInfo structures
      * - Derive the ConversationInfo from the HeaderInfo instances
      */
-    _execNewConv: co.wrap(function*(ctx, req) {
-      let fromDb = yield ctx.beginMutate({
+    async _execNewConv(ctx, req) {
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
 
       let syncState = new SyncStateHelper(
         ctx, fromDb.syncStates.get(req.accountId), req.accountId, 'conv');
 
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
       // Search for all the messages in the conversation
       let searchSpec = {
         'x-gm-thrid': convIdToGmailThreadId(req.convId)
       };
-      let { result: uids } = yield account.pimap.search(
+      let { result: uids } = await account.pimap.search(
         ctx, allMailFolderInfo, searchSpec, { byUid: true });
       logic(ctx, 'search found uids', { uids });
 
-      let messages = yield* this._fetchAndChewUids(
+      let messages = await this._fetchAndChewUids(
         ctx, account, allMailFolderInfo, req.convId, uids, syncState);
 
       let convInfo = churnConversation(req.convId, null, messages);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]])
         },
@@ -245,25 +241,25 @@ return TaskDefiner.defineSimpleTask([
           messages: messages
         }
       });
-    }),
+    },
 
     /**
      * The conversation is no longer relevant or no longer exists, delete all
      * traces of the conversation from our perspective.
      */
-    _execDeleteConv: co.wrap(function*(ctx, req) {
+    async _execDeleteConv(ctx, req) {
       // Deleting a conversation requires us to first load it for mutation so
       // that we have pre-state to be able to remove it from the folder id's
       // it is associated with.
-      yield ctx.beginMutate({
+      await ctx.beginMutate({
         conversations: new Map([[req.convId, null]])
       });
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, null]])
         }
       });
-    }),
+    },
 
     /**
      * We learned about new UIDs in a conversation:
@@ -272,11 +268,11 @@ return TaskDefiner.defineSimpleTask([
      * - Fetch the envelopes for any new message
      * - Rederive/update the ConversationInfo given all the messages.
      */
-    _execModifyConv: co.wrap(function*(ctx, req) {
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+    async _execModifyConv(ctx, req) {
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let allMailFolderInfo = account.getFirstFolderWithType('all');
 
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
         messagesByConversation: new Map([[req.convId, null]])
       });
@@ -304,7 +300,7 @@ return TaskDefiner.defineSimpleTask([
       }
 
       // Fetch the envelopes from the server and create headers/bodies
-      let newMessages = yield* this._fetchAndChewUids(
+      let newMessages = await this._fetchAndChewUids(
         ctx, account, allMailFolderInfo, req.convId,
         req.newUids && Array.from(req.newUids), false);
 
@@ -315,7 +311,7 @@ return TaskDefiner.defineSimpleTask([
       let oldConvInfo = fromDb.conversations.get(req.convId);
       let convInfo = churnConversation(req.convId, oldConvInfo, allMessages);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, convInfo]]),
           messages: modifiedMessagesMap
@@ -324,9 +320,9 @@ return TaskDefiner.defineSimpleTask([
           messages: newMessages
         }
       });
-    }),
+    },
 
-    execute: function(ctx, req) {
+    execute(ctx, req) {
       // Dispatch based on what actually needs to be done.  While one might
       // think this is begging for 3 separate task types, unification can be
       // applied here and it wants to be conversation-centric in nature,
@@ -341,4 +337,3 @@ return TaskDefiner.defineSimpleTask([
     }
   }
 ]);
-});

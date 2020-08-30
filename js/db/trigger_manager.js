@@ -122,10 +122,11 @@ TriggerManager.prototype = {
         case 'name':
           break;
         // Everything else is something to bind.
-        default:
+        default: {
           let handlerFunc = triggerDef[key];
           let boundHandler = handlerFunc.bind(null, triggerContext);
           this.db.on(key, boundHandler);
+        }
       }
     }
   },

@@ -1,15 +1,10 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let co = require('co');
+import { normalizeAndApplyChanges, applyChanges, mergeChanges } from
+  '../delta_algebra';
+import { selectMessages } from '../message_selector';
 
-let TaskDefiner = require('../../task_infra/task_definer');
-
-let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
-  require('../delta_algebra');
-let { selectMessages } = require('../message_selector');
-
-let churnConversation = require('../churn_drivers/conv_churn_driver');
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
 /**
  * Vanilla IMAP MOVE implementation.  Derived from mix_store_flag.js but
@@ -59,7 +54,7 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
  /**
   * @see MixStoreFlagsMixin
   */
- return TaskDefiner.defineComplexTask([
+ export default TaskDefiner.defineComplexTask([
    {
      name: 'move',
 
@@ -67,13 +62,13 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
      * @return {StoreFlagState}
      *   The initial state of this task type for a newly created account.
      */
-    initPersistentState: function() {
+    initPersistentState() {
       return {
         umidChanges: new Map()
       };
     },
 
-    deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
+    deriveMemoryStateFromPersistentState(persistentState, accountId) {
       let markers = [];
 
       for (let umid of persistentState.umidChanges.keys()) {
@@ -93,12 +88,11 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
       };
     },
 
-
-    plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+    async plan(ctx, persistentState, memoryState, req) {
       let { umidChanges } = persistentState;
 
       // -- Load the conversation and messages
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
         messagesByConversation: new Map([[req.convId, null]])
       });
@@ -188,7 +182,7 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
       // need to perform any transformation based on what is currently pending
       // because inbound sync does that and so we always seem a post-transform
       // view when looking in our database.)
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: conversationsMap,
           messages: modifiedMessagesMap
@@ -196,13 +190,13 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
         taskMarkers: modifyTaskMarkers,
         complexTaskState: persistentState
       });
-    }),
+    },
 
     /**
      * Exposed helper API for sync logic that wants the list of flags/labels
      * fixed-up to account for things we have not yet reflected to the server.
      */
-    consult: function(askingCtx, persistentState, memoryState, argDict) {
+    consult(askingCtx, persistentState, memoryState, argDict) {
       let { umid, value } = argDict;
 
       let { umidChanges } = persistentState;
@@ -213,16 +207,15 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
       }
     },
 
-    execute: co.wrap(function*(ctx, persistentState, memoryState,
-                               marker) {
+    async execute(ctx, persistentState, memoryState, marker) {
       let { umidChanges } = persistentState;
 
       let changes = umidChanges.get(marker.umid);
 
-      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
 
       // -- Read the umidLocation
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         umidLocations: new Map([[marker.umid, null]])
       });
 
@@ -231,7 +224,7 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
 
       // -- Issue the manipulations to the server
       if (changes.add && changes.add.length) {
-        yield account.pimap.store(
+        await account.pimap.store(
           ctx,
           folderInfo,
           [uid],
@@ -240,7 +233,7 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
           { byUid: true });
       }
       if (changes.remove && changes.remove.length) {
-        yield account.pimap.store(
+        await account.pimap.store(
           ctx,
           folderInfo,
           [uid],
@@ -253,12 +246,10 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
       umidChanges.delete(marker.umid);
 
       // - Return / finalize
-      yield ctx.finishTask({
+      await ctx.finishTask({
         complexTaskState: persistentState
       });
-    }),
+    },
   }
 ]);
 
-return MixStoreFlagsMixin;
-});

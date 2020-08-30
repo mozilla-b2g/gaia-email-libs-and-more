@@ -1,25 +1,24 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import { makeFolderMeta } from '../../db/folder_info_rep';
 
-const { makeFolderMeta } = require('../../db/folder_info_rep');
+import normalizeFolderType from '../normalize_folder_type';
 
-const normalizeFolderType = require('../normalize_folder_type');
+import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
 
 /**
  * Common IMAP folder list syncing logic.
  */
-return TaskDefiner.defineSimpleTask([
-  require('../../task_mixins/mix_sync_folder_list'),
+export default TaskDefiner.defineSimpleTask([
+  MixinSyncFolderList,
   {
-    syncFolders: function*(ctx, account) {
+    async syncFolders(ctx, account) {
       let { imapAccount, foldersTOC } = account;
 
-      let boxesRoot = yield imapAccount.pimap.listMailboxes(ctx);
-      let namespaces = yield imapAccount.pimap.listNamespaces(ctx);
+      let boxesRoot = await imapAccount.pimap.listMailboxes(ctx);
+      let namespaces = await imapAccount.pimap.listNamespaces(ctx);
 
       if (!namespaces) {
         namespaces = {
@@ -144,4 +143,3 @@ return TaskDefiner.defineSimpleTask([
     }
   }
 ]);
-});

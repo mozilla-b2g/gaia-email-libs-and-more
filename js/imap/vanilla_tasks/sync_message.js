@@ -1,21 +1,17 @@
-define(function(require) {
-'use strict';
+import { shallowClone } from '../../util';
+import { prioritizeNewer } from '../../date_priority_adjuster';
 
-const co = require('co');
-const { shallowClone } = require('../../util');
-const { prioritizeNewer } = require('../../date_priority_adjuster');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import { resolveConversationTaskHelper } from
+  '../../task_mixins/conv_resolver';
 
-const { resolveConversationTaskHelper } =
-  require('../../task_mixins/conv_resolver');
+import { browserboxMessageToMimeHeaders, chewMessageStructure } from
+  '../imapchew';
 
-const { browserboxMessageToMimeHeaders, chewMessageStructure } =
-  require('../imapchew');
+import { conversationMessageComparator } from '../../db/comparators';
 
-const { conversationMessageComparator } = require('../../db/comparators');
-
-const churnConversation = require('../../churn_drivers/conv_churn_driver');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
 /**
  * What to fetch.  Note that we currently re-fetch the flags even though they're
@@ -48,11 +44,11 @@ const INITIAL_FETCH_PARAMS = [
  * and to also thread the message into a conversation.  We create or update the
  * conversation during this process.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'sync_message',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
       // We don't have any a priori name-able exclusive resources.  Our records
@@ -69,17 +65,17 @@ return TaskDefiner.defineSimpleTask([
         plannedTask.relPriority = prioritizeNewer(rawTask.dateTS);
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         taskState: plannedTask
       });
-    }),
+    },
 
-    execute: co.wrap(function*(ctx, req) {
+    async execute(ctx, req) {
       // -- Get the envelope
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
 
-      let { result: rawMessages } = yield account.pimap.listMessages(
+      let { result: rawMessages } = await account.pimap.listMessages(
         ctx,
         folderInfo,
         [req.uid],
@@ -92,7 +88,7 @@ return TaskDefiner.defineSimpleTask([
 
       // -- Resolve the conversation this goes in.
       let { convId, existingConv, messageId, headerIdWrites, extraTasks } =
-        yield* resolveConversationTaskHelper(
+        await resolveConversationTaskHelper(
           ctx, headers, req.accountId, req.umid);
 
       let messageInfo = chewMessageStructure(
@@ -111,7 +107,7 @@ return TaskDefiner.defineSimpleTask([
       let allMessages;
       let newConversations, modifiedConversations;
       if (existingConv) {
-        let fromDb = yield ctx.beginMutate({
+        let fromDb = await ctx.beginMutate({
           conversations: new Map([[convId, null]]),
           messagesByConversation: new Map([[convId, null]])
         });
@@ -133,7 +129,7 @@ return TaskDefiner.defineSimpleTask([
         newConversations = [convInfo];
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: modifiedConversations,
           headerIdMaps: headerIdWrites,
@@ -145,7 +141,6 @@ return TaskDefiner.defineSimpleTask([
           tasks: extraTasks
         }
       });
-    }),
+    },
   }
 ]);
-});

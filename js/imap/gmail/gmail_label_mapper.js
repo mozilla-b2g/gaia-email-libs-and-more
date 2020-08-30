@@ -1,7 +1,5 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-let logic = require('logic');
 
 /**
  * Builds and maintains a bidirectional mapping between FolderId and Gmail label
@@ -129,5 +127,4 @@ GmailLabelMapper.prototype = {
   }
 };
 
-return GmailLabelMapper;
-});
+export default GmailLabelMapper;

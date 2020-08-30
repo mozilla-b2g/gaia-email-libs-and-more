@@ -1,14 +1,11 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const co = require('co');
+import GmailLabelMapper from '../gmail/gmail_label_mapper';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import MixinStore from './mix_store';
 
-const GmailLabelMapper = require('../gmail/gmail_label_mapper');
-
-return TaskDefiner.defineComplexTask([
-  require('./mix_store'),
+export default TaskDefiner.defineComplexTask([
+  MixinStore,
   {
     name: 'store_labels',
     attrName: 'folderIds',
@@ -19,18 +16,18 @@ return TaskDefiner.defineComplexTask([
     /**
      * Acquire a GmailLabelMapper for `normalizeLocalToServer`.
      */
-    prepNormalizationLogic: co.wrap(function*(ctx, accountId) {
+    async prepNormalizationLogic(ctx, accountId) {
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, accountId);
+        await ctx.universe.acquireAccountFoldersTOC(ctx, accountId);
       return new GmailLabelMapper(ctx, foldersTOC);
-    }),
+    },
 
     /**
      * Transform FolderId values to GmailLabel values.  Used by the planning
      * stage as it crosses from the "do local things" to "schedule server
      * things" stage of things.
      */
-    normalizeLocalToServer: function(labelMapper, folderIds) {
+    normalizeLocalToServer(labelMapper, folderIds) {
       // folderIds may be null, in which case we want to pass it through that
       // way.
       if (!folderIds) {
@@ -40,4 +37,3 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-});

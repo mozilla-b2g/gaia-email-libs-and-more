@@ -1,15 +1,10 @@
-define(function(require) {
-'use strict';
+import { numericUidFromMessageId } from '../../id_conversions';
 
-let co = require('co');
+import { normalizeAndApplyChanges, applyChanges, mergeChanges } from
+  '../../delta_algebra';
+import { selectMessages } from '../../message_selector';
 
-let { numericUidFromMessageId } = require('../../id_conversions');
-
-let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
-  require('../../delta_algebra');
-let { selectMessages } = require('../../message_selector');
-
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
 /**
  * @typedef {} MixStorePersistentState
@@ -170,20 +165,19 @@ let churnConversation = require('../../churn_drivers/conv_churn_driver');
  * Therefore, we implement:
  * -
  */
-let GmailStoreTaskMixin = {
-
+const GmailStoreTaskMixin = {
   /**
    * @return {StoreFlagState}
    *   The initial state of this task type for a newly created account.
    */
-  initPersistentState: function() {
+  initPersistentState() {
     return {
       nextId: 1,
       aggrChanges: new Map()
     };
   },
 
-  deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
+  deriveMemoryStateFromPersistentState(persistentState, accountId) {
     let markers = [];
     let idToAggrString = new Map();
 
@@ -225,7 +219,7 @@ let GmailStoreTaskMixin = {
    *
    * @return {FlagStoreAggrString}
    */
-  _deriveMixStoreAggrString: function(add, remove) {
+  _deriveMixStoreAggrString(add, remove) {
     var s = '';
     if (add && add.length) {
       add.sort();
@@ -241,16 +235,16 @@ let GmailStoreTaskMixin = {
     return s;
   },
 
-  plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+  async plan(ctx, persistentState, memoryState, req) {
     let { aggrChanges } = persistentState;
     let { idToAggrString } = memoryState;
 
     // (only needed in the labels case currently, but )
     let normalizeHelper =
-      yield this.prepNormalizationLogic(ctx, req.accountId);
+      await this.prepNormalizationLogic(ctx, req.accountId);
 
     // -- Load the conversation and messages
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
       messagesByConversation: new Map([[req.convId, null]])
     });
@@ -366,7 +360,7 @@ let GmailStoreTaskMixin = {
     // need to perform any transformation based on what is currently pending
     // because inbound sync does that and so we always seem a post-transform
     // view when looking in our database.)
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: conversationsMap,
         messages: modifiedMessagesMap
@@ -375,13 +369,13 @@ let GmailStoreTaskMixin = {
       complexTaskState: persistentState,
       undoTasks: undoTasks
     });
-  }),
+  },
 
   /**
    * Exposed helper API for sync logic that wants the list of flags/labels
    * fixed-up to account for things we have not yet reflected to the server.
    */
-  consult: function(askingCtx, persistentState, memoryState, argDict) {
+  consult(askingCtx, persistentState, memoryState, argDict) {
     let { uid, value } = argDict;
 
     let { aggrChanges } = persistentState;
@@ -395,14 +389,13 @@ let GmailStoreTaskMixin = {
     }
   },
 
-  execute: co.wrap(function*(ctx, persistentState, memoryState,
-                             marker) {
+  async execute(ctx, persistentState, memoryState, marker) {
     let { aggrChanges } = persistentState;
     let { idToAggrString } = memoryState;
 
     let changes = aggrChanges.get(marker.aggrString);
 
-    let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+    let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
     // TODO: spam and trash folder handling would demand that we perform
     // further normalization of the UIDs and pick the appropriate folder here.
     let allMailFolderInfo = account.getFirstFolderWithType('all');
@@ -410,7 +403,7 @@ let GmailStoreTaskMixin = {
 
     // -- Issue the manipulations to the server
     if (changes.add && changes.add.length) {
-      yield account.pimap.store(
+      await account.pimap.store(
         ctx,
         allMailFolderInfo,
         uidSet,
@@ -419,7 +412,7 @@ let GmailStoreTaskMixin = {
         { byUid: true });
     }
     if (changes.remove && changes.remove.length) {
-      yield account.pimap.store(
+      await account.pimap.store(
         ctx,
         allMailFolderInfo,
         uidSet,
@@ -435,11 +428,10 @@ let GmailStoreTaskMixin = {
     }
 
     // - Return / finalize
-    yield ctx.finishTask({
+    await ctx.finishTask({
       complexTaskState: persistentState
     });
-  })
+  }
 };
 
-return GmailStoreTaskMixin;
-});
+export default GmailStoreTaskMixin;

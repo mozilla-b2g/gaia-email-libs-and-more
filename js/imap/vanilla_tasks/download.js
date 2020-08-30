@@ -1,22 +1,20 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const co = require('co');
+import MixinDownload from '../../task_mixins/mix_download';
+import MixinImapDownload from '../task_mixins/imap_mix_download';
 
-const TaskDefiner = require('../../task_infra/task_definer');
-
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_download'),
-  require('../task_mixins/imap_mix_download'),
+export default TaskDefiner.defineComplexTask([
+  MixinDownload,
+  MixinImapDownload,
   {
-    getFolderAndUidForMesssage: co.wrap(function*(ctx, account, message) {
-      let [folderId, uid] = yield ctx.readSingle('umidLocations', message.umid);
+    async getFolderAndUidForMesssage(ctx, account, message) {
+      let [folderId, uid] = await ctx.readSingle('umidLocations', message.umid);
 
       return {
         folderInfo: account.getFolderById(folderId),
         uid
       };
-    }),
+    },
   }
 ]);
-});
+

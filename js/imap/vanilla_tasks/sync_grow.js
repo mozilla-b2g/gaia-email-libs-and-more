@@ -1,27 +1,22 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { shallowClone } from '../../util';
 
-const { shallowClone } = require('../../util');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import { quantizeDate, NOW } from '../../date';
 
-const { quantizeDate, NOW } = require('../../date');
-
-const imapchew = require('../imapchew');
+import imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-const FolderSyncStateHelper = require('../vanilla/folder_sync_state_helper');
+import FolderSyncStateHelper from '../vanilla/folder_sync_state_helper';
 
-const { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
-        GROWTH_MESSAGE_COUNT_TARGET } =
-  require('../../syncbase');
+import { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
+        GROWTH_MESSAGE_COUNT_TARGET } from '../../syncbase';
 
-const { syncNormalOverlay } =
-  require('../../task_helpers/sync_overlay_helpers');
+import { syncNormalOverlay } from '../../task_helpers/sync_overlay_helpers';
 
+import MixinImapProbeForDate from '../task_mixins/imap_mix_probe_for_date';
 
 /**
  * Expand the date-range of known messages for the given folder.
@@ -37,19 +32,19 @@ const { syncNormalOverlay } =
  *   date-based sync window.  This is intended to help us bridge large time
  *   gaps between messages.
  */
-return TaskDefiner.defineAtMostOnceTask([
-  require('../task_mixins/imap_mix_probe_for_date'),
+export default TaskDefiner.defineAtMostOnceTask([
+  MixinImapProbeForDate,
   {
     name: 'sync_grow',
     binByArg: 'folderId',
 
     helped_overlay_folders: syncNormalOverlay,
 
-    helped_invalidate_overlays: function(folderId, dataOverlayManager) {
+    helped_invalidate_overlays(folderId, dataOverlayManager) {
       dataOverlayManager.announceUpdatedOverlayData('folders', folderId);
     },
 
-    helped_already_planned: function(ctx, rawTask) {
+    helped_already_planned(ctx, rawTask) {
       // The group should already exist; opt into its membership to get a
       // Promise
       return Promise.resolve({
@@ -57,7 +52,7 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_plan: function(ctx, rawTask) {
+    helped_plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
       plannedTask.resources = [
         'online',
@@ -79,9 +74,9 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
       });
 
@@ -90,9 +85,9 @@ return TaskDefiner.defineAtMostOnceTask([
         req.folderId, 'grow');
 
       // -- Enter the folder to get an estimate of the number of messages
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let folderInfo = account.getFolderById(req.folderId);
-      let mailboxInfo = yield account.pimap.selectMailbox(ctx, folderInfo);
+      let mailboxInfo = await account.pimap.selectMailbox(ctx, folderInfo);
 
       // Figure out an upper bound on the number of messages in the folder that
       // we have not synchronized.
@@ -112,7 +107,7 @@ return TaskDefiner.defineAtMostOnceTask([
                                                GROWTH_MESSAGE_COUNT_TARGET)) {
         newSinceDate = OLDEST_SYNC_DATE;
       } else {
-        newSinceDate = yield this._probeForDateUsingSequenceNumbers({
+        newSinceDate = await this._probeForDateUsingSequenceNumbers({
           ctx, account, folderInfo,
           startSeq: mailboxInfo.exists - syncState.knownMessageCount,
           curDate: existingSinceDate || quantizeDate(NOW())
@@ -128,7 +123,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       logic(ctx, 'searching', { searchSpec: searchSpec });
       // Find out new UIDs covering the range in question.
-      let { result: uids } = yield account.pimap.search(
+      let { result: uids } = await account.pimap.search(
         ctx, folderInfo, searchSpec, { byUid: true });
 
       // -- Fetch flags and the dates for the new messages
@@ -138,7 +133,7 @@ return TaskDefiner.defineAtMostOnceTask([
       if (uids.length) {
         let newUids = syncState.filterOutKnownUids(uids);
 
-        let { result: messages } = yield account.pimap.listMessages(
+        let { result: messages } = await account.pimap.listMessages(
           ctx,
           folderInfo,
           newUids,
@@ -202,7 +197,7 @@ return TaskDefiner.defineAtMostOnceTask([
             ]])
         }
       };
-    })
+    }
   }
 ]);
-});
+
