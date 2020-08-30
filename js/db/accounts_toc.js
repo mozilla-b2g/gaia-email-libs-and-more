@@ -1,12 +1,9 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
+import logic from 'logic';
 
-const evt = require('evt');
-const logic = require('logic');
+import { engineFrontEndAccountMeta } from '../engine_glue';
 
-const { engineFrontEndAccountMeta } = require('../engine_glue');
-
-const { bsearchForInsert } = require('../util');
+import { bsearchForInsert } from '../util';
 
 /**
  * Ordering accounts by their name, why not.  (It used to just be creation / id
@@ -33,7 +30,7 @@ function accountDefComparator(a, b) {
  * good to go.  (This also allows us to potentially introduce some additional
  * pre-reqs in the future.)
  */
-function AccountsTOC() {
+export default function AccountsTOC() {
   evt.Emitter.call(this);
   logic.defineScope(this, 'AccountsTOC');
 
@@ -46,23 +43,23 @@ AccountsTOC.prototype = evt.mix({
 
   // We don't care about who references us because we have the lifetime of the
   // universe.
-  __acquire: function() {
+  __acquire() {
     return Promise.resolve(this);
   },
 
-  __release: function() {
+  __release() {
     // nothing to do
   },
 
-  isKnownAccount: function(accountId) {
+  isKnownAccount(accountId) {
     return this.accountDefsById.has(accountId);
   },
 
-  getAllItems: function() {
+  getAllItems() {
     return this.accountDefs.map(this.accountDefToWireRep);
   },
 
-  getItemIndexById: function(id) {
+  getItemIndexById(id) {
     const item = this.itemsById.get(id);
     return this.items.indexOf(item);
   },
@@ -72,7 +69,7 @@ AccountsTOC.prototype = evt.mix({
    * returning the wireRep for the account for any legacy needs.  (We otherwise
    * have no useful return value, so why not do something ugly?)
    */
-  __addAccount: function(accountDef) {
+  __addAccount(accountDef) {
     let idx = bsearchForInsert(this.accountDefs, accountDef,
                                accountDefComparator);
     this.accountDefs.splice(idx, 0, accountDef);
@@ -83,7 +80,7 @@ AccountsTOC.prototype = evt.mix({
     this.emit('add', wireRep, idx);
   },
 
-  __accountModified: function(accountDef) {
+  __accountModified(accountDef) {
     // (Object identity holds here, and the number of accounts will always be
     // smallish, so just use indexOf.)
     let idx = this.accountDefs.indexOf(accountDef);
@@ -93,7 +90,7 @@ AccountsTOC.prototype = evt.mix({
     this.emit('change', this.accountDefToWireRep(accountDef), idx);
   },
 
-  __removeAccountById: function(accountId) {
+  __removeAccountById(accountId) {
     let accountDef = this.accountDefsById.get(accountId);
     let idx = this.accountDefs.indexOf(accountDef);
     logic(this, 'removeAccountById', { accountId: accountId, index: idx });
@@ -104,7 +101,7 @@ AccountsTOC.prototype = evt.mix({
     this.emit('remove', accountId, idx);
   },
 
-  accountDefToWireRep: function(accountDef) {
+  accountDefToWireRep(accountDef) {
     return Object.assign(
       // NB: This structure is basically verbatim from v1.x to avoid
       // gratuitous change, but it could make sense to make varying changes.
@@ -153,7 +150,4 @@ AccountsTOC.prototype = evt.mix({
     );
   },
 
-});
-
-return AccountsTOC;
 });

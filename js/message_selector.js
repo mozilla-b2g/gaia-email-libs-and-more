@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * Helper for tasks that operate on conversations but may want to filter
  * messages by messageId or apply a selector like "last".
@@ -14,7 +11,7 @@ define(function(require) {
  * TODO: put this into a subdirectory with some commonality that results in a
  * more useful name than "utils"/etc.
  */
-function selectMessages(messages, onlyMessages, selector) {
+export function selectMessages(messages, onlyMessages, selector) {
   let filtered = messages;
   if (onlyMessages) {
     filtered = filtered.filter((message) => {
@@ -34,9 +31,3 @@ function selectMessages(messages, onlyMessages, selector) {
 
   return filtered;
 }
-
-return {
-  selectMessages
-};
-
-});

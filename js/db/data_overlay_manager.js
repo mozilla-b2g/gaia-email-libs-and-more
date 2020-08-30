@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-const evt = require('evt');
-const logic = require('logic');
+import evt from 'evt';
+import logic from 'logic';
 
 /**
  * Data overlays are bonus data that may change with a high frequency that we
@@ -72,7 +69,7 @@ const logic = require('logic');
  *
  *
  */
-function DataOverlayManager() {
+export default function DataOverlayManager() {
   evt.Emitter.call(this);
   logic.defineScope(this, 'DataOverlayManager');
 
@@ -130,7 +127,4 @@ DataOverlayManager.prototype = evt.mix({
     }
     return overlays;
   }
-});
-
-return DataOverlayManager;
 });

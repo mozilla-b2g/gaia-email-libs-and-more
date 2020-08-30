@@ -1,41 +1,34 @@
-define(function(require) {
-'use strict';
-
-/**
- * @module
- */
-
-const logic = require('logic');
-const MailDB = require('./maildb');
+import logic from 'logic';
+import MailDB from './maildb';
 
 
-const AccountManager = require('./universe/account_manager');
-const CronSyncSupport = require('./universe/cronsync_support');
-const ExtensionManager = require('./universe/extension_manager');
-const TOCManager = require('./universe/toc_manager');
-const DerivedViewManager = require('./universe/derived_view_manager');
+import AccountManager from './universe/account_manager';
+import CronSyncSupport from './universe/cronsync_support';
+import ExtensionManager from './universe/extension_manager';
+import TOCManager from './universe/toc_manager';
+import DerivedViewManager from './universe/derived_view_manager';
 
-const DataOverlayManager = require('./db/data_overlay_manager');
-const FolderConversationsTOC = require('./db/folder_convs_toc');
-const ConversationTOC = require('./db/conv_toc');
+import DataOverlayManager from './db/data_overlay_manager';
+import FolderConversationsTOC from './db/folder_convs_toc';
+import ConversationTOC from './db/conv_toc';
 
-const SyncLifecycleMetaHelper = require('./db/toc_meta/sync_lifecycle');
+import SyncLifecycleMetaHelper from './db/toc_meta/sync_lifecycle';
 
-const TaskManager = require('./task_infra/task_manager');
-const TaskRegistry = require('./task_infra/task_registry');
-const TaskPriorities = require('./task_infra/task_priorities');
-const TaskResources = require('./task_infra/task_resources');
-const TaskGroupTracker = require('./task_infra/task_group_tracker');
+import TaskManager from './task_infra/task_manager';
+import TaskRegistry from './task_infra/task_registry';
+import TaskPriorities from './task_infra/task_priorities';
+import TaskResources from './task_infra/task_resources';
+import TaskGroupTracker from './task_infra/task_group_tracker';
 
-const QueryManager = require('./search/query_manager');
-const TriggerManager = require('./db/trigger_manager');
-const dbTriggerDefs = require('./db_triggers/all');
+import QueryManager from './search/query_manager';
+import TriggerManager from './db/trigger_manager';
+import dbTriggerDefs from './db_triggers/all';
 
-const globalTasks = require('./global_tasks');
+import globalTasks from './global_tasks';
 
-const { accountIdFromFolderId, accountIdFromMessageId, accountIdFromConvId,
-        convIdFromMessageId, accountIdFromIdentityId } =
-  require('./id_conversions');
+import { accountIdFromFolderId, accountIdFromMessageId, accountIdFromConvId,
+        convIdFromMessageId, accountIdFromIdentityId } from
+  './id_conversions';
 
 /**
  * The root of the backend, coordinating/holding everything together.  It is the
@@ -47,7 +40,7 @@ const { accountIdFromFolderId, accountIdFromMessageId, accountIdFromConvId,
  * @constructor
  * @memberof module:mailuniverse
  */
-function MailUniverse({ online, testOptions, appExtensions }) {
+export default function MailUniverse({ online, testOptions, appExtensions }) {
   logic.defineScope(this, 'Universe');
   this._initialized = false;
   this._appExtensions = appExtensions;
@@ -165,7 +158,7 @@ MailUniverse.prototype = {
   /**
    * Initialize and configure logging.
    */
-  _initLogging: function(config) {
+  _initLogging(config) {
     // Delimit different runs of the universe from each other in the cheapest
     // way possible.
     console.log('======================');
@@ -206,7 +199,7 @@ MailUniverse.prototype = {
    * mechanism.  See disclaimers elsewhere, but ideally this gets fancier in
    * the future.  Or we grow a separate more sophisticated mechanism.
    */
-  _generateMigrationTasks: function({ accountDefs }) {
+  _generateMigrationTasks({ accountDefs }) {
     return accountDefs.map((accountDef) => {
       return {
         type: 'account_migrate',
@@ -215,7 +208,7 @@ MailUniverse.prototype = {
     });
   },
 
-  init: function() {
+  init() {
     if (this._initialized !== false) {
       throw new Error('misuse');
     }
@@ -255,7 +248,7 @@ MailUniverse.prototype = {
   /**
    * Perform initial initialization based on our configuration.
    */
-  _initFromConfig: function({ config, accountDefs, tasksToPlan }) {
+  _initFromConfig({ config, accountDefs, tasksToPlan }) {
     this._initialized = true;
     this.config = config;
     this._initLogging(config);
@@ -293,12 +286,12 @@ MailUniverse.prototype = {
     return initPromise;
   },
 
-  setInteractive: function() {
+  setInteractive() {
     this._mode = 'interactive';
   },
 
   //////////////////////////////////////////////////////////////////////////////
-  _onConnectionChange: function(isOnline) {
+  _onConnectionChange(isOnline) {
     var wasOnline = this.online;
     /**
      * Are we online?  AKA do we have actual internet network connectivity.
@@ -319,21 +312,21 @@ MailUniverse.prototype = {
     }
   },
 
-  registerBridge: function(mailBridge) {
+  registerBridge(mailBridge) {
     // If you're doing anything like thinking of adding event binding here,
     // please read the comments inside broadcastOverBridges and reconsider its
     // implementation after having read this.
     this._bridges.push(mailBridge);
   },
 
-  unregisterBridge: function(mailBridge) {
+  unregisterBridge(mailBridge) {
     var idx = this._bridges.indexOf(mailBridge);
     if (idx !== -1) {
       this._bridges.splice(idx, 1);
     }
   },
 
-  exposeConfigForClient: function() {
+  exposeConfigForClient() {
     const config = this.config;
     return {
       debugLogging: config.debugLogging
@@ -350,7 +343,7 @@ MailUniverse.prototype = {
    * belongs as tasks or other explicit named classes, so creating a directory
    * by broadcast would be inverting things from their optimal structure.)
    */
-  _bindStandardBroadcasts: function() {
+  _bindStandardBroadcasts() {
     // - config: send a sanitized version
     // While our threat model at the current time trusts the front-end, there's
     // no need to send it implementation details that it does not care about.
@@ -388,7 +381,7 @@ MailUniverse.prototype = {
    * @param {Object} data
    *   Note that this data
    */
-  broadcastOverBridges: function(name, data) {
+  broadcastOverBridges(name, data) {
     // Implementation-wise, there are two ways the control flow could go:
     // 1. Iterate over the bridges and call a broadcast() method.
     // 2. MailUniverse should be an EventEmitter and it should  emit an event
@@ -408,14 +401,14 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
   // Resource Acquisition stuff
 
-  acquireAccountsTOC: function(ctx) {
+  acquireAccountsTOC(ctx) {
     return this.accountManager.acquireAccountsTOC(ctx);
   },
 
   /**
    * Acquire an account.
    */
-  acquireAccount: function(ctx, accountId) {
+  acquireAccount(ctx, accountId) {
     return this.accountManager.acquireAccount(ctx, accountId);
   },
 
@@ -426,7 +419,7 @@ MailUniverse.prototype = {
    * Note that folderTOC's are eternal and so don't actually need reference
    * counting, etc.  However, we conform to the idiom.
    */
-  acquireAccountFoldersTOC: function(ctx, accountId) {
+  acquireAccountFoldersTOC(ctx, accountId) {
     return this.accountManager.acquireAccountFoldersTOC(ctx, accountId);
   },
 
@@ -434,11 +427,11 @@ MailUniverse.prototype = {
    * Acquire a TOC provided by the extension mechanism.  Other TOC exposures
    * could be migrated to go through this in the future, yes.
    */
-  acquireExtensionTOC: function(ctx, namespace, name) {
+  acquireExtensionTOC(ctx, namespace, name) {
     return this.tocManager.acquireExtensionTOC(ctx, namespace, name);
   },
 
-  acquireFolderConversationsTOC: function(ctx, folderId) {
+  acquireFolderConversationsTOC(ctx, folderId) {
     let toc;
     if (this._folderConvsTOCs.has(folderId)) {
       toc = this._folderConvsTOCs.get(folderId);
@@ -475,7 +468,7 @@ MailUniverse.prototype = {
     return ctx.acquire(toc);
   },
 
-  acquireSearchConversationsTOC: function(ctx, spec) {
+  acquireSearchConversationsTOC(ctx, spec) {
     let folderId = spec.folderId;
     // Figure out what the sync stamp source is for this account.  It hinges
     // on the sync granularity; if it's account-based then the sync stamps
@@ -506,7 +499,7 @@ MailUniverse.prototype = {
     return ctx.acquire(toc);
   },
 
-  acquireConversationTOC: function(ctx, conversationId) {
+  acquireConversationTOC(ctx, conversationId) {
     let toc;
     if (this._conversationTOCs.has(conversationId)) {
       toc = this._conversationTOCs.get(conversationId);
@@ -525,7 +518,7 @@ MailUniverse.prototype = {
     return ctx.acquire(toc);
   },
 
-  acquireSearchConversationMessagesTOC: function(ctx, spec) {
+  acquireSearchConversationMessagesTOC(ctx, spec) {
     let toc = new ConversationTOC({
       db: this.db,
       query: this.queryManager.queryConversationMessages(ctx, spec),
@@ -539,7 +532,7 @@ MailUniverse.prototype = {
 
   //////////////////////////////////////////////////////////////////////////////
 
-  learnAboutAccount: function(userDetails, why) {
+  learnAboutAccount(userDetails, why) {
     return this.taskManager.scheduleNonPersistentTaskAndWaitForExecutedResult(
       {
         type: 'account_autoconfig',
@@ -553,7 +546,7 @@ MailUniverse.prototype = {
    * accountId }. "error" will be null if there's no problem and everything else
    * may potentially be undefined.
    */
-  tryToCreateAccount: function(userDetails, domainInfo, why) {
+  tryToCreateAccount(userDetails, domainInfo, why) {
     if (!this.online) {
       return Promise.resolve({ error: 'offline' });
     }
@@ -600,7 +593,7 @@ MailUniverse.prototype = {
   /**
    * Shutdown the account, forget about it, nuke associated database entries.
    */
-  deleteAccount: function(accountId, why) {
+  deleteAccount(accountId, why) {
     this.taskManager.scheduleTasks([
       {
         type: 'account_delete',
@@ -609,7 +602,7 @@ MailUniverse.prototype = {
     ], why);
   },
 
-  recreateAccount: function(accountId, why) {
+  recreateAccount(accountId, why) {
     // Latch the accountDef now since it's going away.  It's safe to do this
     // synchronously since the accountDefs are loaded by startup and the
     // AccountManager provides immediate access to them.
@@ -635,7 +628,7 @@ MailUniverse.prototype = {
    * TODO: This and tryToCreateAccount should be refactored to properly be
    * tasks.
    */
-  saveAccountDef: function(accountDef, protoConn) {
+  saveAccountDef(accountDef, protoConn) {
     this.db.saveAccountDef(this.config, accountDef);
 
     if (this.accountsTOC.isKnownAccount(accountDef.id)) {
@@ -663,9 +656,12 @@ MailUniverse.prototype = {
         });
       }
     }
+
+    // XXX shutting up the linter
+    return null;
   },
 
-  modifyConfig: function(accountId, mods, why) {
+  modifyConfig(accountId, mods, why) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'config_modify',
@@ -675,7 +671,7 @@ MailUniverse.prototype = {
   },
 
 
-  modifyAccount: function(accountId, mods, why) {
+  modifyAccount(accountId, mods, why) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
         type: 'account_modify',
@@ -685,7 +681,7 @@ MailUniverse.prototype = {
       why);
   },
 
-  modifyIdentity: function(identityId, mods, why) {
+  modifyIdentity(identityId, mods, why) {
     const accountId = accountIdFromIdentityId(identityId);
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
@@ -712,7 +708,7 @@ MailUniverse.prototype = {
    * wait for all current IMAP connections to be be shutdown by the server
    * before invoking the callback.
    */
-  shutdown: function(callback) {
+  shutdown(callback) {
     var waitCount = this.accounts.length;
     // (only used if a 'callback' is passed)
     function accountShutdownCompleted() {
@@ -736,7 +732,7 @@ MailUniverse.prototype = {
     }
   },
 
-  syncFolderList: function(accountId, why) {
+  syncFolderList(accountId, why) {
     return this.taskManager.scheduleTasks([
       {
         type: 'sync_folder_list',
@@ -749,7 +745,7 @@ MailUniverse.prototype = {
    * Schedule a sync for the given folder, returning a promise that will be
    * resolved when the task group associated with the request completes.
    */
-  syncGrowFolder: function(folderId, why) {
+  syncGrowFolder(folderId, why) {
     console.log('in syncGrowFolder', folderId);
     const accountId = accountIdFromFolderId(folderId);
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
@@ -764,7 +760,7 @@ MailUniverse.prototype = {
    * Schedule a sync for the given folder, returning a promise that will be
    * resolved when the task group associated with the request completes.
    */
-  syncRefreshFolder: function(folderId, why) {
+  syncRefreshFolder(folderId, why) {
     const accountId = accountIdFromFolderId(folderId);
     return this.taskManager.scheduleTaskAndWaitForPlannedResult(
       {
@@ -775,7 +771,7 @@ MailUniverse.prototype = {
       why);
   },
 
-  fetchConversationSnippets: function(convIds, why) {
+  fetchConversationSnippets(convIds, why) {
     let tasks = convIds.map((convId) => {
       return {
         type: 'sync_body',
@@ -787,7 +783,7 @@ MailUniverse.prototype = {
     return this.taskManager.scheduleTasks(tasks, why);
   },
 
-  fetchMessageBody: function(messageId, messageDate, why) {
+  fetchMessageBody(messageId, messageDate, why) {
     return this.taskManager.scheduleTasks([
       {
         type: 'sync_body',
@@ -798,8 +794,8 @@ MailUniverse.prototype = {
     ], why);
   },
 
-  storeLabels: function(conversationId, messageIds, messageSelector, addLabels,
-                        removeLabels) {
+  storeLabels(conversationId, messageIds, messageSelector, addLabels,
+              removeLabels) {
     return this.taskManager.scheduleTaskAndWaitForPlannedUndoTasks({
       type: 'store_labels',
       accountId: accountIdFromConvId(conversationId),
@@ -811,8 +807,8 @@ MailUniverse.prototype = {
     });
   },
 
-  storeFlags: function(conversationId, messageIds, messageSelector, addFlags,
-                       removeFlags) {
+  storeFlags(conversationId, messageIds, messageSelector, addFlags,
+             removeFlags) {
     return this.taskManager.scheduleTaskAndWaitForPlannedUndoTasks({
       type: 'store_flags',
       accountId: accountIdFromConvId(conversationId),
@@ -833,7 +829,7 @@ MailUniverse.prototype = {
    * designed or intended to defend against a hostile front-end, this method is
    * notable in this regard.
    */
-  undo: function(undoTasks) {
+  undo(undoTasks) {
     this.taskManager.scheduleTasks(undoTasks);
   },
 
@@ -849,7 +845,7 @@ MailUniverse.prototype = {
    * composing.  And if they do, they might not do so via our created draft, so
    * it's best to avoid creating the draft on app restart.  For now at least.
    */
-  createDraft: function({ draftType, mode, refMessageId, refMessageDate,
+  createDraft({ draftType, mode, refMessageId, refMessageDate,
                           folderId }, why) {
     return this.taskManager.scheduleNonPersistentTaskAndWaitForPlannedResult(
       {
@@ -863,7 +859,7 @@ MailUniverse.prototype = {
       why);
   },
 
-  attachBlobToDraft: function(messageId, attachmentDef, why) {
+  attachBlobToDraft(messageId, attachmentDef, why) {
     // non-persistent because this is a local-only op and we don't want the
     // original stored in our database (at this time)
     return this.taskManager.scheduleNonPersistentTasks([{
@@ -874,7 +870,7 @@ MailUniverse.prototype = {
     }], why);
   },
 
-  detachAttachmentFromDraft: function(messageId, attachmentRelId, why) {
+  detachAttachmentFromDraft(messageId, attachmentRelId, why) {
     // non-persistent for now because it would be awkward
     return this.taskManager.scheduleNonPersistentTasks([{
       type: 'draft_detach',
@@ -896,7 +892,7 @@ MailUniverse.prototype = {
    *   writing the same Blob will still be stored using the same underlying
    *   reference-counted backing Blob.  So there's no harm.
    */
-  saveDraft: function(messageId, draftFields, why) {
+  saveDraft(messageId, draftFields, why) {
     return this.taskManager.scheduleTasks([{
       type: 'draft_save',
       accountId: accountIdFromMessageId(messageId),
@@ -910,7 +906,7 @@ MailUniverse.prototype = {
    * the normal message deletion logic under the hood, but right now this has
    * its own custom API call and task.
    */
-  deleteDraft: function(messageId, why) {
+  deleteDraft(messageId, why) {
     return this.taskManager.scheduleTasks([{
       type: 'draft_delete',
       accountId: accountIdFromMessageId(messageId),
@@ -923,7 +919,7 @@ MailUniverse.prototype = {
    * Move a message from being a draft to being in the outbox, potentially
    * initiating the send if we're online.
    */
-  outboxSendDraft: function(messageId, why) {
+  outboxSendDraft(messageId, why) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult({
       type: 'outbox_send',
       command: 'send',
@@ -936,7 +932,7 @@ MailUniverse.prototype = {
    * Abort the sending of a message draft (if reliably possible), moving it back
    * to be a draft.
    */
-  outboxAbortSend: function(messageId) {
+  outboxAbortSend(messageId) {
     return this.taskManager.scheduleTasks([{
       type: 'outbox_send',
       command: 'abort',
@@ -951,7 +947,7 @@ MailUniverse.prototype = {
    * invoked before it's too late.  (If the user is frantically trying to
    * stop a message from getting sent, we want to give them a fighting chance.)
    */
-  outboxSetPaused: function(accountId, bePaused) {
+  outboxSetPaused(accountId, bePaused) {
     return this.taskManager.scheduleTasks([{
       type: 'outbox_send',
       command: 'setPaused',
@@ -975,7 +971,7 @@ MailUniverse.prototype = {
    * @param {DateMS} messageDate
    * @param {Map<AttachmentRelId, AttachmentSaveTarget>} parts
    */
-  downloadMessageAttachments: function({
+  downloadMessageAttachments({
     messageId, messageDate, parts }) {
     return this.taskManager.scheduleTaskAndWaitForPlannedResult({
       type: 'download',
@@ -986,7 +982,7 @@ MailUniverse.prototype = {
     });
   },
 
-  clearNewTrackingForAccount: function({ accountId, silent }) {
+  clearNewTrackingForAccount({ accountId, silent }) {
     this.taskManager.scheduleTasks([{
       type: 'new_tracking',
       accountId,
@@ -1001,7 +997,7 @@ MailUniverse.prototype = {
    * not be needed outside of simplifying debugging logic.  If you really need
    * to be able to access this data on command, something needs to be rethought.
    */
-  flushNewAggregates: function() {
+  flushNewAggregates() {
     this.taskManager.scheduleTasks([{
       type: 'new_flush'
     }]);
@@ -1011,7 +1007,7 @@ MailUniverse.prototype = {
    * Dispatch a notification to the frontend, indicating that we're
    * done trying to send messages from the outbox for now.
    */
-  notifyOutboxSyncDone: function(account) {
+  notifyOutboxSyncDone(account) {
     this.__notifyBackgroundSendStatus({
       accountId: account.id,
       state: 'syncDone'
@@ -1040,8 +1036,8 @@ MailUniverse.prototype = {
    *   create sub-folders, in which case one would have to pass this.
    * ]
    */
-  createFolder: function(/*accountId, parentFolderId, folderName, folderType,
-                         containOtherFolders*/) {
+  createFolder(/*accountId, parentFolderId, folderName, folderType,
+                 containOtherFolders*/) {
     // XXX implement!
     return;
   },
@@ -1049,5 +1045,3 @@ MailUniverse.prototype = {
   //////////////////////////////////////////////////////////////////////////////
 };
 
-return MailUniverse;
-}); // end define

@@ -1,17 +1,8 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
+import logic from 'logic';
 
-/**
- * @module
- */
-
-const co = require('co');
-const evt = require('evt');
-const logic = require('logic');
-
-const { accountIdFromFolderId, convIdFromMessageId,
-        messageSpecificIdFromMessageId } =
-  require('./id_conversions');
+import { accountIdFromFolderId, convIdFromMessageId,
+        messageSpecificIdFromMessageId } from './id_conversions';
 
 const {
   indexedDB, IDBObjectStore, IDBIndex, IDBCursor, IDBTransaction, IDBRequest,
@@ -68,7 +59,7 @@ const TBL_SYNC_STATES = 'syncStates';
 /**
  * (Wrapped) tasks.  We issue id's for now, although in an ideal world we could
  * use auto-incremented id's.  But we can't since all we have is mozGetAll.  See
- * commentary elsewhere.
+ * commentary elsewhere. XXX Things have changed since then for IDB.
  */
 const TBL_TASKS = 'tasks';
 
@@ -146,7 +137,8 @@ const TBL_CONV_INFO = 'convInfo';
  * batch API available to us.  So what goes in the key is a question of what is
  * needed for uniqueness and ordering.  Since the height is not needed for that
  * and we have to use mozGetAll and values to actually read, the height only
- * goes in the value.
+ * goes in the value. XXX IDB has advanced somewhat and/or pending changes may
+ * help.
  *
  * key: [`FolderId`, `DateTS`, `ConversationId`]
  * value: [`FolderId`, `DateTS`, `ConversationId`, `QuantizedHeight`]
@@ -591,7 +583,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
   /**
    * Reset the contents of the database.
    */
-  _nukeDB: function(db) {
+  _nukeDB(db) {
     logic(this, 'nukeDB', {});
     let existingNames = db.objectStoreNames;
     for (let i = 0; i < existingNames.length; i++) {
@@ -612,14 +604,14 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     db.createObjectStore(TBL_BOUNDED_LOGS);
   },
 
-  close: function() {
+  close() {
     if (this._db) {
       this._db.close();
       this._db = null;
     }
   },
 
-  getConfig: function() {
+  getConfig() {
     return this._dbPromise.then(() => {
       // At this point, if there is any carryover, it's in this property here.
       if (this._lazyConfigCarryover) {
@@ -642,13 +634,13 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Additionally, in the first/standard case, in the event we did perform an
    * upgrade, this is the point at which we pass the saved-off
    */
-  _getConfig: function(trans) {
+  _getConfig(trans) {
     logic(this, '_getConfig', { trans: !!trans });
     let transaction = trans ||
                       this._db.transaction([TBL_CONFIG], 'readonly');
     let configStore = transaction.objectStore(TBL_CONFIG);
 
-    return wrapReq(configStore.mozGetAll()).then((configRows) => {
+    return wrapReq(configStore.getAll()).then((configRows) => {
       let config = null;
       let accountDefs = [];
 
@@ -672,7 +664,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Note, however, that various reads (including the accountDefs) happen
    * outside of that.
    */
-  saveConfig: function(config) {
+  saveConfig(config) {
     return wrapTrans(
       this._db.transaction(TBL_CONFIG, 'readwrite')
               .objectStore(TBL_CONFIG)
@@ -685,7 +677,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * so it doesn't get updated.  For coherency reasons it should only be updated
    * using saveAccountFolderStates.
    */
-  saveAccountDef: function(config, accountDef, folderInfo, callback) {
+  saveAccountDef(config, accountDef, folderInfo, callback) {
     var trans = this._db.transaction([TBL_CONFIG, TBL_FOLDER_INFO],
                                      'readwrite');
 
@@ -708,7 +700,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Add one or more new bounded-log entries to disk outside of a task.  Entries
    * should take the form of { timestamp, type, id, entry }.
    */
-  addBoundedLogs: function(entries) {
+  addBoundedLogs(entries) {
     let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
     let store = trans.objectStore(TBL_BOUNDED_LOGS);
 
@@ -723,7 +715,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Update one or more existing bounded-log entries to disk.  Entries should
    * take the form of { timestamp, type, id, entry }.
    */
-  updateBoundedLogs: function(entries) {
+  updateBoundedLogs(entries) {
     let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
     let store = trans.objectStore(TBL_BOUNDED_LOGS);
 
@@ -737,7 +729,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
   /**
    * Reap bounded logs beyond our keep time horizon.
    */
-  reapOldBoundedLogs: function() {
+  reapOldBoundedLogs() {
     let trans = this._db.transaction(TBL_BOUNDED_LOGS, 'readwrite');
     let store = trans.objectStore(TBL_BOUNDED_LOGS);
 
@@ -771,7 +763,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    *   context that cares isn't going to be the one that read it from disk.  So
    *   this would be for debugging, and maybe should just be removed.
    */
-  _considerCachePressure: function(/*why, ctx*/) {
+  _considerCachePressure(/*why, ctx*/) {
     // XXX memory-backed Blobs are being a real pain.  So let's start
     // aggressively dropping the cache.  But because of how promises work and
     // when we trigger this, we really want to use a setTimeout with a fixed
@@ -798,7 +790,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       100);
   },
 
-  emptyCache: function() {
+  emptyCache() {
     this.emit('cacheDrop');
 
     this.convCache.clear();
@@ -826,7 +818,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Returns an object containing { drainEvents, eventId } that you should feel
    * free to mutate to use as the basis for your own return value.
    */
-  _bufferChangeEventsIdiom: function(eventId) {
+  _bufferChangeEventsIdiom(eventId) {
     let bufferedEvents = [];
     let bufferFunc = (change) => {
       bufferedEvents.push(change);
@@ -877,7 +869,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    *   redudnant write so that listeners are notified.  But in the future we
    *   could enhance this by just generating change notifications on the read.
    */
-  read: function(ctx, requests) {
+  read(ctx, requests) {
     return new Promise((resolve) => {
       logic(this, 'read:begin', { ctxId: ctx.id });
       let trans = this._db.transaction(TASK_MUTATION_STORES, 'readonly');
@@ -953,7 +945,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                                                [convId, []],
                                                true, true);
           dbReqCount++;
-          let req = messageStore.mozGetAll(messageRange);
+          let req = messageStore.getAll(messageRange);
           let handler = (event) => {
             if (req.error) {
               analyzeAndLogErrorEvent(event);
@@ -1054,7 +1046,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * - Track active mutations so we can detect collisions and serialize
    *   mutations.  See maildb.md for more.
    */
-  beginMutate: function(ctx, mutateRequests, options) {
+  beginMutate(ctx, mutateRequests, options) {
     // disabling guard here because TaskContext has protections and a cop-out.
     /*
     if (ctx._preMutateStates) {
@@ -1135,7 +1127,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Load all tasks from thew database.  Ideally this is called before any calls
    * to addTasks if you want to avoid having a bad time.
    */
-  loadTasks: function() {
+  loadTasks() {
     let trans = this._db.transaction(
       [TBL_TASKS, TBL_COMPLEX_TASKS], 'readonly');
     let taskStore = trans.objectStore(TBL_TASKS);
@@ -1159,14 +1151,14 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * automatically defer to the AccountManager for read requests via other
    * helpers.)
    */
-  loadFoldersByAccount: function(accountId) {
+  loadFoldersByAccount(accountId) {
     let trans = this._db.transaction(TBL_FOLDER_INFO, 'readonly');
     let store = trans.objectStore(TBL_FOLDER_INFO);
     let accountStringPrefix = IDBKeyRange.bound(
       accountId + '.',
       accountId + '.\ufff0',
       true, true);
-    return wrapReq(store.mozGetAll(accountStringPrefix));
+    return wrapReq(store.getAll(accountStringPrefix));
   },
 
   /**
@@ -1182,7 +1174,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * return this data to you.  Then you need to process that backlog of events
    * until you catch up.
    */
-  loadFolderConversationIdsAndListen: co.wrap(function*(folderId) {
+  async loadFolderConversationIdsAndListen(folderId) {
     let eventId = 'fldr!' + folderId + '!convs!tocChange';
     let retval = this._bufferChangeEventsIdiom(eventId);
 
@@ -1196,7 +1188,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     // to simplify our lives for sanity purposes.
     let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
                                         true, true);
-    let tuples = yield wrapReq(convIdsStore.mozGetAll(folderRange));
+    let tuples = await wrapReq(convIdsStore.getAll(folderRange));
     logic(this, 'loadFolderConversationIdsAndListen',
           { convCount: tuples.length, eventId: retval.eventId });
 
@@ -1207,9 +1199,9 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       return { date: x[1], id: x[2], height: x[3] };
     });
     return retval;
-  }),
+  },
 
-  _processConvAdditions: function(trans, convs) {
+  _processConvAdditions(trans, convs) {
     let convStore = trans.objectStore(TBL_CONV_INFO);
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
     for (let convInfo of valueIterator(convs)) {
@@ -1239,7 +1231,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * Process changes to conversations.  This does not cover additions, but it
    * does cover deletion.
    */
-  _processConvMutations: function(trans, preStates, convs) {
+  _processConvMutations(trans, preStates, convs) {
     let convStore = trans.objectStore(TBL_CONV_INFO);
     let convIdsStore = trans.objectStore(TBL_CONV_IDS_BY_FOLDER);
     for (let [convId, convInfo] of convs) {
@@ -1352,7 +1344,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     }
   },
 
-  loadConversationMessageIdsAndListen: co.wrap(function*(convId) {
+  async loadConversationMessageIdsAndListen(convId) {
     let tocEventId = 'conv!' + convId + '!messages!tocChange';
     let convEventId = 'conv!' + convId + '!change';
     let { drainEvents } = this._bufferChangeEventsIdiom(tocEventId);
@@ -1361,7 +1353,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     let messageStore = trans.objectStore(TBL_MESSAGES);
     let messageRange = IDBKeyRange.bound([convId], [convId, []],
                                          true, true);
-    let messages = yield wrapReq(messageStore.mozGetAll(messageRange));
+    let messages = await wrapReq(messageStore.getAll(messageRange));
     let messageCache = this.messageCache;
     let idsWithDates = messages.map(function(message) {
       // Put it in the cache unless it's already there (reads must
@@ -1372,9 +1364,9 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       return { date: message.date, id: message.id };
     });
     return { tocEventId, convEventId, idsWithDates, drainEvents };
-  }),
+  },
 
-  _processMessageAdditions: function(trans, messages) {
+  _processMessageAdditions(trans, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
     let messageCache = this.messageCache;
     for (let message of valueIterator(messages)) {
@@ -1406,7 +1398,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
   /**
    * Process message modification and removal.
    */
-  _processMessageMutations: function(trans, preStates, messages) {
+  _processMessageMutations(trans, preStates, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
     let messageCache = this.messageCache;
     for (let [messageId, message] of messages) {
@@ -1494,7 +1486,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    *   AccountManager-owned object identities are maintained.  (Which is on the
    *   task/caller.)
    */
-  _applyAtomics: function(atomics, rootMutations) {
+  _applyAtomics(atomics, rootMutations) {
     let { atomicDeltas, atomicClobbers } = atomics;
     const accountManager = this.accountManager;
     if (atomicDeltas) {
@@ -1559,7 +1551,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     }
   },
 
-  _processAccountDeletion: function(trans, accountId) {
+  _processAccountDeletion(trans, accountId) {
     // Build a range that covers our family of keys where we use an
     // array whose first item is a string id that is a concatenation of
     // `AccountId`, the string ".", and then some more array parts.  Our
@@ -1623,7 +1615,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     trans.objectStore(TBL_UMID_NAME).delete(accountStringPrefix);
   },
 
-  _addRawTasks: function(trans, wrappedTasks) {
+  _addRawTasks(trans, wrappedTasks) {
     let store = trans.objectStore(TBL_TASKS);
     wrappedTasks.forEach((wrappedTask) => {
       store.add(wrappedTask, wrappedTask.id);
@@ -1636,7 +1628,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * wrappedTask.  A promise is returned; when it is resolved, all of the
    * wrappedTasks should have had an id assigned.
    */
-  addTasks: function(wrappedTasks) {
+  addTasks(wrappedTasks) {
     let trans = this._db.transaction([TBL_TASKS], 'readwrite');
     this._addRawTasks(trans, wrappedTasks);
     return wrapTrans(trans);
@@ -1653,7 +1645,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    * on the caller to issue the flushed read and we expose the constituent
    * methods as a sort-of experiment as we iterate.
    */
-  dangerousIncrementalWrite: function(ctx, mutations) {
+  dangerousIncrementalWrite(ctx, mutations) {
     logic(this, 'dangerousIncrementalWrite:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
@@ -1667,12 +1659,12 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     });
   },
 
-  finishMutate: function(ctx, data, taskData) {
+  finishMutate(ctx, data, taskData) {
     logic(this, 'finishMutate:begin', { ctxId: ctx.id });
     let trans = this._db.transaction(TASK_MUTATION_STORES, 'readwrite');
 
     // The TriggerManager needs context for the events we will be
-    // (synchronously, unyieldingly) firing.  We clear the state below.
+    // (synchronously, unawaitingly) firing.  We clear the state below.
     let derivedMutations = [];
     this.triggerManager.__setState(ctx, derivedMutations);
 
@@ -1859,5 +1851,4 @@ MailDB.prototype.removeListener = function(eventName) {
   this._removeListener.apply(this, arguments);
 };
 
-return MailDB;
-});
+export default MailDB;

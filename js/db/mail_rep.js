@@ -15,9 +15,6 @@
  * @module mailapi/db/mail_rep
  **/
 
-define(function() {
-'use strict';
-
 /**
  * @typedef {Object} MessageInfo
  * @property {MessageId} id
@@ -102,7 +99,7 @@ define(function() {
  *   current continued localdrafts requirement, this also serves as our magic
  *   `isDraft` indicator.
  */
-function makeMessageInfo(raw) {
+export function makeMessageInfo(raw) {
   // All messages absolutely need the following; the caller needs to make up
   // values if they're missing.
   if (!raw.author) {
@@ -187,7 +184,7 @@ function makeMessageInfo(raw) {
  *   Problems experienced sending the message.  This replaces the v1.x sendInfo
  *   structure which captured both send state and sending problems.
  */
-function makeDraftInfo(raw) {
+export function makeDraftInfo(raw) {
   return {
     draftType: raw.draftType,
     mode: raw.mode || null,
@@ -236,7 +233,7 @@ function makeDraftInfo(raw) {
   *   best-effort length of the newly authored content in this body part, as
   *   far as our quoting/boilerplate detection can figure at this time.
   */
-function makeBodyPart(raw) {
+export function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
   if (raw.type !== 'plain' &&
       raw.type !== 'html') {
@@ -329,7 +326,7 @@ function makeBodyPart(raw) {
  *   The text format, for example, "flowed" for format=flowed.  If not
  *   specified, as is likely for binary attachments, this should be null.
  */
-function makeAttachmentPart(raw) {
+export function makeAttachmentPart(raw) {
   // Something is very wrong if there is no size estimate.
   if (raw.sizeEstimate === undefined) {
     throw new Error('Need size estimate!');
@@ -362,7 +359,7 @@ function makeAttachmentPart(raw) {
  * now, but in the event we later change those lists to be Maps, having this
  * helper will maybe have been useful.
  */
-function pickPartByRelId(parts, relId) {
+export function pickPartByRelId(parts, relId) {
   return parts.find(part => part.relId === relId);
 }
 
@@ -372,7 +369,7 @@ function pickPartByRelId(parts, relId) {
  *
  * This exists for similar reasons to `pickPartByRelId`.
  */
-function pickPartFromMessageByRelId(messageInfo, relId) {
+export function pickPartFromMessageByRelId(messageInfo, relId) {
   // Our part id scheme indicates the type of attachment it is for this
   // specific reason.  Using charCodeAt here would be a little more
   // efficient, but arguably uglier.
@@ -385,13 +382,3 @@ function pickPartFromMessageByRelId(messageInfo, relId) {
       return null;
   }
 }
-
-return {
-  makeMessageInfo,
-  makeDraftInfo,
-  makeBodyPart,
-  makeAttachmentPart,
-  pickPartByRelId,
-  pickPartFromMessageByRelId
-};
-}); // end define

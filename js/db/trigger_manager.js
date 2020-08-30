@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Simple mechanism for triggers to specify modifications to make that are bound
@@ -41,7 +38,7 @@ TriggerContext.prototype = {
    *   although it is a goal and we should have an enhancement to explicitly
    *   allow adding tasks here.
    */
-  modify: function(dict) {
+  modify(dict) {
     return this._triggerManager.__triggerMutate(this.name, dict);
   }
 };
@@ -59,7 +56,7 @@ TriggerContext.prototype = {
  *
  * TODO: either expose logging in here or in MailDB.
  */
-function TriggerManager({ db, triggers }) {
+export default function TriggerManager({ db, triggers }) {
   logic.defineScope(this, 'TriggerManager');
   this.db = db;
   db.triggerManager = this;
@@ -89,17 +86,17 @@ TriggerManager.prototype = {
    * MailDB invokes us directly for implementation clarity versus emit and also
    * because we don't really want any other mechanisms duplicating how we work.
    */
-  __setState: function(taskContext, derivedMutations) {
+  __setState(taskContext, derivedMutations) {
     this.sourceTaskContext = taskContext;
     this.derivedMutations = derivedMutations;
   },
 
-  __clearState: function() {
+  __clearState() {
     this.sourceTaskContext = null;
     this.derivedMutations = null;
   },
 
-  __triggerMutate: function(triggerName, dict) {
+  __triggerMutate(triggerName, dict) {
     logic(this, 'triggerMutate', { triggerName, dict });
     if (this.derivedMutations) {
       this.derivedMutations.push(dict);
@@ -112,7 +109,7 @@ TriggerManager.prototype = {
    * There's no unregister method right now.  Triggers check in, but they don't
    * check out.
    */
-  registerTriggerDictionary: function(triggerDef) {
+  registerTriggerDictionary(triggerDef) {
     let triggerName = triggerDef.name;
     let triggerContext = new TriggerContext(this, triggerName);
 
@@ -135,11 +132,9 @@ TriggerManager.prototype = {
    * Register a single function as a trigger handler; intended to be used by
    * the TaskRegistry to allow task instances to do trigger-like things.
    */
-  registerTriggerFunc: function(eventName, triggerName, handlerFunc) {
+  registerTriggerFunc(eventName, triggerName, handlerFunc) {
     let triggerContext = new TriggerContext(this, triggerName);
     let boundHandler = handlerFunc.bind(null, triggerContext);
     this.db.on(eventName, boundHandler);
   }
 };
-return TriggerManager;
-});
