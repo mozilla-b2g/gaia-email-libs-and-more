@@ -54,7 +54,7 @@ function mixInvokingBaseHooks(baseImpl, mixparts) {
 /**
  * Singleton support logic
  */
-function TaskDefiner() {
+export default function TaskDefiner() {
 }
 TaskDefiner.prototype = {
   /**
@@ -132,5 +132,3 @@ TaskDefiner.prototype = {
     return mixInvokingBaseHooks(ComplexTaskBase, mixparts);
   }
 };
-
-export default new TaskDefiner();

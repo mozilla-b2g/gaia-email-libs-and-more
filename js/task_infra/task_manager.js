@@ -1,13 +1,9 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
+import logic from 'logic';
 
-const co = require('co');
-const evt = require('evt');
-const logic = require('logic');
+import TaskContext from './task_context';
 
-const TaskContext = require('./task_context');
-
-const { SmartWakeLock } = require('../wakelocks');
+import { SmartWakeLock } from '../wakelocks';
 
 /**
  * The public API and ultimate coordinator of all tasks.  Tracks and prioritizes
@@ -28,8 +24,8 @@ const { SmartWakeLock } = require('../wakelocks');
  * `__restoreFromDB` method and we have fully initialized all complex tasks.
  * (Complex task initialization can be async.)
  */
-function TaskManager({ universe, db, taskRegistry, taskResources,
-                       taskPriorities, accountManager }) {
+export default function TaskManager({ universe, db, taskRegistry, taskResources,
+                                      taskPriorities, accountManager }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'TaskManager');
   this._universe = universe;
@@ -93,9 +89,9 @@ function TaskManager({ universe, db, taskRegistry, taskResources,
   this._activeWakeLock = null;
 }
 TaskManager.prototype = evt.mix({
-  __restoreFromDB: co.wrap(function*() {
+  async __restoreFromDB() {
     let { wrappedTasks, complexTaskStates } =
-      yield this._db.loadTasks();
+      await this._db.loadTasks();
     logic(this, 'restoreFromDB', { count: wrappedTasks.length });
 
     // -- Restore wrapped tasks
@@ -152,14 +148,14 @@ TaskManager.prototype = evt.mix({
         });
       this._maybeDoStuff();
     });
-  }),
+  },
 
   /**
    * Ensure that we have a wake-lock.  Invoke us when something happens that
    * means the TaskManager has or will soon have work to do and so we need to
    * stay awake.
    */
-  _ensureWakeLock: function(why) {
+  _ensureWakeLock(why) {
     if (!this._activeWakeLock) {
       logic(this, 'ensureWakeLock', { why });
       this._activeWakeLock = new SmartWakeLock({ locks: ['cpu'] });
@@ -168,7 +164,7 @@ TaskManager.prototype = evt.mix({
     }
   },
 
-  __renewWakeLock: function() {
+  __renewWakeLock() {
     if (this._activeWakeLock) {
       this._activeWakeLock.renew('TaskManager:explicit');
     } else {
@@ -181,7 +177,7 @@ TaskManager.prototype = evt.mix({
    * now*.  We don't do reference counted nesting or anything like that.  We've
    * got work to do or we don't.
    */
-  _releaseWakeLock: function() {
+  _releaseWakeLock() {
     if (this._activeWakeLock) {
       this._activeWakeLock.unlock('TaskManager:release');
       this._activeWakeLock = null;
@@ -211,7 +207,7 @@ TaskManager.prototype = evt.mix({
    *   resulting task ids of the tasks.  This is a tenative babystep
    *   towards v3 undo support.  This may be removed.
    */
-  scheduleTasks: function(rawTasks, why) {
+  scheduleTasks(rawTasks, why) {
     this._ensureWakeLock(why);
     let wrappedTasks = this.__wrapTasks(rawTasks);
 
@@ -231,7 +227,7 @@ TaskManager.prototype = evt.mix({
    * of each task having been planned.  Tasks may optionally return a result;
    * if they return no result, `undefined` will be returned.
    */
-  waitForTasksToBePlanned: function(taskIds) {
+  waitForTasksToBePlanned(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
       return new Promise((resolve) => {
         this.once('planned:' + taskId, resolve);
@@ -243,7 +239,7 @@ TaskManager.prototype = evt.mix({
    * Schedule a persistent task, returning a promise that will be resolved
    * with the return value of the task's planning stage.
    */
-  scheduleTaskAndWaitForPlannedResult: function(rawTask, why) {
+  scheduleTaskAndWaitForPlannedResult(rawTask, why) {
     return this.scheduleTasks([rawTask], why)
     .then((taskIds) => {
       return this.waitForTasksToBePlanned(taskIds);
@@ -258,7 +254,7 @@ TaskManager.prototype = evt.mix({
    * tasks generated.  Note that failure to generate a specific list of undo
    * tasks is treated as if an empty list had been generated.
    */
-  scheduleTaskAndWaitForPlannedUndoTasks: function(rawTask, why) {
+  scheduleTaskAndWaitForPlannedUndoTasks(rawTask, why) {
     return this.scheduleTasks([rawTask], why)
     .then(([taskId]) => {
       return new Promise((resolve) => {
@@ -286,7 +282,7 @@ TaskManager.prototype = evt.mix({
    * Schedule a persistent task, returning a promise that will be resolved
    * with the return value of the task's execution stage.
    */
-  scheduleTaskAndWaitForExecutedResult: function(rawTask, why) {
+  scheduleTaskAndWaitForExecutedResult(rawTask, why) {
     return this.scheduleTasks([rawTask], why)
     .then((taskIds) => {
       return this.waitForTasksToBeExecuted(taskIds);
@@ -301,7 +297,7 @@ TaskManager.prototype = evt.mix({
    * of each task having been executed.  Tasks may optionally return a result;
    * if they return no result, `undefined` will be returned.
    */
-  waitForTasksToBeExecuted: function(taskIds) {
+  waitForTasksToBeExecuted(taskIds) {
     return Promise.all(taskIds.map((taskId) => {
       return new Promise((resolve) => {
         this.once('executed:' + taskId, resolve);
@@ -318,7 +314,7 @@ TaskManager.prototype = evt.mix({
    *
    * In general you don't want to be calling this.
    */
-  scheduleNonPersistentTasks: function(rawTasks, why) {
+  scheduleNonPersistentTasks(rawTasks, why) {
     this._ensureWakeLock(why);
     let wrappedTasks = this.__wrapTasks(rawTasks);
     logic(this, 'scheduleNonPersistent', { why: why, tasks: wrappedTasks });
@@ -342,7 +338,7 @@ TaskManager.prototype = evt.mix({
    * because the expected idiom is that all actions are fundamentally
    * interactive.
    */
-  scheduleNonPersistentTaskAndWaitForPlannedResult: function(rawTask, why) {
+  scheduleNonPersistentTaskAndWaitForPlannedResult(rawTask, why) {
     return this.scheduleNonPersistentTasks([rawTask], why)
     .then((taskIds) => {
       return this.waitForTasksToBePlanned(taskIds);
@@ -363,7 +359,7 @@ TaskManager.prototype = evt.mix({
    * because the expected idiom is that all actions are fundamentally
    * interactive.
    */
-  scheduleNonPersistentTaskAndWaitForExecutedResult: function(rawTask, why) {
+  scheduleNonPersistentTaskAndWaitForExecutedResult(rawTask, why) {
     return this.scheduleNonPersistentTasks([rawTask], why)
     .then((taskIds) => {
       return this.waitForTasksToBeExecuted(taskIds);
@@ -377,7 +373,7 @@ TaskManager.prototype = evt.mix({
    * Wrap raw tasks and issue them an id, suitable for persisting to the
    * database.
    */
-  __wrapTasks: function(rawTasks) {
+  __wrapTasks(rawTasks) {
     return rawTasks.map((rawTask) => {
       return {
         id: this._nextId++,
@@ -391,7 +387,7 @@ TaskManager.prototype = evt.mix({
    * Enqueue the given tasks for planning now that they have been persisted to
    * disk.
    */
-  __enqueuePersistedTasksForPlanning: function(wrappedTasks, sourceId) {
+  __enqueuePersistedTasksForPlanning(wrappedTasks, sourceId) {
     this._ensureWakeLock();
     for (let wrappedTask of wrappedTasks) {
       this.emit('willPlan', wrappedTask, sourceId);
@@ -408,7 +404,7 @@ TaskManager.prototype = evt.mix({
    * We call TaskResources and it decides whether to keep it or pass it on to
    * TaskPriorities.
    */
-  __queueTasksOrMarkers: function(taskThings, sourceId, noTrigger) {
+  __queueTasksOrMarkers(taskThings, sourceId, noTrigger) {
     // Track the number of things task resources passed through to
     // TaskPriorities.  If this stays zero, everything was blocked on a resource
     // and there's no new work to do.
@@ -440,7 +436,7 @@ TaskManager.prototype = evt.mix({
    * Allows TaskContext to trigger removal of complex task markers when
    * requested by complex tasks.
    */
-  __removeTaskOrMarker: function(taskId) {
+  __removeTaskOrMarker(taskId) {
     logic(this, 'removing', { taskId });
     this._resources.removeTaskThing(taskId);
   },
@@ -451,7 +447,7 @@ TaskManager.prototype = evt.mix({
    * XXX as a baby-steps simplification, right now we only do one of these at a
    * time.  We *absolutely* do not want to be doing this forever.
    */
-  _maybeDoStuff: function() {
+  _maybeDoStuff() {
     if (this._activePromise) {
       return;
     }
@@ -507,7 +503,7 @@ TaskManager.prototype = evt.mix({
    * of the completion of planning.  In the case of simple tasks, this will
    * happen via a call to `__queueTasksOrMarkers` via TaskContext.
    */
-  _planNextTask: function() {
+  _planNextTask() {
     let wrappedTask = this._tasksToPlan.shift();
     logic(this, 'planning:begin', { task: wrappedTask });
     let ctx = new TaskContext(wrappedTask, this._universe);
@@ -535,7 +531,7 @@ TaskManager.prototype = evt.mix({
     return planResult;
   },
 
-  _executeNextTask: function() {
+  _executeNextTask() {
     let taskThing = this._priorities.popNextAvailableTask();
     logic(this, 'executing:begin', { task: taskThing });
 
@@ -587,7 +583,7 @@ TaskManager.prototype = evt.mix({
    *   and the `subtaskArg` as the second argument.
    * @param Object [subtaskArg]
    */
-  __trackAndWrapSubtask: function(ctx, subctx, subtaskFunc, subtaskArg) {
+  __trackAndWrapSubtask(ctx, subctx, subtaskFunc, subtaskArg) {
     logic(this, 'subtask:begin', { taskId: ctx.id, subtaskId: subctx.id });
     let subtaskResult =
       subtaskFunc.call(subctx.__taskInstance, subctx, subtaskArg);
@@ -597,7 +593,4 @@ TaskManager.prototype = evt.mix({
       return result;
     });
   }
-});
-
-return TaskManager;
 });

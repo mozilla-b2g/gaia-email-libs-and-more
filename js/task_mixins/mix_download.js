@@ -1,21 +1,17 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { convIdFromMessageId } from '../id_conversions';
+import { pickPartFromMessageByRelId } from '../db/mail_rep';
 
-const { convIdFromMessageId } = require('../id_conversions');
-const { pickPartFromMessageByRelId } = require('../db/mail_rep');
+import { NOW } from '../date';
 
-const { NOW } = require('../date');
-
-const churnConversation = require('../churn_drivers/conv_churn_driver');
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
 // (DeviceStorage is not available here on the worker so we need to remote.)
-const router = require('../worker-router');
+import router from '../worker-router';
 const sendStorageMessage = router.registerCallbackType('devicestorage');
 
-const { DEVICE_STORAGE_NAME } = require('../syncbase');
+import { DEVICE_STORAGE_NAME } from '../syncbase';
 
 /**
  * Save a file to DeviceStorage, retrying with a different name if it seems like
@@ -23,12 +19,11 @@ const { DEVICE_STORAGE_NAME } = require('../syncbase');
  * devicestorage-main because we will still want this logic even when we can
  * directly access DeviceStorage from here in the worker.
  */
-const uniqueifyingSaveHelper = co.wrap(
-    function*(ctx, blob, filename) {
+async function uniqueifyingSaveHelper(ctx, blob, filename) {
   /* always register with the download manager */
   const register = true;
 
-  let result = yield sendStorageMessage(
+  let result = await sendStorageMessage(
     'save', [DEVICE_STORAGE_NAME, blob, filename, register]);
 
   let [initialSucesss] = result;
@@ -46,11 +41,11 @@ const uniqueifyingSaveHelper = co.wrap(
     filename.substring(0, idxLastPeriod) + '-' + NOW() +
     filename.substring(idxLastPeriod);
 
-  result = yield sendStorageMessage(
+  result = await sendStorageMessage(
     'save', [DEVICE_STORAGE_NAME, blob, retryFilename, register]);
 
   return result;
-});
+}
 
 /**
  * The heart of the attachment/related-part download task, with each engine
@@ -166,15 +161,15 @@ const uniqueifyingSaveHelper = co.wrap(
  *
  * May override:
  */
-return {
+export default {
   name: 'download',
 
   // See the block comment above.
-  initPersistentState: function() {
+  initPersistentState() {
     return new Map();
   },
 
-  _makeMarkerForMessage: function(accountId, messageId) {
+  _makeMarkerForMessage(accountId, messageId) {
     return {
       type: this.name,
       id: 'download:' + messageId,
@@ -183,7 +178,7 @@ return {
     };
   },
 
-  deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
+  deriveMemoryStateFromPersistentState(persistentState, accountId) {
     let markers = [];
     for (let messageId of persistentState.keys()) {
       markers.push(this._makeMarkerForMessage(accountId, messageId));
@@ -197,7 +192,7 @@ return {
     };
   },
 
-  overlay_messages: function(persistentState, memoryState, messageId) {
+  overlay_messages(persistentState, memoryState, messageId) {
     let pending = persistentState.get(messageId);
     // If nothing is pending, nothing can be active either.  Nothing to say.
     if (!pending) {
@@ -228,7 +223,7 @@ return {
     return overlay;
   },
 
-  plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
+  async plan(ctx, persistentState, memoryState, rawTask) {
     const { messageId, messageDate, parts: requestedParts } = rawTask;
     const groupPromise = ctx.trackMeInTaskGroup('download:' + messageId);
 
@@ -236,7 +231,7 @@ return {
     // acquire the write-lock without the read.
     const messageTaskKey = [ctx.accountId, this.name, messageId];
     let messageReq =
-      yield ctx.mutateSingle('complexTaskStates', messageTaskKey);
+      await ctx.mutateSingle('complexTaskStates', messageTaskKey);
     if (!messageReq) {
       messageReq = {
         messageDate,
@@ -246,7 +241,7 @@ return {
     let newlyRequestedCount = 0;
 
     const messageInfo =
-      yield ctx.readSingle('messages', [messageId, messageDate], messageId);
+      await ctx.readSingle('messages', [messageId, messageDate], messageId);
 
     for (let [relId, target] of requestedParts.entries()) {
       // Ignore if already tracked.
@@ -270,13 +265,13 @@ return {
 
     if (!newlyRequestedCount) {
       // nothing new requested means no changes and therefore no writes.
-      yield ctx.finishTask({});
+      await ctx.finishTask({});
     } else {
       // Be sure to track it in our persistent state too.  (We have the write
       // lock so we are allowed to set it.)
       persistentState.set(messageId, messageReq);
       const marker = this._makeMarkerForMessage(ctx.accountId, messageId);
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           complexTaskStates: new Map([[messageTaskKey, messageReq]]),
         },
@@ -285,7 +280,7 @@ return {
     }
 
     return ctx.returnValue(groupPromise);
-  }),
+  },
 
   /**
    * We do this:
@@ -313,8 +308,8 @@ return {
    *   done this in a done part.  As noted in the plan case, we can potentially
    *   optimize this somewhat by just acquiring a write-lock without a read.)
    */
-  execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
-    const account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+  async execute(ctx, persistentState, memoryState, marker) {
+    const account = await ctx.universe.acquireAccount(ctx, marker.accountId);
     const { messageId } = marker;
     const { messageDate } = persistentState.get(messageId);
 
@@ -325,7 +320,7 @@ return {
     // Get a copy of the message info for read-only purposes so we have the
     // per-part AttachmentInfo to provide with the request.  (The parts will
     // not disappear unless this is a draft, and we don't service drafts.)
-    let messageInfo = yield ctx.readSingle(
+    let messageInfo = await ctx.readSingle(
       'messages', [messageId, messageDate], messageId);
 
     // (it's safe to latch the parts/messageInfo for the duration of the task
@@ -345,7 +340,7 @@ return {
 
     // --- Issue the batch request
     const chunkedPartStream =
-      yield this.downloadParts(ctx, account, messageInfo, parts);
+      await this.downloadParts(ctx, account, messageInfo, parts);
     const chunkedPartReader = chunkedPartStream.getReader();
 
     messageInfo = null;
@@ -354,7 +349,7 @@ return {
     // -- Consume the stream of part chunks.
     const messageTaskKey = [ctx.accountId, this.name, messageId];
     for(;;) {
-      let { value, done: streamDone } = yield chunkedPartReader.read();
+      let { value, done: streamDone } = await chunkedPartReader.read();
       if (streamDone) {
         break;
       }
@@ -362,7 +357,7 @@ return {
       let { relId, blobCount, blob, done } = value;
       if (!done) {
         // - Not done, do the append dance.
-        yield ctx.spawnSimpleMutationSubtask(
+        await ctx.spawnSimpleMutationSubtask(
           { namespace: 'complexTaskStates', id: messageTaskKey },
           (messageReq) => {
             // If this is the first blob for the download, clobber-initialize so
@@ -384,7 +379,7 @@ return {
         // - Yes, done.  Consolidate into super-blob if needed.
         // We only need to consolidate if there was more than one blob.
         if (blobCount > 1) {
-          yield ctx.spawnSimpleMutationSubtask(
+          await ctx.spawnSimpleMutationSubtask(
             { namespace: 'complexTaskStates', id: messageTaskKey },
             (messageReq) => {
               const partReq = messageReq.partDownloads.get(relId);
@@ -403,8 +398,8 @@ return {
         // - Move the single Blob into the MessageInfo and update our messageReq
         // This needs to be a full-blown subtask since we need to acquire two
         // things: the MessageInfo and our fully-laundered messageReq.
-        yield ctx.spawnSubtask(co.wrap(function*(subctx) {
-          const fromDb = yield subctx.beginMutate({
+        await ctx.spawnSubtask(async function(subctx) {
+          const fromDb = await subctx.beginMutate({
             messages: new Map([[[messageId, messageDate], null]]),
             complexTaskStates: new Map([[messageTaskKey, null]])
           });
@@ -425,7 +420,7 @@ return {
             // side of simpler control flow for now.
             // Use our save helper to avoid name collisions.
             let [saveSuccess, saveError, savedFilename, registered] =
-              yield uniqueifyingSaveHelper(ctx, singleBlob, part.name);
+              await uniqueifyingSaveHelper(ctx, singleBlob, part.name);
             if (saveSuccess) {
               part.downloadState = 'saved';
               part.file = [DEVICE_STORAGE_NAME, savedFilename];
@@ -467,19 +462,19 @@ return {
 
           // Write them out and be done.  Note that we do not update/re-churn
           // the conversation until the very end of the execute().
-          yield subctx.finishTask({
+          await subctx.finishTask({
             mutations: {
               complexTaskStates: new Map([[messageTaskKey, messageReq]]),
               messages: new Map([[messageId, mutateMessageInfo]])
             }
           });
-        }));
+        });
       }
     }
 
     // -- All downloads completed!
     const convId = convIdFromMessageId(messageId);
-    const fromDb = yield ctx.beginMutate({
+    const fromDb = await ctx.beginMutate({
       conversations: new Map([[convId, null]]),
       messagesByConversation: new Map([[convId, null]]),
       complexTaskStates: new Map([[messageTaskKey, null]])
@@ -507,13 +502,12 @@ return {
     }
 
     // - Finish out the task/marker or re-enqueue as appropriate
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: new Map([[convId, convInfo]]),
         complexTaskStates: modifyComplexTaskStates
       },
       taskMarkers: modifyTaskMarkers
     });
-  })
+  },
 };
-});

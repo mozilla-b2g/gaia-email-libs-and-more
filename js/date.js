@@ -165,6 +165,9 @@ export function TEST_LetsDoTheTimewarpAgain(fakeNow) {
   TIME_WARPED_NOW = fakeNow;
 }
 
+/**
+ * Now in epoch milliseconds, the JS timestamp standard.
+ */
 export function NOW() {
   return TIME_WARPED_NOW || Date.now();
 }
@@ -196,7 +199,7 @@ export function makeDaysBefore(date, numDaysBefore) {
   if (date === null) {
     return makeDaysAgo(numDaysBefore - 1);
   }
-  
+
   return quantizeDate(date) - numDaysBefore * DAY_MILLIS;
 }
 
@@ -226,4 +229,8 @@ export function quantizeDateUp(date) {
     return truncated;
   }
   return truncated + DAY_MILLIS;
+}
+
+export function millisecsToSeconds(datestamp) {
+  return Math.floor(datestamp / 1000);
 }

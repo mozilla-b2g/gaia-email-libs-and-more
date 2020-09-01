@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Tracks groups of one or more tasks and their spinoff tasks to provide higher
@@ -24,7 +21,7 @@ const logic = require('logic');
  * other groups.  Since the task-begets-task graph is a tree, we can easily
  * accomplish this by having groups be aware of their parent groups
  */
-function TaskGroupTracker(taskManager) {
+export default function TaskGroupTracker(taskManager) {
   logic.defineScope(this, 'TaskGroupTracker');
 
   this.taskManager = taskManager;
@@ -50,7 +47,7 @@ function TaskGroupTracker(taskManager) {
   this.__registerListeners(taskManager);
 }
 TaskGroupTracker.prototype = {
-  __registerListeners: function(emitter) {
+  __registerListeners(emitter) {
     emitter.on('willPlan', this, this._onWillPlan);
     emitter.on('willExecute', this, this._onWillExecute);
     emitter.on('planned', this, this._onPlanned);
@@ -59,7 +56,7 @@ TaskGroupTracker.prototype = {
 
   // Internal heart of ensureNamedTaskGroup that exposes internal rep for reuse
   // by other class code.
-  _ensureNamedTaskGroup: function(groupName, taskId) {
+  _ensureNamedTaskGroup(groupName, taskId) {
     let group = this._groupsByName.get(groupName);
     if (!group) {
       group = this._makeTaskGroup(groupName);
@@ -96,7 +93,7 @@ TaskGroupTracker.prototype = {
    * Return the root ancestor task group.  See TaskContext.rootTaskGroupId for
    * the rationale for this existing.
    */
-  getRootTaskGroupForTask: function(taskId) {
+  getRootTaskGroupForTask(taskId) {
     let taskGroup = this._taskIdsToGroups.get(taskId);
     if (!taskGroup) {
       return taskGroup;
@@ -107,7 +104,7 @@ TaskGroupTracker.prototype = {
     return taskGroup;
   },
 
-  ensureRootTaskGroupFollowOnTask: function(taskId, taskToPlan) {
+  ensureRootTaskGroupFollowOnTask(taskId, taskToPlan) {
     let rootTaskGroup = this.getRootTaskGroupForTask(taskId);
     if (!rootTaskGroup) {
       // Create a group for the task if one didn't exist.
@@ -120,7 +117,7 @@ TaskGroupTracker.prototype = {
     rootTaskGroup.tasksToScheduleOnCompletion.add(taskToPlan);
   },
 
-  _makeTaskGroup: function(groupName) {
+  _makeTaskGroup(groupName) {
     let group = {
       groupName,
       // (see the comment for _nextGroupId for rationale on this)
@@ -147,7 +144,7 @@ TaskGroupTracker.prototype = {
    * we use that to learn about new tasks spun-off by existing tasks so that
    * we can add them to the parent's group.
    */
-  _onWillPlan: function(taskThing, sourceId) {
+  _onWillPlan(taskThing, sourceId) {
     // No sourceId means there's no group membership to propagate.
     if (!sourceId) {
       return;
@@ -164,7 +161,7 @@ TaskGroupTracker.prototype = {
    * The task tells us about every planned task or task marker queued for
    * execution.  We use that to propagate group membership.
    */
-  _onWillExecute: function(taskThing, sourceId) {
+  _onWillExecute(taskThing, sourceId) {
     // No sourceId means there's no group membership to propagate.
     if (!sourceId) {
       return;
@@ -209,7 +206,7 @@ TaskGroupTracker.prototype = {
     }
   },
 
-  _onPlanned: function(taskId) {
+  _onPlanned(taskId) {
     // Other side of our willExecute specialization for the simple task that is
     // completing planning.  Skip out since we just directly propagated its
     // pendingCount.
@@ -224,7 +221,7 @@ TaskGroupTracker.prototype = {
     }
   },
 
-  _onExecuted: function(taskId) {
+  _onExecuted(taskId) {
     let group = this._taskIdsToGroups.get(taskId);
     if (group) {
       this._taskIdsToGroups.delete(taskId);
@@ -232,6 +229,3 @@ TaskGroupTracker.prototype = {
     }
   }
 };
-
-return TaskGroupTracker;
-});

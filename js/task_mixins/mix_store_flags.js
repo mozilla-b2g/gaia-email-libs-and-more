@@ -1,13 +1,8 @@
-define(function(require) {
-'use strict';
+import { normalizeAndApplyChanges, applyChanges, mergeChanges } from
+  '../delta_algebra';
+import { selectMessages } from '../message_selector';
 
-let co = require('co');
-
-let { normalizeAndApplyChanges, applyChanges, mergeChanges } =
-  require('../delta_algebra');
-let { selectMessages } = require('../message_selector');
-
-let churnConversation = require('../churn_drivers/conv_churn_driver');
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
 /**
  * Not-particularly-clever flag-storing complex task.  All requests/local
@@ -41,18 +36,18 @@ let churnConversation = require('../churn_drivers/conv_churn_driver');
  *   gmail's write latency has been comparatively high and if manipulations
  *   aren't pipelined, this can result in poor throughput.)
  */
-let MixStoreFlagsMixin = {
+const MixStoreFlagsMixin = {
   /**
    * @return {StoreFlagState}
    *   The initial state of this task type for a newly created account.
    */
-  initPersistentState: function() {
+  initPersistentState() {
     return {
       umidChanges: new Map()
     };
   },
 
-  deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
+  deriveMemoryStateFromPersistentState(persistentState, accountId) {
     let markers = [];
 
     for (let umid of persistentState.umidChanges.keys()) {
@@ -73,11 +68,11 @@ let MixStoreFlagsMixin = {
   },
 
 
-  plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+  async plan(ctx, persistentState, memoryState, req) {
     let { umidChanges } = persistentState;
 
     // -- Load the conversation and messages
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
       messagesByConversation: new Map([[req.convId, null]])
     });
@@ -167,7 +162,7 @@ let MixStoreFlagsMixin = {
     // need to perform any transformation based on what is currently pending
     // because inbound sync does that and so we always seem a post-transform
     // view when looking in our database.)
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: conversationsMap,
         messages: modifiedMessagesMap
@@ -176,13 +171,13 @@ let MixStoreFlagsMixin = {
       complexTaskState: persistentState,
       undoTasks
     });
-  }),
+  },
 
   /**
    * Exposed helper API for sync logic that wants the list of flags/labels
    * fixed-up to account for things we have not yet reflected to the server.
    */
-  consult: function(askingCtx, persistentState, memoryState, argDict) {
+  consult(askingCtx, persistentState, memoryState, argDict) {
     let { umid, value } = argDict;
 
     let { umidChanges } = persistentState;
@@ -199,5 +194,4 @@ let MixStoreFlagsMixin = {
   execute: null,
 };
 
-return MixStoreFlagsMixin;
-});
+export default MixStoreFlagsMixin;

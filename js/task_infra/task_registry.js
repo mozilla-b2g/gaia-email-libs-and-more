@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Tracks the set of known tasks, both global and per-account-type, and manages
@@ -13,7 +10,7 @@ const logic = require('logic');
  *   primarily happens on the basis of accountId if the task type was not in
  *   the global registry.
  */
-function TaskRegistry({ dataOverlayManager, triggerManager, taskResources }) {
+export default function TaskRegistry({ dataOverlayManager, triggerManager, taskResources }) {
   logic.defineScope(this, 'TaskRegistry');
 
   this._dataOverlayManager = dataOverlayManager;
@@ -33,7 +30,7 @@ function TaskRegistry({ dataOverlayManager, triggerManager, taskResources }) {
   this._dbDataByAccount = new Map();
 }
 TaskRegistry.prototype = {
-  registerGlobalTasks: function(taskImpls) {
+  registerGlobalTasks(taskImpls) {
     for (let taskImpl of taskImpls) {
       this._globalTasks.set(taskImpl.name, taskImpl);
     }
@@ -43,11 +40,11 @@ TaskRegistry.prototype = {
    * Indicates whether tasks have been registered for the given account type
    * yet.
    */
-  isAccountTypeKnown: function(accountType) {
+  isAccountTypeKnown(accountType) {
     return this._perAccountTypeTasks.has(accountType);
   },
 
-  registerPerAccountTypeTasks: function(accountType, taskImpls) {
+  registerPerAccountTypeTasks(accountType, taskImpls) {
     let perTypeTasks = this._perAccountTypeTasks.get(accountType);
     if (!perTypeTasks) {
       perTypeTasks = new Map();
@@ -63,7 +60,7 @@ TaskRegistry.prototype = {
    * The loaded complex task states which we stash until we hear about the
    * account existing with `accountExists`.
    */
-  initializeFromDatabaseState: function([stateKeys, stateValues]) {
+  initializeFromDatabaseState([stateKeys, stateValues]) {
     if (stateKeys.length !== stateValues.length) {
       throw new Error('impossible complex state inconsistency issue');
     }
@@ -108,7 +105,7 @@ TaskRegistry.prototype = {
    * simplifications we've made like this.  We would implement all of that at
    * the same time.
    */
-  _registerComplexTaskImplWithEventSources: function(accountId, meta) {
+  _registerComplexTaskImplWithEventSources(accountId, meta) {
     let taskImpl = meta.impl;
 
     let blockedTaskChecker =
@@ -163,7 +160,7 @@ TaskRegistry.prototype = {
    * function to make it clear what's going on and keep the horror confined to
    * one spot.
    */
-  initGlobalTasks: function() {
+  initGlobalTasks() {
     return this.accountExistsInitTasks(null, null, null, null);
   },
 
@@ -173,8 +170,7 @@ TaskRegistry.prototype = {
    * themselves, some may be async and may return a promise.  For that reason,
    * this method is async.
    */
-  accountExistsInitTasks: function(accountId, accountType, accountInfo,
-                                   foldersTOC) {
+  accountExistsInitTasks(accountId, accountType, accountInfo, foldersTOC) {
     logic(this, 'accountExistsInitTasks:begin', { accountId, accountType });
     // Get the implementations known for this account type
     let taskImpls = this._perAccountTypeTasks.get(accountType);
@@ -259,7 +255,7 @@ TaskRegistry.prototype = {
     });
   },
 
-  accountRemoved: function(/*accountId*/) {
+  accountRemoved(/*accountId*/) {
     // TODO: properly handle and propagate account removal
   },
 
@@ -268,7 +264,7 @@ TaskRegistry.prototype = {
    * gets a chance to clean up.  See internal comments; this probably needs
    * enhancements.
    */
-  _forceFinalize: function(ctx, maybePromiseResult) {
+  _forceFinalize(ctx, maybePromiseResult) {
     // We need to force tasks to finalize if they don't do so themselves.  This
     // is true for both rejections and returns without finalization.
     if (maybePromiseResult.then) {
@@ -286,7 +282,7 @@ TaskRegistry.prototype = {
     }
   },
 
-  planTask: function(ctx, wrappedTask) {
+  planTask(ctx, wrappedTask) {
     let rawTask = wrappedTask.rawTask;
     let taskType = rawTask.type;
     let taskMeta;
@@ -326,7 +322,7 @@ TaskRegistry.prototype = {
     return maybePromiseResult;
   },
 
-  executeTask: function(ctx, taskThing) {
+  executeTask(ctx, taskThing) {
     let isMarker = !!taskThing.type;
     let taskType = isMarker ? taskThing.type : taskThing.plannedTask.type;
     let taskMeta;
@@ -359,7 +355,7 @@ TaskRegistry.prototype = {
     return maybePromiseResult;
   },
 
-  __synchronouslyConsultOtherTask: function(ctx, consultWhat, argDict) {
+  __synchronouslyConsultOtherTask(ctx, consultWhat, argDict) {
     let taskType = consultWhat.name;
     let taskMeta;
     if (this._globalTaskRegistry.has(taskType)) {
@@ -377,6 +373,3 @@ TaskRegistry.prototype = {
       ctx, taskMeta.persistentState, taskMeta.memoryState, argDict);
   },
 };
-
-return TaskRegistry;
-});

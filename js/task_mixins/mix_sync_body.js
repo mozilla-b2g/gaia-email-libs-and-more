@@ -1,8 +1,3 @@
-define(function(require) {
-'use strict';
-
-let co = require('co');
-
 /**
  * @typedef {null} SyncBodyPersistentState
  *
@@ -53,26 +48,26 @@ let co = require('co');
  *   rails (especially because of front-end UI bugs), that the undesired
  *   side-effects go away on restart.
  */
-return {
+export default {
   name: 'sync_body',
 
   /**
    * @return {SyncBodyPersistentState}
    */
-  initPersistentState: function() {
+  initPersistentState() {
     return null;
   },
 
   /**
    */
-  deriveMemoryStateFromPersistentState: function(/*persistentState*/) {
+  deriveMemoryStateFromPersistentState(/*persistentState*/) {
     return {
       memoryState: new Map(),
       markers: []
     };
   },
 
-  plan: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
+  async plan(ctx, persistentState, memoryState, rawTask) {
     // - Check whether we already have a pending request for the conversation.
     let planned = memoryState.get(rawTask.convId);
     if (planned) {
@@ -136,10 +131,10 @@ return {
       ]
     ]);
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       taskState: null,
       taskMarkers: modifyTaskMarkers
     });
-  })
+  },
 };
-});
+

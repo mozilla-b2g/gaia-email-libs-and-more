@@ -1,14 +1,10 @@
-define(function(require) {
-'use strict';
-
-const { convIdFromMessageId, messageIdComponentFromUmid } =
-  require('../id_conversions');
+import { convIdFromMessageId, messageIdComponentFromUmid } from '../id_conversions';
 
 /**
  * Task helper to assist in establishing the conversation relationship for
  * a message given a BrowserBox-style raw message rep.
  */
-function* resolveConversationTaskHelper(ctx, msgOrHeaders, accountId, umid) {
+export async function resolveConversationTaskHelper(ctx, msgOrHeaders, accountId, umid) {
   // -- Perform message-id header lookups
   let msgIdHeader = msgOrHeaders.guid;
   let references = msgOrHeaders.references;
@@ -19,7 +15,7 @@ function* resolveConversationTaskHelper(ctx, msgOrHeaders, accountId, umid) {
   }
   headerIdLookupRequests.set([accountId, msgIdHeader], null);
 
-  let fromDb = yield ctx.read({
+  let fromDb = await ctx.read({
     headerIdMaps: headerIdLookupRequests
   });
 
@@ -95,8 +91,3 @@ function* resolveConversationTaskHelper(ctx, msgOrHeaders, accountId, umid) {
     extraTasks: null
   };
 }
-
-return {
-  resolveConversationTaskHelper
-};
-});

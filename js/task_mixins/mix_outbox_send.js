@@ -1,13 +1,9 @@
-define(function(require) {
-'use strict';
+/* eslint-disable no-fallthrough */
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
-const co = require('co');
+import { Composer }from '../drafts/composer';
 
-const churnConversation = require('../churn_drivers/conv_churn_driver');
-
-const { Composer }= require('../drafts/composer');
-
-const { convIdFromMessageId } = require('../id_conversions');
+import { convIdFromMessageId } from '../id_conversions';
 
 /**
  * Outbox sending logic.  It's a mix-in because how we handle the sent folder is
@@ -49,13 +45,13 @@ const { convIdFromMessageId } = require('../id_conversions');
  *   and follow-on processing tasks required.  See the call-site for more
  *   information.
  */
-return {
+export default {
   name: 'outbox_send',
 
   /**
    * @return {}
    */
-  initPersistentState: function() {
+  initPersistentState() {
     return {
       /**
        * The messages to send, with their id as the key and their current date
@@ -79,11 +75,11 @@ return {
     };
   },
 
-  _markerIdForMessage: function(accountId, messageId) {
+  _markerIdForMessage(accountId, messageId) {
     return this.name + ':' + messageId;
   },
 
-  _makeMarkerForMessage: function(accountId, messageId, order) {
+  _makeMarkerForMessage(accountId, messageId, order) {
     return {
       type: this.name,
       id: this._markerIdForMessage(accountId, messageId),
@@ -101,7 +97,7 @@ return {
   /**
    * At startup, assume we want to send all messages.
    */
-  deriveMemoryStateFromPersistentState: function(persistentState, accountId) {
+  deriveMemoryStateFromPersistentState(persistentState, accountId) {
     let markers = [];
     for (let [messageId, { order }] of
          persistentState.messageIdsToSend) {
@@ -133,11 +129,11 @@ return {
    * Move the message into the outbox and enqueue a marker if we're not
    * paused.
    */
-  _planSend: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
+  async _planSend(ctx, persistentState, memoryState, rawTask) {
     const { messageId } = rawTask;
     // -- Load the conversation, put the message in the outbox, re-churn.
     let convId = convIdFromMessageId(messageId);
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[convId, null]]),
       messagesByConversation: new Map([[convId, null]])
     });
@@ -146,7 +142,7 @@ return {
     let messageInfo = messages.find(msg => msg.id === messageId);
 
     let foldersToc =
-      yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+      await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
     let outboxFolder = foldersToc.getCanonicalFolderByType('outbox');
     messageInfo.folderIds = new Set([outboxFolder.id]);
     // Reset the sending problems; we'll assume the user fixed things.
@@ -187,7 +183,7 @@ return {
       reportProblem = null;
     }
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: new Map([[convId, convInfo]]),
         messages: new Map([[messageId, messageInfo]])
@@ -196,13 +192,13 @@ return {
       complexTaskState: persistentState
     });
     return ctx.returnValue(reportProblem);
-  }),
+  },
 
 
   /**
    * Move the message back into drafts and clear the marker.
    */
-  _planAbort: co.wrap(function*(ctx, persistentState, memoryState, rawTask) {
+  async _planAbort(ctx, persistentState, memoryState, rawTask) {
     const { messageId } = rawTask;
     // -- We're moot if we've already sent the message
     if (!persistentState.messageIdsToSend.has(messageId)) {
@@ -223,7 +219,7 @@ return {
 
     // -- Move it back to drafts and re-churn
     let convId = convIdFromMessageId(messageId);
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[convId, null]]),
       messagesByConversation: new Map([[convId, null]])
     });
@@ -232,7 +228,7 @@ return {
     let messageInfo = messages.find(msg => msg.id === messageId);
 
     let foldersToc =
-      yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+      await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
     let draftsFolder = foldersToc.getCanonicalFolderByType('localdrafts');
     messageInfo.folderIds = new Set([draftsFolder.id]);
     // Note that we do not zero out the sendProblems because anything in there
@@ -247,7 +243,7 @@ return {
     let markerId = this._markerIdForMessage(messageId);
     persistentState.messageIdsToSend.delete(messageId);
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: new Map([[convId, convInfo]]),
         messages: new Map([[messageId, messageInfo]])
@@ -255,13 +251,12 @@ return {
       taskMarkers: new Map([[markerId, null]]),
       complexTaskState: persistentState
     });
-  }),
+  },
 
-  _planSetPaused: co.wrap(function*(ctx, persistentState, memoryState,
-                                    rawTask) {
+  async _planSetPaused(ctx, persistentState, memoryState, rawTask) {
     // If we're already in the desired state, we can just bail.
     if (rawTask.paused === memoryState.paused) {
-      yield ctx.finishTask({
+      await ctx.finishTask({
       });
       return;
     }
@@ -291,13 +286,13 @@ return {
       }
     }
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       taskMarkers: modifyTaskMarkers,
       complexTaskState: persistentState
     });
-  }),
+  },
 
-  plan: function(ctx, persistentState, memoryState, rawTask) {
+  plan(ctx, persistentState, memoryState, rawTask) {
     switch (rawTask.command) {
       case 'send': {
         return this._planSend(ctx, persistentState, memoryState, rawTask);
@@ -330,7 +325,7 @@ return {
    *   - We're dealing with local-only POP3 and put a copy in the sent folder.
    * - The message fails to send.  It stays in the outbox!
    */
-  execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
+  async execute(ctx, persistentState, memoryState, marker) {
     const { messageId } = marker;
     const { date } = persistentState.messageIdsToSend.get(messageId);
 
@@ -341,11 +336,11 @@ return {
     memoryState.activelySending.set(messageId, activeSendStatus);
 
     // -- Acquire the account
-    const account = yield ctx.universe.acquireAccount(ctx, ctx.accountId);
+    const account = await ctx.universe.acquireAccount(ctx, ctx.accountId);
 
     // -- Retrieve the message (not for mutation)
     let messageKey = [messageId, date];
-    let messageInfo = (yield ctx.read({
+    let messageInfo = (await ctx.read({
       messages: new Map([[messageKey, null]])
     })).messages.get(messageId);
 
@@ -359,17 +354,17 @@ return {
     // body parts in Blobs, what was previously synchronous became asynchronous.
     // So we just get this out of the way here.  There is nothing clever about
     // this and revisiting is absolutely appropriate as needed.
-    yield composer.buildMessage({
+    await composer.buildMessage({
       includeBcc: this.shouldIncludeBcc(account)
     });
 
     // -- Perform the send.
     let { error: sendError, badAddresses } =
-      yield this.sendMessage(ctx, account, composer);
+      await this.sendMessage(ctx, account, composer);
 
     // -- Acquire the message and conversation for exclusive mutation.
     let convId = convIdFromMessageId(messageId);
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[convId, null]]),
       messagesByConversation: new Map([[convId, null]])
     });
@@ -449,7 +444,7 @@ return {
     // -- Be done
     persistentState.messageIdsToSend.delete(messageId);
     memoryState.activelySending.delete(messageId);
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: modifyConversations,
         messages: modifyMessages
@@ -459,14 +454,14 @@ return {
       },
       complexTaskState: persistentState
     });
-  }),
+  },
 
   /**
    * By default, use the sendMessage method on the account.  While I wouldn't
    * call this legacy, ActiveSync's new smotocol approach favors not involving
    * the account, so we let tasks do what they want.
    */
-  sendMessage: function(ctx, account, composer) {
+  sendMessage(ctx, account, composer) {
     return account.sendMessage(composer);
   },
 
@@ -477,8 +472,7 @@ return {
    * folder on the server (and we're too lazy to implement reconciliation of our
    * local understanding with what ends up happening on the server.)
    */
-  saveSentMessage: function({ messages, messageInfo }) {
+  saveSentMessage({ messages, messageInfo }) {
     messages.splice(messages.indexOf(messageInfo), 1);
   }
 };
-});

@@ -1,13 +1,9 @@
-define(function (require) {
-'use strict';
-
-const co = require('co');
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Provides helpers and standard arguments/context for tasks.
  */
-function TaskContext(taskThing, universe) {
+export default function TaskContext(taskThing, universe) {
   this.id = taskThing.id;
   this._taskThing = taskThing;
   // The TaskRegistry will clobber this onto us so we can know the `this` to
@@ -126,16 +122,16 @@ TaskContext.prototype = {
    * when the task completes or is terminated we can automatically release all
    * acquired resources.
    */
-  acquire: function(acquireable) {
+  acquire(acquireable) {
     this._stuffToRelease.push(acquireable);
     return acquireable.__acquire(this);
   },
 
-  acquireAccountsTOC: function() {
+  acquireAccountsTOC() {
     return this.universe.acquireAccountsTOC(this);
   },
 
-  _releaseEverything: function() {
+  _releaseEverything() {
     for (let acquireable of this._stuffToRelease) {
       try {
         acquireable.__release(this);
@@ -171,7 +167,7 @@ TaskContext.prototype = {
    * @param {Object} argDict
    *   The argument object to be passed to the complex task.
    */
-  synchronouslyConsultOtherTask: function(consultWhat, argDict) {
+  synchronouslyConsultOtherTask(consultWhat, argDict) {
     return this._taskRegistry.__synchronouslyConsultOtherTask(
       this, consultWhat, argDict);
   },
@@ -181,7 +177,7 @@ TaskContext.prototype = {
    * belongs to the group.  Returns a Promise that will be resolved when the
    * last task in the group completes.
    */
-  trackMeInTaskGroup: function(groupName) {
+  trackMeInTaskGroup(groupName) {
     return this._taskGroupTracker.ensureNamedTaskGroup(groupName, this.id);
   },
 
@@ -224,7 +220,7 @@ TaskContext.prototype = {
    * support for de-duplicating via explicit namespaced string.  (For large,
    * I'm thinking 10+ per task in a normal case.)
    */
-  ensureRootTaskGroupFollowOnTask: function(taskToPlan) {
+  ensureRootTaskGroupFollowOnTask(taskToPlan) {
     this._taskGroupTracker.ensureRootTaskGroupFollowOnTask(this.id, taskToPlan);
   },
 
@@ -254,7 +250,7 @@ TaskContext.prototype = {
    * silly and if we're needing to do that we should just break the task up
    * into distinct sub-tasks.
    */
-  setFailureTasks: function(/*tasks*/) {
+  setFailureTasks(/*tasks*/) {
   },
 
   /**
@@ -273,11 +269,11 @@ TaskContext.prototype = {
    * we can probably just have the connections tell us when they're trafficking
    * in data.
    */
-  heartbeat: function(/* why */) {
+  heartbeat(/* why */) {
     this._taskManager.__renewWakeLock();
   },
 
-  broadcastOverBridges: function(name, data) {
+  broadcastOverBridges(name, data) {
     return this.universe.broadcastOverBridges(name, data);
   },
 
@@ -291,7 +287,7 @@ TaskContext.prototype = {
    * byte count every time you get a packet, you don't actually need to announce
    * every change.
    */
-  announceUpdatedOverlayData: function(namespace, id) {
+  announceUpdatedOverlayData(namespace, id) {
     this.universe.dataOverlayManager.announceUpdatedOverlayData(namespace, id);
   },
 
@@ -302,7 +298,7 @@ TaskContext.prototype = {
    * that point update your variable to use the object returned (which may
    * differ!).  See `MailDB.read` for more extensive signature details.
    */
-  read: function(what) {
+  read(what) {
     return this.universe.db.read(this, what);
   },
 
@@ -327,7 +323,7 @@ TaskContext.prototype = {
    *   A promise that will be resolved with the read result (which could be
    *   null!), or will throw if the underlying read request fails and throws.
    */
-  readSingle: function(namespace, reqId, readbackId) {
+  readSingle(namespace, reqId, readbackId) {
     let readMap = new Map();
     readMap.set(reqId, null);
     let req = {
@@ -343,7 +339,7 @@ TaskContext.prototype = {
    * Helper to read a single piece of data while also acquiring a write-lock.
    * See/understead `readSingle` and `beginMutate` before trying to use this.
    */
-  mutateSingle: function(namespace, reqId, readbackId) {
+  mutateSingle(namespace, reqId, readbackId) {
     let readMap = new Map();
     readMap.set(reqId, null);
     let req = {
@@ -372,7 +368,7 @@ TaskContext.prototype = {
    * then you can spawn a subtask which can do beginMutate and complete in a
    * timely fashion.  See `spawnSubtask` and `spawnSimpleMutationSubtask`.
    */
-  beginMutate: function(what) {
+  beginMutate(what) {
     if (this.state !== 'prep') {
       throw new Error(
         'Cannot switch to mutate state from state: ' + this.state);
@@ -417,7 +413,7 @@ TaskContext.prototype = {
    *   you won't have a giant inline function* hiding the argument object.
    * @return {Promise}
    */
-  spawnSubtask: function(subtaskFunc, argObj) {
+  spawnSubtask(subtaskFunc, argObj) {
     let subId = 'sub:' + this.id + ':' + this._subtaskCounter++;
     let subThing = {
       id: subId,
@@ -444,19 +440,18 @@ TaskContext.prototype = {
    * to re-acquire a write-lock.  Luckily mix_download does some expensive stuff
    * with that.
    */
-  spawnSimpleMutationSubtask: function({ namespace, id }, mutateFunc ) {
+  spawnSimpleMutationSubtask({ namespace, id }, mutateFunc ) {
     return this.spawnSubtask(
       this._simpleMutationSubtask, { mutateFunc, namespace, id });
   },
 
-  _simpleMutationSubtask: co.wrap(function*(subctx,
-                                            { mutateFunc, namespace, id }) {
+  async _simpleMutationSubtask(subctx, { mutateFunc, namespace, id }) {
     // note! our 'this' context is that of the task implementation!
-    let obj = yield subctx.mutateSingle(namespace, id);
+    let obj = await subctx.mutateSingle(namespace, id);
 
     let writeObj = mutateFunc.call(this, obj);
 
-    yield subctx.finishTask({
+    await subctx.finishTask({
       mutations: {
         [namespace]: new Map([[id, writeObj]])
       }
@@ -464,7 +459,7 @@ TaskContext.prototype = {
 
     // NB: this is where we'd do a flushed read-back if we wanted to.
     return writeObj;
-  }),
+  },
 
   /**
    * Perform a write of an object, retaining the write-lock, followed by
@@ -477,7 +472,7 @@ TaskContext.prototype = {
    * TODO: Review the attachment tasks and see if time has made this seem like
    * a better approach than what we ended up using for blob laundering.
    */
-  flushedWriteRetainingLock: function() {
+  flushedWriteRetainingLock() {
     throw new Error(); // make a stupid call, get a stupid error.
   },
 
@@ -498,7 +493,7 @@ TaskContext.prototype = {
    *   is more about forgetting about memory-backed Blobs in favor of
    *   disk-backed Blobs.
    */
-  mutateMore: function(what) {
+  mutateMore(what) {
     if (this.state !== 'mutate') {
       throw new Error(
         'You should already be mutating, not in state: ' + this.state);
@@ -510,7 +505,7 @@ TaskContext.prototype = {
    * Quite possibly moot, don't use without discussion with asuth.  If asuth,
    * mumble to self madly.
    */
-  dangerousIncrementalWrite: function(mutations) {
+  dangerousIncrementalWrite(mutations) {
     return this.universe.db.dangerousIncrementalWrite(this, mutations);
   },
 
@@ -543,7 +538,7 @@ TaskContext.prototype = {
    *   scheduling/prioritization purposes.  It's not under `newData` like
    *   `newData.tasks` because these are not directly pesisted.
    */
-  finishTask: function(finishData) {
+  finishTask(finishData) {
     if (this.state === 'finishing') {
       throw new Error('already finishing! did you put finishTask in a loop?');
     }
@@ -642,11 +637,11 @@ TaskContext.prototype = {
    * hacky convention.  Also, when we come up with a better way to handle this,
    * this might be easier to search and replace.
    */
-  returnValue: function(value) {
+  returnValue(value) {
     return { wrappedResult: value };
   },
 
-  __failsafeFinalize: function() {
+  __failsafeFinalize() {
     // things are good if we finished automatically.
     if (this.state === 'finishing') {
       return;
@@ -657,5 +652,3 @@ TaskContext.prototype = {
     this.finishTask({});
   }
 };
-return TaskContext;
-});

@@ -1,9 +1,4 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
-const churnConversation = require('../churn_drivers/conv_churn_driver');
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
 /**
  * Planning-only task mix-in that applies modifications to a conversation based
@@ -13,9 +8,9 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
  * - name
  * - applyChanges(messages, changeMapValue)
  */
-return {
-  plan: co.wrap(function*(ctx, req) {
-    let fromDb = yield ctx.beginMutate({
+export default {
+  async plan(ctx, req) {
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
       messagesByConversation: new Map([[req.convId, null]])
     });
@@ -74,15 +69,14 @@ return {
       // automatic indexing.
     }
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: new Map([[req.convId, convInfo]]),
         messages: modifiedMessagesMap,
         umidNames: umidNameWrites
       }
     });
-  }),
+  },
 
   execute: null
 };
-});

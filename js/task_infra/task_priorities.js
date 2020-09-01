@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
-
-const FibonacciHeap = require('../ext/fibonacci-heap');
+import FibonacciHeap from '../ext/fibonacci-heap';
 
 /**
  * Helper class for use by TaskManager that is in charge of maintaining the
@@ -12,7 +9,7 @@ const FibonacciHeap = require('../ext/fibonacci-heap');
  *
  * TODO: Implement exclusive resource support or give up.
  */
-function TaskPriorities() {
+export default function TaskPriorities() {
   logic.defineScope(this, 'TaskPriorities');
 
   /**
@@ -117,7 +114,7 @@ TaskPriorities.prototype = {
    *   after it is passed-in.  (We could be defensive about this, but all our
    *   callers should be in-GELAM so it shouldn't be hard to comply.)
    */
-  setPriorityBoostTags: function(owningId, tagsWithValues) {
+  setPriorityBoostTags(owningId, tagsWithValues) {
     // This is a 2-pass implementation:
     // 1) Accumulate per-task/marker priority deltas stored in a map.
     // 2) Apply those deltas to the priority heap.
@@ -186,7 +183,7 @@ TaskPriorities.prototype = {
    * re-add it.  Centralized because this seems easy to screw up.  All values
    * are in the key-space, which is just the negated priority.
    */
-  _reprioritizeHeapNode: function(node, newKey) {
+  _reprioritizeHeapNode(node, newKey) {
     let prioritizedTasks = this._prioritizedTasks;
     if (newKey < node.key) {
       prioritizedTasks.decreaseKey(node, newKey);
@@ -204,7 +201,7 @@ TaskPriorities.prototype = {
    *
    * @param {WrappedTask|TaskMarker} taskThing
    */
-  prioritizeTaskThing: function(taskThing/*, sourceId */) {
+  prioritizeTaskThing(taskThing/*, sourceId */) {
     // WrappedTasks store the type on the plannedTask; TaskMarkers store it on
     // the root (they're simple/flat).
     let isMarker = !!taskThing.type;
@@ -237,7 +234,7 @@ TaskPriorities.prototype = {
   /**
    * Helper for prioritizeTaskThing to add _priorityTagToHeapNodes mappings.
    */
-  _setupTaskPriorityTracking: function(taskThing, priorityNode) {
+  _setupTaskPriorityTracking(taskThing, priorityNode) {
     let isTask = !taskThing.type;
     let priorityTags = isTask ? taskThing.plannedTask.priorityTags
                               : taskThing.priorityTags;
@@ -258,7 +255,7 @@ TaskPriorities.prototype = {
    * Shared logic for prioritizeTaskThing and removeTaskThing to remove
    * _priorityTagToHeapNodes mappings.
    */
-  _cleanupTaskPriorityTracking: function(taskThing, priorityNode) {
+  _cleanupTaskPriorityTracking(taskThing, priorityNode) {
     let isTask = !taskThing.type;
     let priorityTags = isTask ? taskThing.plannedTask.priorityTags
                               : taskThing.priorityTags;
@@ -288,7 +285,7 @@ TaskPriorities.prototype = {
    *   Priority node, to be provided if available, or automatically retrieved if
    *   not.
    */
-  removeTaskThing: function(taskId, priorityNode) {
+  removeTaskThing(taskId, priorityNode) {
     if (!priorityNode) {
       priorityNode = this._taskIdToHeapNode.get(taskId);
     }
@@ -312,7 +309,7 @@ TaskPriorities.prototype = {
    *   a resource is revoked.
    * - TODO: Removing outstanding tasks by accountId when an account is deleted.
    */
-  removeTasksUsingFilter: function(shouldRemove) {
+  removeTasksUsingFilter(shouldRemove) {
     for (let priorityNode of this._taskIdToHeapNode.values()) {
       const taskThing = priorityNode.value;
       if (shouldRemove(taskThing)) {
@@ -321,5 +318,4 @@ TaskPriorities.prototype = {
     }
   }
 };
-return TaskPriorities;
-});
+

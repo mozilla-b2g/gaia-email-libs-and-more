@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Helper class for use by TaskManager that is in charge of tracking the
@@ -10,7 +7,7 @@ const logic = require('logic');
  *
  * TODO: Implement exclusive resource support or remove all traces of that.
  */
-function TaskResources(priorities) {
+export default function TaskResources(priorities) {
   logic.defineScope(this, 'TaskResources');
 
   this._priorities = priorities;
@@ -58,7 +55,7 @@ TaskResources.prototype = {
    *   The number of tasks prioritized as a result of the resouce being made
    *   available.
    */
-  resourceAvailable: function(resourceId) {
+  resourceAvailable(resourceId) {
     // bail if the resource is already available; no changes.
     if (this._availableResources.has(resourceId)) {
       logic(this, 'resourceAlreadyAvailable', { resourceId });
@@ -99,7 +96,7 @@ TaskResources.prototype = {
    * we do expect to change at higher rates and during high levels of task
    * churn.)
    */
-  resourcesNoLongerAvailable: function(removedResourceIds) {
+  resourcesNoLongerAvailable(removedResourceIds) {
     // - Remove the resources
     let removedCount = 0;
     for (let removedResourceId of removedResourceIds) {
@@ -144,7 +141,7 @@ TaskResources.prototype = {
    * Shared helper for resourceAvailable and restoreResourceAfterTimeout to
    * clear a pending timeout request issued by restoreResourceAfterTimeout.
    */
-  _clearResourceTimeouts: function(resourceId) {
+  _clearResourceTimeouts(resourceId) {
     if (this._resourceTimeouts.has(resourceId)) {
       clearTimeout(this._resourceTimeouts.get(resourceId));
       this._resourceTimeouts.delete(resourceId);
@@ -159,7 +156,7 @@ TaskResources.prototype = {
    * If the resource is explicitly added via resourceAvailable, then this
    * timeout will automatically be cleared.
    */
-  restoreResourceAfterTimeout: function(resourceId, timeoutMillis) {
+  restoreResourceAfterTimeout(resourceId, timeoutMillis) {
     this._clearResourceTimeouts();
     let timeoutId = setTimeout(
       () => { this.resourceAvailable(resourceId); }, timeoutMillis);
@@ -173,7 +170,7 @@ TaskResources.prototype = {
    * task orders them with some meaning, it can leverage this to easily
    * determine the most significant missing resource, etc.
    */
-  whatIsTaskBlockedBy: function(taskId) {
+  whatIsTaskBlockedBy(taskId) {
     const taskThing = this._blockedTasksById.get(taskId);
     if (!taskThing) {
       return null;
@@ -197,7 +194,7 @@ TaskResources.prototype = {
    *   We return true if we passed the TaskThing through to prioritization and
    *   so there is potentially new work to do.
    */
-  ownOrRelayTaskThing: function(taskThing) {
+  ownOrRelayTaskThing(taskThing) {
     // If we're already aware of this task id and this is an update, then first
     // let's remove the task so we don't have to deal with edge-cases below.
     if (this._blockedTasksById.has(taskThing.id)) {
@@ -232,7 +229,7 @@ TaskResources.prototype = {
     return true;
   },
 
-  removeTaskThing: function(taskId) {
+  removeTaskThing(taskId) {
     if (!this._blockedTasksById.has(taskId)) {
       this._priorities.removeTaskThing(taskId);
       return;
@@ -254,8 +251,5 @@ TaskResources.prototype = {
       break;
     }
   },
-
-
 };
-return TaskResources;
-});
+
