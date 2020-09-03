@@ -398,7 +398,7 @@ export default {
         // - Move the single Blob into the MessageInfo and update our messageReq
         // This needs to be a full-blown subtask since we need to acquire two
         // things: the MessageInfo and our fully-laundered messageReq.
-        await ctx.spawnSubtask(async function(subctx) {
+        await ctx.spawnSubtask(async (subctx) => {
           const fromDb = await subctx.beginMutate({
             messages: new Map([[[messageId, messageDate], null]]),
             complexTaskStates: new Map([[messageTaskKey, null]])

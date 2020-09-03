@@ -1,0 +1,102 @@
+## Phabricator Schema
+
+Types:
+- DREV: Revision.  The review.  Always has a current diff `diffPHID` and holds
+  metadata about the reviewers.  Comments and changes to the review are tracked
+  as transactions against the revision (`PHID-XACT-DREV-*`).
+- DIFF: The specific commits that are being reviewed.  Includes tree-related
+  info and the commit message.
+- USER: Humans (or specific robots).
+- APPS: Phabricator internal mechanisms or robots?  Ex:
+  "PHID-APPS-PhabricatorHarbormasterApplication",
+  "PHID-APPS-PhabricatorHeraldApplication" both show up as authors of
+  transactions.
+- PROJ: Groups like review groups.
+- PLCY: Policy, most relevantly used to define who can modify the group list,
+  this is usually a policy that says administrators and the group members.
+
+## Sync Strategy
+
+General:
+- Maintain a set of potentially overlapping query constraints, each of which
+  has an associated highest `dateModified` perceived.
+  - The "sync_refresh" task runs these queries in (conceptually) parallel,
+    using `modifiedStart` to ensure we only hear about things that have changed.
+    - We'll also use an initial "order" of "updated" until paging logic is
+      activated.
+- The DREVs we hear about are unified into a Map and "sync_drev" tasks generated
+  for each drev, providing the per-drev info obtained from those queries.
+- The "sync_drev" tasks:
+  - If there is no already processed `diffPHID` or it changed, fetch it.
+  - Run a `transaction.search` on the DREV using `dateModified`.  (Comments can
+    be edited, which will result in `dateCreated` and `dateModified` differing.)
+
+Expected query constraints:
+- Default:
+  - "responsiblePHIDs": [USER_PHID]
+    - This should cover all reviews directly asked of the user or groups they
+      belong to.
+
+### Identifiers ###
+
+Objects have a short server-specific integer `id`s (that may be namespaced by
+the `type`?) in addition to a string `phid` that bakes in the type that's
+clearly intended to be more of a GUID.  Because the `id` is shorter and
+sufficiently unique, we use that as the basis for our conversation (DREV) and
+message (XACT-DREV) identifiers.
+
+### DB: syncStates ###
+
+A single sync record containing:
+- A map from the query definitions to:
+  - `lastDateModified`: The most recent `dateModified` observed.
+  - `firstDateModified`: The start of our synchronization time window.  Any
+    revisions with a `dateModified` chronologically prior to `firstDateModified`
+    pre-dates our concern.
+
+
+#### Thought Process
+
+- For sync purposes we can view each revision as a tuple of (phid, dateModified)
+  where we need to sync the revision if the phid is new to us or the
+  dateModified has increased.
+- Assuming that the dateModified timestamps are monotonically increasing,
+  Phabricator reliably updates the timestamps whenever interesting things
+  happen or change on a revision, and Phabricator is sufficiently consistent, it
+  is sufficient to remember the highest `dateModified` seen in the last sync for
+  the given query.
+  - The primary concern is that there is a window of time for which results may
+    be inconsistent, such as when additional values with the same "dateModified"
+    as the most recent "dateModified" could still show up (or values from before
+    that).  Assuming there's a way to determine the current wall clock of the
+    phabricator server, the dateModified could be backdated to whatever is less,
+    the current wall clock less uncertainty period OR the highest dateModified.
+
+### task: sync_refresh ###
+- Request `differential.revision.search` with order="updated"
+  tells us about new and changed revisions of interest, with `dateModified`
+  allowing us to determine when we've processed to our last stopping point.
+  - A constraint of `modifiedStart` set to the given `lastDateModified` should
+    provide only new changes.
+    - For the first sync we can arbitrarily pick a date roughly a week ago
+      (or whatever) and set that to the `firstDateModified` and
+      `lastDateModified`.
+  - By not specifying queryKey="active" this should hopefully help provide
+    closure for completed revisions, but it might be appopriate to do a
+    follow-up `differential.revision.search` on previously known id's that
+    didn't show up in the above results to clear them out if we increase
+    filtering.
+- Generate "sync_drev" tasks
+
+### task: sync_grow ###
+
+The goal here is to expand `firstDateModified` further back into time.
+
+- Request `differential.revision.search` with order="updated" and
+  constraints:
+  - `modifiedEnd`: This should correspond to the current `firstDateModified`
+  - `modifiedStart`: This should correspond to the desired (further back in
+    time) `firstDateModified`.
+
+### task: sync_drev ###
+

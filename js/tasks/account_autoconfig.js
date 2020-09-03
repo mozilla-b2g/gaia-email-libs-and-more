@@ -1,10 +1,6 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
 
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
-
-const autoconfigLookup = require('../autoconfig/autoconfig_lookup');
+import autoconfigLookup from '../autoconfig/autoconfig_lookup';
 
 /**
  * This is a thin shim around autoconfigLookup to run it under the task
@@ -12,7 +8,7 @@ const autoconfigLookup = require('../autoconfig/autoconfig_lookup');
  *
  * Please see the MailAPI docs on `learnAboutAccount` for more information.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'account_autoconfig',
 
@@ -26,14 +22,13 @@ return TaskDefiner.defineSimpleTask([
       ];
     },
 
-    execute: co.wrap(function*(ctx, planned) {
+    async execute(ctx, planned) {
       // Run autoconfig.
-      let result = yield autoconfigLookup(planned.userDetails);
+      let result = await autoconfigLookup(planned.userDetails);
       // Formally complete the task.
-      yield ctx.finishTask({});
+      await ctx.finishTask({});
       // Return the autoconfig result.
       return ctx.returnValue(result);
-    })
+    },
   }
 ]);
-});

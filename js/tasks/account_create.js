@@ -1,15 +1,11 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
 
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
+import { encodeInt } from '../a64';
+import { makeAccountDef, makeIdentity } from '../db/account_def_rep';
 
-const { encodeInt } = require('../a64');
-const { makeAccountDef, makeIdentity } = require('../db/account_def_rep');
+import { configuratorModules, validatorModules } from '../engine_glue';
 
-const { configuratorModules, validatorModules } = require('../engine_glue');
-
-const defaultPrefs = require('../default_prefs');
+import defaultPrefs from '../default_prefs';
 
 /**
  * Create an account using previously retrieved autoconfig data or using
@@ -40,7 +36,7 @@ const defaultPrefs = require('../default_prefs');
  * - userDetails
  * - domainInfo
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'account_create',
 
@@ -54,18 +50,18 @@ return TaskDefiner.defineSimpleTask([
       ];
     },
 
-    execute: co.wrap(function*(ctx, planned) {
+    async execute(ctx, planned) {
       let { userDetails, domainInfo } = planned;
       let accountType = domainInfo.type;
 
-      let [configurator, validator] = yield Promise.all([
+      let [configurator, validator] = await Promise.all([
         configuratorModules.get(accountType)(),
         validatorModules.get(accountType)()
       ]);
 
       let fragments = configurator(userDetails, domainInfo);
 
-      let validationResult = yield validator(fragments);
+      let validationResult = await validator(fragments);
       // If it's an error, just return the error.
       if (validationResult.error) {
         return validationResult;
@@ -106,7 +102,7 @@ return TaskDefiner.defineSimpleTask([
         ]
       });
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         newData: {
           accounts: [accountDef]
         },
@@ -122,7 +118,6 @@ return TaskDefiner.defineSimpleTask([
         error: null,
         errorDetails: null
       });
-    })
+    },
   }
 ]);
-});
