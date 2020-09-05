@@ -1,26 +1,16 @@
-define(
-  [
-    'logic',
-    '../a64',
-    '../allback',
-    '../date',
-    '../syncbase',
-    '../util',
-    'module',
-    'require',
-    'exports'
-  ],
-  function(
-    logic,
-    $a64,
-    $allback,
-    $date,
-    $sync,
-    $util,
-    $module,
-    require,
-    exports
-  ) {
+/**
+ * WARNING WARNING WARNING WARNING WARNING
+ *
+ * I believe this is legacy dead code that's not actually used but stuck around
+ * in-tree for reference purposes.  I've modernized the code now so eslint isn't
+ * angry and corrected some merge screw-ups, but it seems likely this file
+ * wants to be deleted.
+ **/
+
+import logic from 'logic';
+import $allback from '../allback';
+import { DAY_MILLIS, NOW, SINCE, quantizeDate } from '../date';
+import $sync from '../syncbase';
 
 /**
  * Lazily evaluated modules
@@ -30,50 +20,6 @@ var $imapsnippetparser = null;
 var $imapbodyfetcher = null;
 var $imapchew = null;
 var $imapsync = null;
-
-var allbackMaker = $allback.allbackMaker,
-    bsearchForInsert = $util.bsearchForInsert,
-    bsearchMaybeExists = $util.bsearchMaybeExists,
-    cmpHeaderYoungToOld = $util.cmpHeaderYoungToOld,
-    DAY_MILLIS = $date.DAY_MILLIS,
-    NOW = $date.NOW,
-    BEFORE = $date.BEFORE,
-    ON_OR_BEFORE = $date.ON_OR_BEFORE,
-    SINCE = $date.SINCE,
-    TIME_DIR_AT_OR_BEYOND = $date.TIME_DIR_AT_OR_BEYOND,
-    TIME_DIR_ADD = $date.TIME_DIR_ADD,
-    TIME_DIR_DELTA = $date.TIME_DIR_DELTA,
-    makeDaysAgo = $date.makeDaysAgo,
-    makeDaysBefore = $date.makeDaysBefore,
-    quantizeDate = $date.quantizeDate,
-    PASTWARDS = 1, FUTUREWARDS = -1;
-
-/**
- * Compact an array in-place with nulls so that the nulls are removed.  This
- * is done by a scan with an adjustment delta and a final splice to remove
- * the spares.
- */
-function compactArray(arr) {
-  // this could also be done with a write pointer.
-  var delta = 0, len = arr.length;
-  for (var i = 0; i < len; i++) {
-    var obj = arr[i];
-    if (obj === null) {
-      delta++;
-      continue;
-    }
-    if (delta)
-      arr[i - delta] = obj;
-  }
-  if (delta)
-    arr.splice(len - delta, delta);
-  return arr;
-}
-
-/**
- * Number of bytes to fetch from the server for snippets.
- */
-var NUMBER_OF_SNIPPET_BYTES = 256;
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
@@ -171,9 +117,9 @@ ImapFolderConn.prototype = {
               self._account.__folderDoneWithConnection(
                 self._conn, false, true);
               if (self._deathback) {
-                var deathback = self._deathback;
+                let local_deathback = self._deathback;
                 self.clearErrorHandler();
-                deathback();
+                local_deathback();
               }
               return;
             }
@@ -184,17 +130,18 @@ ImapFolderConn.prototype = {
       function deadconn() {
         self._conn = null;
         if (self._deathback) {
-          var deathback = self._deathback;
+          let local_deathback = self._deathback;
           self.clearErrorHandler();
-          deathback();
+          local_deathback();
         }
       },
       dieOnConnectFailure);
   },
 
   relinquishConn: function() {
-    if (!this._conn)
+    if (!this._conn) {
       return;
+    }
 
     this.clearErrorHandler();
     this._account.__folderDoneWithConnection(this._conn, true, false);
@@ -293,8 +240,9 @@ ImapFolderConn.prototype = {
     }
 
     // Having a connection is 10% of the battle
-    if (progressCallback)
+    if (progressCallback) {
       progressCallback(0.1);
+    }
 
     // Gmail IMAP servers cache search results until your connection
     // gets notified of new messages via an unsolicited server
@@ -403,8 +351,10 @@ ImapFolderConn.prototype = {
    */
   _lazySyncDateRange: function(startTS, endTS, accuracyStamp,
                           doneCallback, progressCallback) {
+    var scope = logic.subscope(this, { startTS: startTS, endTS: endTS });
+
     if (startTS && endTS && SINCE(startTS, endTS)) {
-      this._LOG.illegalSync(startTS, endTS);
+      logic(scope, 'illegalSync');
       doneCallback('invariant');
       return;
     }
@@ -414,7 +364,7 @@ ImapFolderConn.prototype = {
     var completed = false;
 
     console.log('syncDateRange:', startTS, endTS);
-    this._LOG.syncDateRange_begin(null, null, null, startTS, endTS);
+    logic(scope, 'syncDateRange_begin');
 
     // IMAP Search
 
@@ -436,10 +386,14 @@ ImapFolderConn.prototype = {
         searchOptions,
         resolve,
         function abortedSearch() {
-          if (completed)
+          if (completed) {
             return;
+          }
           completed = true;
           this._LOG.syncDateRange_end(0, 0, 0, startTS, endTS);
+          logic(scope, 'syncDateRange_end', {
+                  full: 0, flags: 0, deleted: 0
+                });
           doneCallback('aborted');
         }.bind(this),
         progressCallback,
@@ -453,7 +407,7 @@ ImapFolderConn.prototype = {
 
     var dbStartTS = (startTS ? startTS - $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
     var dbEndTS = (endTS ? endTS + $sync.IMAP_SEARCH_AMBIGUITY_MS : null);
-    slog.log('imap:database-lookup', {
+    logic(scope, 'database-lookup', {
       dbStartTS: dbStartTS,
       dbEndTS: dbEndTS
     });
@@ -488,7 +442,7 @@ ImapFolderConn.prototype = {
 
       if (shouldBisect) {
         // mark the bisection abort...
-        self._LOG.syncDateRange_end(null, null, null, startTS, endTS);
+        logic(scope, 'syncDateRange_end');
         var bisectInfo = {
           oldStartTS: startTS,
           oldEndTS: endTS,
@@ -561,7 +515,7 @@ ImapFolderConn.prototype = {
         // New
         if (!localHeader && hasServer) {
           imapSyncOptions.newUIDs.push(uid);
-          slog.log('imap:new-uid', { uid: uid });
+          logic(scope, 'new-uid', { uid: uid });
         }
         // Updated
         else if (localHeader && hasServer) {
@@ -570,17 +524,16 @@ ImapFolderConn.prototype = {
 
           if (localHeader.imapMissingInSyncRange) {
             localHeader.imapMissingInSyncRange = null;
-            slog.log('imap:found-missing-uid', { uid: uid });
+            logic(scope, 'found-missing-uid', { uid: uid });
             storage.updateMessageHeader(
               localHeader.date, localHeader.id, true, localHeader,
               /* body hint */ null, latch.defer(), { silent: true });
           }
 
-          slog.log('imap:updated-uid', { uid: uid });
+          logic(scope, 'updated-uid', { uid: uid });
         }
         // Deleted or Ambiguously Deleted
         else if (localHeader && !hasServer) {
-
           // So, how long has this message been missing for?
           var fuzz = $sync.IMAP_SEARCH_AMBIGUITY_MS;
           var date = localHeader.date;
@@ -629,18 +582,19 @@ ImapFolderConn.prototype = {
           // a single date and a range.)
           if (missingRange.startTS <= date - fuzz &&
               missingRange.endTS >= date + fuzz) {
-            slog.log('imap:unambiguously-deleted-uid',
-                     { uid: uid, missingRange: missingRange});
+            logic(scope, 'unambiguously-deleted-uid',
+                  { uid: uid, missingRange: missingRange });
             storage.deleteMessageHeaderAndBodyUsingHeader(localHeader);
             numDeleted++;
           }
           // Or we haven't looked far enough... maybe it will show up
           // later. We've already marked the updated "missing" range above.
           else {
-            slog.log('imap:ambiguously-missing-uid',
-                     { uid: uid, missingRange: missingRange,
-                       rangeToDelete: { startTS: date - fuzz, endTS: date + fuzz },
-                       syncRange: { startTS: startTS, endTS: endTS }});
+            logic(scope, 'ambiguously-missing-uid',
+                  { uid: uid, missingRange: missingRange,
+                    rangeToDelete: { startTS: date - fuzz, endTS: date + fuzz },
+                    syncRange: { startTS: startTS, endTS: endTS }});
+
             storage.updateMessageHeader(
               localHeader.date, localHeader.id, true, localHeader,
               /* body hint */ null, latch.defer(), { silent: true });
@@ -655,8 +609,11 @@ ImapFolderConn.prototype = {
         var uidSync = new $imapsync.Sync(imapSyncOptions);
         uidSync.onprogress = progressCallback;
         uidSync.oncomplete = function(newCount, knownCount) {
-          self._LOG.syncDateRange_end(newCount, knownCount, numDeleted,
-                                      startTS, endTS);
+          logic(scope, 'syncDateRange_end', {
+            full: newCount,
+            flags: knownCount,
+            deleted: numDeleted
+          });
 
           // BrowserBox returns an integer modseq, but it's opaque and
           // we already deal with strings, so cast it here.
@@ -674,7 +631,6 @@ ImapFolderConn.prototype = {
  },
 
   /**
-==== BASE ====
    * Downloads all the body representations for a given message.
    *
    *
@@ -688,31 +644,16 @@ ImapFolderConn.prototype = {
    *    );
    *
    */
-  downloadBodyReps: function() {
+  async downloadBodyReps() {
     var args = Array.slice(arguments);
     var self = this;
 
-    require(
-      [
-        './imapchew',
-        './protocol/bodyfetcher',
-        './protocol/textparser',
-        './protocol/snippetparser'
-      ],
-      function(
-        _imapchew,
-        _bodyfetcher,
-        _textparser,
-        _snippetparser
-      ) {
+    $imapchew = await import('./imapchew');
+    $imapbodyfetcher = await import('./protocol/bodyfetcher');
+    $imaptextparser = await import('./protocol/textparser');
+    $imapsnippetparser = await import('./protocol/snippetparser');
 
-        $imapchew =_imapchew;
-        $imapbodyfetcher = _bodyfetcher;
-        $imaptextparser = _textparser;
-        $imapsnippetparser = _snippetparser;
-
-        (self.downloadBodyReps = self._lazyDownloadBodyReps).apply(self, args);
-    });
+    (self.downloadBodyReps = self._lazyDownloadBodyReps).apply(self, args);
   },
 
   /**
@@ -744,8 +685,9 @@ ImapFolderConn.prototype = {
       bodyInfo.bodyReps.forEach(function(rep, idx) {
         // attempt to be idempotent by only requesting the bytes we need if we
         // actually need them...
-        if (rep.isDownloaded)
+        if (rep.isDownloaded) {
           return;
+        }
 
         // default to the entire remaining email. We use the estimate * largish
         // multiplier so even if the size estimate is wrong we should fetch more
@@ -777,8 +719,9 @@ ImapFolderConn.prototype = {
         // need to be used because imapchew.js should declare 0-byte files
         // fully downloaded when their parts are created, but better a wasteful
         // network request than breaking here.
-        if (bytesToFetch <= 0)
+        if (bytesToFetch <= 0) {
           bytesToFetch = 64;
+        }
 
         // CONDITIONAL LOGIC BARRIER CONDITIONAL LOGIC BARRIER DITTO DITTO
         // Do not do return/continue after this point because we call
@@ -910,30 +853,20 @@ ImapFolderConn.prototype = {
   /**
    * Download snippets or entire bodies for a set of headers.
    */
-  downloadBodies: function() {
+  async downloadBodies() {
     var args = Array.slice(arguments);
     var self = this;
 
-    require(
-      ['./imapchew', './protocol/bodyfetcher', './protocol/snippetparser'],
-      function(
-        _imapchew,
-        _bodyfetcher,
-        _snippetparser
-      ) {
+    $imapchew = await import('./imapchew');
+    $imapbodyfetcher = await import('./protocol/bodyfetcher');
+    $imapsnippetparser = await import('./protocol/snippetparser');
 
-        $imapchew =_imapchew;
-        $imapbodyfetcher = _bodyfetcher;
-        $imapsnippetparser = _snippetparser;
-
-        (self.downloadBodies = self._lazyDownloadBodies).apply(self, args);
-    });
+    (self.downloadBodies = self._lazyDownloadBodies).apply(self, args);
   },
 
-  downloadMessageAttachments: function(uid, partInfos, callback, progress) {
+  downloadMessageAttachments: function(uid, partInfos, callback/*, progress*/) {
     require(['mimeparser'], function(MimeParser) {
       var conn = this._conn;
-      var self = this;
 
       var latch = $allback.latch();
       var anyError = null;
@@ -1003,7 +936,7 @@ ImapFolderConn.prototype = {
           });
       });
 
-      latch.then(function(results) {
+      latch.then(function(/*results*/) {
         callback(anyError, bodies);
       });
     }.bind(this));
@@ -1013,7 +946,7 @@ ImapFolderConn.prototype = {
   },
 };
 
-function ImapFolderSyncer(account, folderStorage) {
+export function ImapFolderSyncer(account, folderStorage) {
   this._account = account;
   this.folderStorage = folderStorage;
 
@@ -1025,7 +958,6 @@ function ImapFolderSyncer(account, folderStorage) {
 
   this.folderConn = new ImapFolderConn(account, folderStorage);
 }
-exports.ImapFolderSyncer = ImapFolderSyncer;
 ImapFolderSyncer.prototype = {
   /**
    * Although we do have some errbackoff stuff we do, we can always try to
@@ -1054,6 +986,3 @@ ImapFolderSyncer.prototype = {
     this.folderConn.shutdown();
   },
 };
-
-
-}); // end define

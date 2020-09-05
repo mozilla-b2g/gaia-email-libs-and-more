@@ -1,45 +1,12 @@
-define(
-  [
-    'logic',
-    '../a64',
-    '../accountmixins',
-    '../allback',
-    '../errbackoff',
-    '../db/folder_info_rep',
-    '../searchfilter',
-    '../syncbase',
-    '../util',
-    '../composite/incoming',
-    './client',
-    './protocol/parallel_imap',
-    '../errorutils',
-    '../disaster-recovery',
-    'module',
-    'require',
-    'exports'
-  ],
-  function(
-    logic,
-    $a64,
-    $acctmixins,
-    $allback,
-    $errbackoff,
-    folderInfoRep,
-    $searchfilter,
-    $syncbase,
-    $util,
-    incoming,
-    $imapclient,
-    ParallelImap,
-    errorutils,
-    DisasterRecovery,
-    $module,
-    require,
-    exports
-  ) {
-'use strict';
+import logic from 'logic';
+import $errbackoff from '../errbackoff';
+import $syncbase from '../syncbase';
+import { CompositeIncomingAccount } from '../composite/incoming';
+import $imapclient from './client';
+import ParallelImap from './protocol/parallel_imap';
+import errorutils from '../errorutils';
+import DisasterRecovery from '../disaster-recovery';
 
-var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
 
 /**
  * Account object, root of all interaction with servers.
@@ -49,7 +16,7 @@ var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
  * API in such a way that we never know the API.  Se a vida e.
  *
  */
-function ImapAccount(universe, compositeAccount, accountId, credentials,
+export function ImapAccount(universe, compositeAccount, accountId, credentials,
                      connInfo, foldersTOC,
                      dbConn, existingProtoConn) {
   logic.defineScope(this, 'Account',
@@ -105,8 +72,7 @@ function ImapAccount(universe, compositeAccount, accountId, credentials,
    */
   this._TEST_doNotCloseFolder = false;
 }
-
-exports.Account = exports.ImapAccount = ImapAccount;
+export { ImapAccount as Account };
 ImapAccount.prototype = Object.create(CompositeIncomingAccount.prototype);
 var properties = {
   type: 'imap',
@@ -541,4 +507,3 @@ for (var k in properties) {
   Object.defineProperty(ImapAccount.prototype, k,
                         Object.getOwnPropertyDescriptor(properties, k));
 }
-}); // end define
