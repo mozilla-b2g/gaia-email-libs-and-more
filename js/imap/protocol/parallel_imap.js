@@ -1,15 +1,11 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-const logic = require('logic');
-const mimefuncs = require('mimefuncs');
+import logic from 'logic';
+import mimefuncs from 'mimefuncs';
 
 /**
  * Helper that just ensures we have a connection and then calls the underlying
  * connection method.
  */
-function simpleWithConn(methodName) {
+export function simpleWithConn(methodName) {
   return function(taskCtx, ...bbArgs) {
     return this._gimmeConnection().then((conn) => {
       logic(this, methodName + ':begin', { ctxId: taskCtx.id });
@@ -32,7 +28,7 @@ function simpleWithConn(methodName) {
  * to executing the command.  Right now we won't re-SELECT if we're already in
  * the folder.  (And/or perform a NOOP.)
  */
-function inFolderWithConn(methodName, optsArgIndexPerCaller) {
+export function inFolderWithConn(methodName, optsArgIndexPerCaller) {
   return function(taskCtx, folderInfo, ...bbArgs) {
     return this._gimmeConnection().then((conn) => {
       let opts = bbArgs[optsArgIndexPerCaller];
@@ -72,7 +68,7 @@ function inFolderWithConn(methodName, optsArgIndexPerCaller) {
  * to the browserbox function so it can ensure the correct folder is currently
  * used.
  */
-function customFuncInFolderWithConn(implFunc) {
+export function customFuncInFolderWithConn(implFunc) {
   return function(taskCtx, folderInfo, ...bbArgs) {
     let methodName = implFunc.name;
     return this._gimmeConnection().then((conn) => {
@@ -134,7 +130,7 @@ function customFuncInFolderWithConn(implFunc) {
  * being in a folder, it may be possible to upstream much of this logic.  We
  * probably want to see how this turns out first, though.
  */
-function ParallelIMAP(imapAccount) {
+export default function ParallelIMAP(imapAccount) {
   logic.defineScope(this, 'ParallelIMAP', { accountId: imapAccount.id });
   this._imapAccount = imapAccount;
 
@@ -205,8 +201,8 @@ ParallelIMAP.prototype = {
    * In the future, with changes to browserbox, we may be able to return a
    * stream instead of delivering the data all at once.
    */
-  fetchBody: co.wrap(function*(taskCtx, folderInfo, request) {
-    let conn = yield this._gimmeConnection();
+  async fetchBody(taskCtx, folderInfo, request) {
+    let conn = await this._gimmeConnection();
 
     let precheck = function(ctx, next) {
       // Only select the folder if we're not already inside it.
@@ -218,7 +214,7 @@ ParallelIMAP.prototype = {
     };
 
     logic(this, 'fetchBody:begin', { ctxId: taskCtx.id });
-    let messages = yield conn.listMessages(
+    let messages = await conn.listMessages(
       request.uid,
        [
         'BODY.PEEK[' + (request.part || '1') + ']' +
@@ -246,8 +242,5 @@ ParallelIMAP.prototype = {
     // browserbox traffics in 'binary' strings; convert this back to a
     // TypedArray.
     return mimefuncs.toTypedArray(body);
-  })
+  }
 };
-
-return ParallelIMAP;
-});

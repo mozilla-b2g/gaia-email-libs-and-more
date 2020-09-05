@@ -1,31 +1,50 @@
-define(function(require) {
-'use strict';
-
 /**
  * These are the tasks for gmail accounts.
  */
-return [
-  require('./vanilla_tasks/sync_folder_list'),
+import GmailSyncFolderList from './vanilla_tasks/sync_folder_list';
 
-  require('./gmail_tasks/sync_grow'),
-  require('./gmail_tasks/sync_refresh'),
-  require('./gmail_tasks/sync_conv'),
-  require('./gmail_tasks/sync_body'),
+import GmailSyncGrow from './gmail_tasks/sync_grow';
+import GmailSyncRefresh from './gmail_tasks/sync_refresh';
+import GmailSyncConv from './gmail_tasks/sync_conv';
+import GmailSyncBody from './gmail_tasks/sync_body';
 
-  require('./gmail_tasks/store_flags'),
-  require('./gmail_tasks/store_labels'),
+import GmailStoreFlags from './gmail_tasks/store_flags';
+import GmailStoreLabels from './gmail_tasks/store_labels';
 
-  require('./gmail_tasks/download'),
+import GmailDownload from './gmail_tasks/download';
 
-  require('../tasks/draft_save'),
-  require('../tasks/draft_attach'),
-  require('../tasks/draft_detach'),
-  require('../tasks/draft_delete'),
-  require('./gmail_tasks/outbox_send'),
+import CommonDraftSave from '../tasks/draft_save';
+import CommonDraftAttach from '../tasks/draft_attach';
+import CommonDraftDetach from '../tasks/draft_detach';
+import CommonDraftDelete from '../tasks/draft_delete';
+import GmailOutboxSend from './gmail_tasks/outbox_send';
 
-  require('../tasks/account_modify'),
-  require('../tasks/identity_modify'),
+import CommonAccountModify from '../tasks/account_modify';
+import CommonIdentityModify from '../tasks/identity_modify';
 
-  require('../tasks/new_tracking'),
+import CommonNewTracking from '../tasks/new_tracking';
+
+export default [
+  GmailSyncFolderList,
+
+  GmailSyncGrow,
+  GmailSyncRefresh,
+  GmailSyncConv,
+  GmailSyncBody,
+
+  GmailStoreFlags,
+  GmailStoreLabels,
+
+  GmailDownload,
+
+  CommonDraftSave,
+  CommonDraftAttach,
+  CommonDraftDetach,
+  CommonDraftDelete,
+  GmailOutboxSend,
+
+  CommonAccountModify,
+  CommonIdentityModify,
+
+  CommonNewTracking,
 ];
-});

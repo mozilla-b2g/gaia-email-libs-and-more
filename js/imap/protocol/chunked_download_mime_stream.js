@@ -1,11 +1,7 @@
-define(function(require) {
-'use strict';
+import mimefuncs from 'mimefuncs';
+import { ReadableStream } from 'streams';
 
-const mimefuncs = require('mimefuncs');
-const { ReadableStream } = require('streams');
-
-const MimeNodeTransformStream =
-  require('../../streamy/mime_node_transform_stream');
+import MimeNodeTransformStream from '../../streamy/mime_node_transform_stream';
 
 /**
  * Creates a MimeNodeTransformStream fed by a producer stream that fetches
@@ -24,7 +20,7 @@ const MimeNodeTransformStream =
  *   currently resume streaming, so this is all amount memory and latency
  *   tradeoffs.
  */
-return function chunkedDownloadMimeStream(
+export default function chunkedDownloadMimeStream(
   { ctx, pimap, folderInfo, uid, partInfo, downloadChunkSize, saveChunkSize }) {
   let byteIndex = 0;
 
@@ -64,5 +60,5 @@ return function chunkedDownloadMimeStream(
   return byteStream
     .pipeThrough(
       new MimeNodeTransformStream({ saveChunkSize, mimeType: partInfo.type }));
-};
-});
+}
+

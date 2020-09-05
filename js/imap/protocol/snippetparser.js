@@ -1,7 +1,4 @@
-define(['./textparser'], function($textparser) {
-'use strict';
-
-var TextParser = $textparser.TextParser;
+import { TextParser } from './textparser';
 
 function arrayAppend(array1, array2) {
   var tmp = new Uint8Array(array1.byteLength + array2.byteLength);
@@ -14,13 +11,12 @@ function arrayAppend(array1, array2) {
  * Wrapper around the textparser, accumulates buffer content and returns it as
  * part of the .complete step.
  */
-function SnippetParser(/*partDef*/) {
+export function SnippetParser(/*partDef*/) {
   TextParser.apply(this, arguments);
   this._array = null;
 }
-
 SnippetParser.prototype = {
-  parse: function(u8array) {
+  parse(u8array) {
     if (!this._array) {
       this._array = u8array;
     } else {
@@ -31,7 +27,7 @@ SnippetParser.prototype = {
     TextParser.prototype.parse.apply(this, arguments);
   },
 
-  complete: function() {
+  complete() {
     var content =
       TextParser.prototype.complete.apply(this, arguments);
 
@@ -39,8 +35,3 @@ SnippetParser.prototype = {
     return content;
   }
 };
-
-  return {
-    SnippetParser: SnippetParser
-  };
-});

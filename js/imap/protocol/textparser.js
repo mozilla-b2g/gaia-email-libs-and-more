@@ -1,15 +1,5 @@
-define(
-  [
-    'mimeparser',
-    'mimefuncs',
-    'exports'
-  ],
-  function(
-    MimeParser,
-    mimefuncs,
-    exports
-  ) {
-'use strict';
+import MimeParser from 'mimeparser';
+import mimefuncs from 'mimefuncs';
 
 /**
  * Simple wrapper around mimeparser hacks allows us to reuse data from the
@@ -30,7 +20,7 @@ define(
  * of :mcav's streamification work.  In particular, we want this because it
  * avoids an additional conversion of the "buffer" back to a binary string.
  */
-function TextParser(partDef) {
+export function TextParser(partDef) {
   this._partDef = partDef;
   var parser = this._parser = new MimeParser();
   this._totalBytes = 0;
@@ -80,7 +70,3 @@ TextParser.prototype = {
     };
   }
 };
-
-exports.TextParser = TextParser;
-
-});

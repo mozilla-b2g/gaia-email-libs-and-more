@@ -1,8 +1,3 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
 const { ReadableStream } = require('streams');
 
 const chunkedDownloadMimeStream = require('./chunked_download_mime_stream');
@@ -24,7 +19,7 @@ const chunkedDownloadMimeStream = require('./chunked_download_mime_stream');
  *   mind that this may be misleading/dangerous in the case where the part
  *   is split over multiple chunks.
  */
-return function messageChunkedPartStream({
+export default function messageChunkedPartStream({
     ctx, pimap, folderInfo, uid, parts, downloadChunkSize, saveChunkSize }) {
   // Pull the parts off as we go.
   let remainingPartsToFetch = parts.slice();
@@ -36,7 +31,7 @@ return function messageChunkedPartStream({
     start() {
     },
 
-    pull: co.wrap(function*(out) {
+    async pull(out) {
       if (!remainingPartsToFetch.length) {
         out.close();
         return;
@@ -57,11 +52,11 @@ return function messageChunkedPartStream({
 
       // (We do not need the headers since it's information sourced from the
       // partInfo and already known to our caller.)
-      let { value: { bodyStream } } = yield mimeReader.read();
+      let { value: { bodyStream } } = await mimeReader.read();
       let bodyReader = bodyStream.getReader();
 
       for (;;) {
-        let { value: blob, done } = yield bodyReader.read();
+        let { value: blob, done } = await bodyReader.read();
         if (!done) {
           out.enqueue({
             relId: partInfo.relId,
@@ -82,7 +77,6 @@ return function messageChunkedPartStream({
 
       bodyReader.cancel();
       mimeReader.cancel();
-    })
+    }
   });
-};
-});
+}
