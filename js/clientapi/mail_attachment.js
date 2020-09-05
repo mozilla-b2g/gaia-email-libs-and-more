@@ -1,14 +1,11 @@
-define(function() {
-'use strict';
-
-var evt = require('evt');
+import evt from 'evt';
 
 /**
  * Provides the file name, mime-type, and estimated file size of an attachment.
  * In the future this will also be the means for requesting the download of
  * an attachment or for attachment-forwarding semantics.
  */
-function MailAttachment(_message, wireRep) {
+export default function MailAttachment(_message, wireRep) {
   evt.Emitter.call(this);
 
   this._message = _message;
@@ -197,7 +194,4 @@ MailAttachment.prototype = evt.mix({
       }
     });
   },
-});
-
-return MailAttachment;
 });

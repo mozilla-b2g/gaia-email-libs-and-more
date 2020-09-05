@@ -1,11 +1,9 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-var evt = require('evt');
-var ContactCache = require('./contact_cache');
-var MailAttachment = require('./mail_attachment');
+import ContactCache from './contact_cache';
+import MailAttachment from './mail_attachment';
 
-var keyedListHelper = require('./keyed_list_helper');
+import keyedListHelper from './keyed_list_helper';
 
 function revokeImageSrc() {
   // see showBlobInImg below for the rationale for useWin.
@@ -85,7 +83,7 @@ function filterOutBuiltinFlags(flags) {
  * its new state then you should wait for the message's `change` event to be
  * emitted.
  */
-function MailMessage(api, wireRep, overlays, matchInfo, slice) {
+export default function MailMessage(api, wireRep, overlays, matchInfo, slice) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;
@@ -211,6 +209,9 @@ MailMessage.prototype = evt.mix({
    * In Gmail, removes the \Inbox label from a message.  For other account
    * types, this currently does nothing.  But I guess the idea would be that
    * we'd trigger a move to an archive folder.
+   *
+   * @return {UndoableOperation|null}
+   *   An undoable operation is returned is anything is done, null otherwise.
    */
   archiveFromInbox: function() {
     // Filter things down to only inbox folders.  (This lets us avoid an inbox
@@ -220,6 +221,7 @@ MailMessage.prototype = evt.mix({
     if (curInboxFolders.length) {
       return this.modifyLabels({ removeLabels: curInboxFolders });
     }
+    return null;
   },
 
   /**
@@ -459,6 +461,7 @@ MailMessage.prototype = evt.mix({
       var node = nodes[i],
           cid = node.getAttribute('cid-src');
 
+      // eslint-disable-next-line no-prototype-builtins
       if (!cidToBlob.hasOwnProperty(cid)) {
         continue;
       }
@@ -505,7 +508,4 @@ MailMessage.prototype = evt.mix({
       node.classList.remove('moz-external-image');
     }
   },
-});
-
-return MailMessage;
 });

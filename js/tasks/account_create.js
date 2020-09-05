@@ -64,7 +64,7 @@ export default TaskDefiner.defineSimpleTask([
       let validationResult = await validator(fragments);
       // If it's an error, just return the error.
       if (validationResult.error) {
-        return validationResult;
+        return ctx.returnValue(validationResult);
       }
 
       // Allocate an id for the account now that it's a sure thing.

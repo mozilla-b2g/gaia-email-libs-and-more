@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-let WindowedListView = require('./windowed_list_view');
-let MailConversation = require('./mail_conversation');
+import WindowedListView from './windowed_list_view';
+import MailConversation from './mail_conversation';
 
 /**
  * ## tocMeta fields ##
@@ -35,7 +32,7 @@ let MailConversation = require('./mail_conversation');
  *   - thisViewTriggered: Did this ConversationsListView initiate the sync (or
  *     otherwise join up with some active sync)?
  */
-function ConversationsListView(api, handle) {
+export default function ConversationsListView(api, handle) {
   WindowedListView.call(this, api, MailConversation, handle);
 
   /**
@@ -87,6 +84,9 @@ ConversationsListView.prototype.grow = function() {
  * are really desired, so it makes sense to couple this.  Note that
  * HeadersViewSlice also exposes an `ensureSnippets` method that operates on
  * just its messages/conversation.
+ *
+ * Returns false if there was no need to enqueue async snippet fetching, true if
+ * there was.
  */
 ConversationsListView.prototype.ensureSnippets = function(idxStart, idxEnd) {
   if (idxStart === undefined) {
@@ -117,7 +117,5 @@ ConversationsListView.prototype.ensureSnippets = function(idxStart, idxEnd) {
     type: 'fetchSnippets',
     convIds: convIds
   });
+  return true;
 };
-
-return ConversationsListView;
-});

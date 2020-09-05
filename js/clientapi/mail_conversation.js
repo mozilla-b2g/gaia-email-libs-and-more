@@ -1,13 +1,11 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-let evt = require('evt');
-let ContactCache = require('./contact_cache');
+import ContactCache from './contact_cache';
 
-let { accountIdFromConvId } = require('../id_conversions');
+import { accountIdFromConvId } from '../id_conversions';
 
-let decorateConversation = require('app_logic/conv_client_decorator');
-let cleanupConversation = require('app_logic/conv_client_cleanup');
+import decorateConversation from 'app_logic/conv_client_decorator';
+import cleanupConversation from 'app_logic/conv_client_cleanup';
 
 /**
  * @typedef {Object} ConvMsgTidbit
@@ -225,7 +223,4 @@ MailConversation.prototype = evt.mix({
     }
   },
 
-});
-
-return MailConversation;
 });

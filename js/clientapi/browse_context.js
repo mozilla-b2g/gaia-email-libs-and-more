@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * STILL UNDER CONSIDERATION.  Trying the redux approach for now.  Partial
  * rationale is that to simplify this implementation, I would ideally not allow
@@ -31,7 +28,7 @@ define(function() {
  *   example, if switching folders, we will avoid announcing the folder switch
  *   until
  */
-function BrowseContext({ api }) {
+export default function BrowseContext({ api }) {
   this._api = api;
 }
 BrowseContext.prototype = {
@@ -67,6 +64,3 @@ BrowseContext.prototype = {
 
   }
 };
-
-return BrowseContext;
-});

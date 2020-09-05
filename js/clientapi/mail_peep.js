@@ -1,9 +1,8 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-var evt = require('evt');
+import { showBlobInImg } from './mail_message';
 
-function MailPeep(name, address, contactId, thumbnailBlob) {
+export default function MailPeep(name, address, contactId, thumbnailBlob) {
   evt.Emitter.call(this);
 
   this.name = name;
@@ -44,10 +43,8 @@ MailPeep.prototype = evt.mix({
    * the issue of Blob URL life-cycle management.
    */
   displayPictureInImageTag: function(imgNode) {
-    if (this._thumbnailBlob)
+    if (this._thumbnailBlob) {
       showBlobInImg(imgNode, this._thumbnailBlob);
+    }
   },
-});
-
-return MailPeep;
 });

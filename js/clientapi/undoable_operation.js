@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Undoable operations describe the operation that was performed for
  * presentation to the user and hold onto a handle that can be used to undo
@@ -8,7 +5,7 @@ define(function() {
  * get a list of recently performed actions, the goal is to make it feasible
  * in the future.
  */
-function UndoableOperation({ api, id, operation, affectedCount, affectedType,
+export default function UndoableOperation({ api, id, operation, affectedCount, affectedType,
                              undoableTasksPromise }) {
   this._api = api;
   /**
@@ -88,6 +85,3 @@ UndoableOperation.prototype = {
     }
   },
 };
-
-return UndoableOperation;
-});

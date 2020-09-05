@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-var evt = require('evt');
-
-function RawItem(api, wireRep, overlays, matchInfo) {
+export default function RawItem(api, wireRep, overlays, matchInfo) {
   evt.Emitter.call(this);
 
   // TODO: have the keying id be parameterized, easiest is probably just to have
@@ -41,7 +38,4 @@ RawItem.prototype = evt.mix({
   release: function() {
     // currently nothing to clean up
   }
-});
-
-return RawItem;
 });

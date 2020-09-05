@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-var evt = require('evt');
-
-function MailFolder(api, wireRep, overlays, matchInfo) {
+export default function MailFolder(api, wireRep, overlays, matchInfo) {
   evt.Emitter.call(this);
   this._api = api;
 
@@ -166,7 +163,4 @@ MailFolder.prototype = evt.mix({
   release: function() {
     // currently nothing to clean up
   }
-});
-
-return MailFolder;
 });

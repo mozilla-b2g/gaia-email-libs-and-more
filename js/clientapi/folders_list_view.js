@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import EntireListView from './entire_list_view';
+import MailFolder from './mail_folder';
 
-let EntireListView = require('./entire_list_view');
-let MailFolder = require('./mail_folder');
-
-function FoldersViewSlice(api, handle) {
+export default function FoldersViewSlice(api, handle) {
   EntireListView.call(this, api, MailFolder, handle);
 
   // enable use of latestOnce('inbox').  Note that this implementation assumes
@@ -44,9 +41,9 @@ FoldersViewSlice.prototype.getFolderById = function(id) {
  */
 FoldersViewSlice.prototype.eventuallyGetFolderById = function(id) {
   return new Promise(function(resolve, reject) {
-    var folder = this.getFolderById(id);
-    if (folder) {
-      resolve(folder);
+    const existingFolder = this.getFolderById(id);
+    if (existingFolder) {
+      resolve(existingFolder);
       return;
     }
     // If already completed, immediately reject.
@@ -113,6 +110,3 @@ FoldersViewSlice.prototype.getFirstFolderWithPath = function(path, items) {
   }
   return null;
 };
-
-return FoldersViewSlice;
-});

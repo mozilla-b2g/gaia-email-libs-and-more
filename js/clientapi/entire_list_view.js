@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-var evt = require('evt');
+import evt from 'evt';
 
 /**
  * A view of the entirety of a list view that's stored in the backend.  As the
@@ -19,7 +16,7 @@ var evt = require('evt');
  *    initialized, or use `on` if you're using something like react.js to do
  *    just conceptually rebuild your UI every time anything changes.
  */
-function EntireListView(api, itemConstructor, handle) {
+export default function EntireListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this._itemConstructor = itemConstructor;
@@ -93,7 +90,4 @@ EntireListView.prototype = evt.mix({
       item.release();
     }
   },
-});
-
-return EntireListView;
 });

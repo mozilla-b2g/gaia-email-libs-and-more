@@ -111,7 +111,6 @@ CompositeAccount.prototype = {
     return Promise.resolve(this);
   },
   __release: function() {
-
   },
 
   get enabled() {

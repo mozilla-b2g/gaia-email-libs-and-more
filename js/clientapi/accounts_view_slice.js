@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import EntireListView from './entire_list_view';
+import MailAccount from './mail_account';
 
-let EntireListView = require('./entire_list_view');
-let MailAccount = require('./mail_account');
-
-function AccountsViewSlice(api, handle, opts) {
+export default function AccountsViewSlice(api, handle, opts) {
   EntireListView.call(this, api, MailAccount, handle);
 
   this._autoViewFolders = opts && opts.autoViewFolders || false;
@@ -33,9 +30,9 @@ AccountsViewSlice.prototype.getAccountById = function(id) {
  */
 AccountsViewSlice.prototype.eventuallyGetAccountById = function(id) {
   return new Promise((resolve, reject) => {
-    var account = this.getAccountById(id);
-    if (account) {
-      resolve(account);
+    const existingAccount = this.getAccountById(id);
+    if (existingAccount) {
+      resolve(existingAccount);
       return;
     }
 
@@ -63,7 +60,4 @@ Object.defineProperty(AccountsViewSlice.prototype, 'defaultAccount', {
 
     return defaultAccount;
   }
-});
-
-return AccountsViewSlice;
 });

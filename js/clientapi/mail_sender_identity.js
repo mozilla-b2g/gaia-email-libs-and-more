@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Sender identities define one of many possible sets of sender info and are
  * associated with a single `MailAccount`.
@@ -11,7 +8,7 @@ define(function() {
  * - reply-to address
  * - signature
  */
-function MailSenderIdentity(api, wireRep) {
+export default function MailSenderIdentity(api, wireRep) {
   // We store the API so that we can create identities for the composer without
   // needing to create an account too.
   this._api = api;
@@ -66,6 +63,3 @@ MailSenderIdentity.prototype = {
     // nothing to clean up currently
   },
 };
-
-return MailSenderIdentity;
-});

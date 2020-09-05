@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-var MailPeep = require('./mail_peep');
+import MailPeep from './mail_peep';
 
 /**
  * Caches contact lookups, both hits and misses, as well as updating the
@@ -103,7 +100,7 @@ var ContactCache = {
     // a little:
     // TODO: use a proper factored-out/supported regexp-from-string module
     if (!(phrase instanceof RegExp)) {
-      phrase = new RegExp(phrase.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g,
+      phrase = new RegExp(phrase.replace(/[-[\]/{}()*+?.\\^$|]/g,
                                          '\\$&'),
                           'i');
     }
@@ -477,5 +474,4 @@ var ContactCache = {
   },
 };
 
-return ContactCache;
-});
+export default ContactCache;

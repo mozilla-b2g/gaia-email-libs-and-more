@@ -1,13 +1,10 @@
-define(function(require) {
-'use strict';
-
-var evt = require('evt');
-let MailSenderIdentity = require('./mail_sender_identity');
+import evt from 'evt';
+import MailSenderIdentity from './mail_sender_identity';
 
 /**
  *
  */
-function MailAccount(api, wireRep, overlays, matchInfo, acctsSlice) {
+export default function MailAccount(api, wireRep, overlays, matchInfo, acctsSlice) {
   evt.Emitter.call(this);
 
   this._api = api;
@@ -216,7 +213,4 @@ MailAccount.prototype = evt.mix({
 
     return this.acctsSlice.defaultAccount === this;
   },
-});
-
-return MailAccount;
 });

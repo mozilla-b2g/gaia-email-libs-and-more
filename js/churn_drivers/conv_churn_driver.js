@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
-
-const appChurnConversation = require('app_logic/conv_churn');
+import appChurnConversation from 'app_logic/conv_churn';
 
 const scope = {};
 logic.defineScope(scope, 'churnConversationDriver');
@@ -16,7 +13,7 @@ logic.defineScope(scope, 'churnConversationDriver');
  * "app_logic/conv_churn" and which will be found under "app" on the produced
  * structure.
  */
-return function churnConversationDriver(convId, oldConvInfo, messages) {
+export default function churnConversationDriver(convId, oldConvInfo, messages) {
   let authorsByEmail = new Map();
   // The number of headers where we have already fetch snippets (or at least
   // tried to).
@@ -95,5 +92,4 @@ return function churnConversationDriver(convId, oldConvInfo, messages) {
   }
 
   return convInfo;
-};
-});
+}

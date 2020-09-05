@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import WindowedListView from './windowed_list_view';
+import MailMessage from './mail_message';
 
-let WindowedListView = require('./windowed_list_view');
-let MailMessage = require('./mail_message');
-
-function MessagesListView(api, handle) {
+export default function MessagesListView(api, handle) {
   WindowedListView.call(this, api, MailMessage, handle);
   this._nextSnippetRequestValidAt = 0;
 }
@@ -42,6 +39,3 @@ MessagesListView.prototype.ensureSnippets = function() {
     });
   }
 };
-
-return MessagesListView;
-});

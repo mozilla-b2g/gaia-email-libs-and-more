@@ -1,11 +1,8 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
 
-const evt = require('evt');
+import asyncFetchBlob from '../async_blob_fetcher';
 
-const asyncFetchBlob = require('../async_blob_fetcher');
-
-const { encodeInt: encodeA64 } = require('../a64');
+import { encodeInt as encodeA64 } from '../a64';
 
 /**
  * We want to allocate a concise attachment id that does not conflict with any
@@ -84,7 +81,7 @@ function bruteForceAttachmentId(existingAttachments) {
  * TODO: That's not actually implemented yet, but the hookup in this class is.
  * So the todo is to remove this comment once the backend is clever enough.
  */
-function MessageComposition(api) {
+export default function MessageComposition(api) {
   evt.Emitter.call(this);
   this.api = api;
   this._message = null;
@@ -366,7 +363,4 @@ MessageComposition.prototype = evt.mix({
     return this.api._composeDone(this.id, 'delete', null);
   },
 
-});
-
-return MessageComposition;
 });

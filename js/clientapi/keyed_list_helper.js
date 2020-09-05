@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * A helper for the situation where we have some parent rep (like a MailMessage)
  * that has explicitly owned children (like MailAttachments) where we want to
@@ -14,7 +11,7 @@ define(function() {
  *   if the memory profiler says to mutate (or only fork to create a new Array
  *   on divergence), we can do that.
  */
-return function keyedListHelper({
+export default function keyedListHelper({
     wireReps, existingRichReps, constructor, owner, idKey, addEvent,
     changeEvent, removeEvent }) {
   // Map of existing rich reps that we haven't processed yet.  By removing them
@@ -51,5 +48,5 @@ return function keyedListHelper({
   }
 
   return updatedList;
-};
-});
+}
+

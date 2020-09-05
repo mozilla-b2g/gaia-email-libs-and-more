@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-var evt = require('evt');
+import evt from 'evt';
 
 /**
  * @typedef {Object} SeekChangeInfo
@@ -33,7 +30,7 @@ var evt = require('evt');
  *   delicious.
  *
  */
-function WindowedListView(api, itemConstructor, handle) {
+export default function WindowedListView(api, itemConstructor, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this.handle = handle;
@@ -326,7 +323,4 @@ WindowedListView.prototype = evt.mix({
       item.release();
     }
   },
-});
-
-return WindowedListView;
 });

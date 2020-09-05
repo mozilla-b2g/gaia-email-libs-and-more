@@ -234,3 +234,7 @@ export function quantizeDateUp(date) {
 export function millisecsToSeconds(datestamp) {
   return Math.floor(datestamp / 1000);
 }
+
+export function secondsToMillisecs(secStamp) {
+  return secStamp * 1000;
+}
