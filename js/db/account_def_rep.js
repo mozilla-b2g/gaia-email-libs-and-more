@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const { NOW } = require('../date');
+import { NOW } from '../date';
 
 /**
  * Create an account definition out of its source pieces.  For historical
@@ -65,7 +62,7 @@ const { NOW } = require('../date');
  *   fundamental nature of the account.  For example, domain hostnames, port
  *   numbers, etc.
  */
-function makeAccountDef({ infra, credentials, prefFields, typeFields,
+export function makeAccountDef({ infra, credentials, prefFields, typeFields,
                           engineFields, connInfoFields, identities }) {
   let def = {
     id: infra.id,
@@ -98,7 +95,7 @@ function makeAccountDef({ infra, credentials, prefFields, typeFields,
   return def;
 }
 
-function makeIdentity(raw) {
+export function makeIdentity(raw) {
   return {
     id: raw.id,
     name: raw.name,
@@ -108,9 +105,3 @@ function makeIdentity(raw) {
     signatureEnabled: raw.signatureEnabled
   };
 }
-
-return {
-  makeAccountDef,
-  makeIdentity
-};
-});

@@ -1,13 +1,10 @@
-define(function(require) {
-'use strict';
-
 /**
  * Produce an ordering from newest conversation to oldest conversation, breaking
  * ties based on the conversation id in an arbitrary but consistent fashion.
  *
  * NEW-TO-OLD
  */
-function folderConversationComparator(a, b) {
+export function folderConversationComparator(a, b) {
   let dateDelta = b.date - a.date;
   if (dateDelta) {
     return dateDelta;
@@ -32,7 +29,7 @@ function folderConversationComparator(a, b) {
  *
  * NEW-TO-OLD currently for gaia mail ordering logic
  */
-function conversationMessageComparator(a, b) {
+export function conversationMessageComparator(a, b) {
   let dateDelta = b.date - a.date;
   if (dateDelta) {
     return dateDelta;
@@ -52,7 +49,7 @@ function conversationMessageComparator(a, b) {
   }
 }
 
-function oldToNewConversationMessageComparator(a, b) {
+export function oldToNewConversationMessageComparator(a, b) {
   let dateDelta = a.date - b.date;
   if (dateDelta) {
     return dateDelta;
@@ -71,11 +68,3 @@ function oldToNewConversationMessageComparator(a, b) {
     return 0;
   }
 }
-
-
-return {
-  folderConversationComparator,
-  conversationMessageComparator,
-  oldToNewConversationMessageComparator
-};
-});

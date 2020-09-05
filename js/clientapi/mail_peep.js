@@ -1,7 +1,11 @@
 import evt from 'evt';
 
-import { showBlobInImg } from './mail_message';
+import { showBlobInImg } from './blob_helpers';
 
+
+/**
+ * See `identities.md`.
+ */
 export default function MailPeep(name, address, contactId, thumbnailBlob) {
   evt.Emitter.call(this);
 

@@ -1,8 +1,4 @@
-define(function(require, exports) {
-'use strict';
-
-let $acctmixins = require('../accountmixins');
-
+import $acctmixins from '../accountmixins';
 
 /**
  * A base class for IMAP and POP accounts.
@@ -18,7 +14,7 @@ let $acctmixins = require('../accountmixins');
  * The rest of the parameters match those passed to Pop3Account and
  * ImapAccount.
  */
-function CompositeIncomingAccount(
+export default function CompositeIncomingAccount(
       universe, compositeAccount, accountId, credentials,
       connInfo, foldersTOC, dbConn/*, existingProtoConn */) {
   // our logic scope is defined by our subclass
@@ -38,7 +34,6 @@ function CompositeIncomingAccount(
   // this is owned by the TOC.  Do not mutate!
   this.folders = this.foldersTOC.items;
 }
-exports.CompositeIncomingAccount = CompositeIncomingAccount;
 CompositeIncomingAccount.prototype = {
   ////////////////////////////////////////////////////////////////
   // ACCOUNT OVERRIDES
@@ -70,5 +65,3 @@ CompositeIncomingAccount.prototype = {
     */
   },
 };
-
-}); // end define

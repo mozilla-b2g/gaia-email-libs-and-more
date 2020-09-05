@@ -1,8 +1,3 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
 function gimmeProbers(isImap) {
   return new Promise(function(resolve) {
     if (isImap) {
@@ -31,12 +26,12 @@ function gimmeProbers(isImap) {
  * Returns { engineFields, receiveProtoConn } on success, { error,
  * errorDetails } on failure.
  */
-return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
+export default async function({ credentials, typeFields, connInfoFields }) {
   let isImap = (typeFields.receiveType === 'imap');
 
   // - Dynamically load the required modules.
   // But in a statically traceable way.
-  let [receiveProber, sendProber] = yield gimmeProbers(isImap);
+  let [receiveProber, sendProber] = await gimmeProbers(isImap);
 
   // - Initiate the probes in parallel...
   // Note: For OAUTH accounts, the credentials may be updated
@@ -53,7 +48,7 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
   let protoConn;
   // (the prober will throw any failure result)
   try {
-    let receiveResults = yield receivePromise;
+    let receiveResults = await receivePromise;
 
     protoConn = receiveResults.conn;
     if (isImap) {
@@ -81,7 +76,7 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
   try {
     // We don't actually care about the return value, just that the probing
     // didn't fail.
-    yield sendPromise;
+    await sendPromise;
   } catch (error) {
     // If we have an open connection, close it on the way out.
     if (protoConn) {
@@ -97,5 +92,4 @@ return co.wrap(function*({ credentials, typeFields, connInfoFields }) {
     engineFields,
     receiveProtoConn: protoConn
   };
-});
-});
+}

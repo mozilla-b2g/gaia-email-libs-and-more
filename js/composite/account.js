@@ -1,29 +1,14 @@
+/* eslint-disable no-prototype-builtins */
 /**
  * Configurator for fake
  **/
 
-define(
-  [
-    'logic',
-    '../accountcommon',
-    '../a64',
-    '../accountmixins',
-    '../imap/account',
-    '../pop3/account',
-    '../smtp/account',
-    '../allback'
-  ],
-  function(
-    logic,
-    $accountcommon,
-    $a64,
-    $acctmixins,
-    $imapacct,
-    $pop3acct,
-    $smtpacct,
-    allback
-  ) {
-'use strict';
+import logic from 'logic';
+import $acctmixins from '../accountmixins';
+import $imapacct from '../imap/account';
+import $pop3acct from '../pop3/account';
+import $smtpacct from '../smtp/account';
+import allback from '../allback';
 
 var PIECE_ACCOUNT_TYPE_TO_CLASS = {
   'imap': $imapacct.ImapAccount,
@@ -37,8 +22,8 @@ var PIECE_ACCOUNT_TYPE_TO_CLASS = {
  * intended to be a very thin layer that shields consuming code from the
  * fact that IMAP and SMTP are not actually bundled tightly together.
  */
-function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
-                          receiveProtoConn) {
+export default function CompositeAccount(universe, accountDef, foldersTOC, dbConn,
+                                         receiveProtoConn) {
   this.universe = universe;
   this.id = accountDef.id;
   this.accountDef = accountDef;
@@ -241,5 +226,3 @@ CompositeAccount.prototype = {
     }
   }
 };
-return CompositeAccount;
-}); // end define

@@ -1,15 +1,13 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const evt = require('evt');
-const logic = require('logic');
+import { bsearchForInsert } from '../util';
 
-const { bsearchForInsert } = require('../util');
+import evt from 'evt';
 
-const { encodeInt: encodeA64Int } = require('../a64');
-const { decodeSpecificFolderIdFromFolderId } = require('../id_conversions');
+import { encodeInt as encodeA64Int } from '../a64';
+import { decodeSpecificFolderIdFromFolderId } from '../id_conversions';
 
-const { engineFrontEndFolderMeta, engineHacks } = require('../engine_glue');
+import { engineFrontEndFolderMeta, engineHacks } from '../engine_glue';
 
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
@@ -50,7 +48,7 @@ function strcmp(a, b) {
  * ordered things by our crazy sort priority.  Now we use the sort priority here
  * in the back-end and expose that to the front-end too.
  */
-function FoldersTOC({ db, accountDef, folders, dataOverlayManager }) {
+export default function FoldersTOC({ db, accountDef, folders, dataOverlayManager }) {
   evt.Emitter.call(this);
   logic.defineScope(this, 'FoldersTOC');
 
@@ -109,11 +107,11 @@ FoldersTOC.prototype = evt.mix({
 
   // We don't care about who references us because we have the lifetime of the
   // universe.  (At least, unless our owning account gets deleted.)
-  __acquire: function() {
+  __acquire() {
     return Promise.resolve(this);
   },
 
-  __release: function() {
+  __release() {
     // nothing to do
   },
 
@@ -163,15 +161,15 @@ FoldersTOC.prototype = evt.mix({
    * It's definitely okay to revisit this informed by time and implementation
    * regret.
    */
-  issueFolderId: function() {
+  issueFolderId() {
     return this.accountId + '.' + encodeA64Int(this._nextFolderNum++);
   },
 
-  getAllItems: function() {
+  getAllItems() {
     return this.items;
   },
 
-  getItemIndexById: function(id) {
+  getItemIndexById(id) {
     return this.items.findIndex((item) => {
       return item.id === id;
     });
@@ -186,7 +184,7 @@ FoldersTOC.prototype = evt.mix({
    * locale database and failure to fallback to unicode code points for
    * comparison purposes.
    */
-  _makeFolderSortString: function(folderInfo) {
+  _makeFolderSortString(folderInfo) {
     if (!folderInfo) {
       return '';
     }
@@ -202,7 +200,7 @@ FoldersTOC.prototype = evt.mix({
    * (potentially) be reported in the overlays of all folders.  In the interest
    * of simplifying the lives of those tasks
    */
-  _onAccountOverlayCascade: function(accountId) {
+  _onAccountOverlayCascade(accountId) {
     // This event is an unfiltered firehose; we have to filter down to our id.
     if (accountId === this.accountId) {
       for (let i = 0; i < this.items.length; i++) {
@@ -219,7 +217,7 @@ FoldersTOC.prototype = evt.mix({
    * in-memory, etc.), we do need to be alerted when values change since we
    * propagate data to the folders.
    */
-  _onAccountChange: function(/* accountId, accountDef */) {
+  _onAccountChange(/* accountId, accountDef */) {
     // We are also assuming the engine and engineFolderMeta can't change at
     // runtime without retracting and re-adding the account.  This is an
     // invariant, though.
@@ -229,7 +227,7 @@ FoldersTOC.prototype = evt.mix({
   /**
    * Pretend the selected folders changed (data-wise, not overlay-wise).
    */
-  _fakeFolderDataChanges: function(filterFunc) {
+  _fakeFolderDataChanges(filterFunc) {
     for (let i = 0; i < this.items.length; i++) {
       let folder = this.items[i];
       if (!filterFunc || filterFunc(folder)) {
@@ -238,7 +236,7 @@ FoldersTOC.prototype = evt.mix({
     }
   },
 
-  _onTOCChange: function(folderId, folderInfo, isNew) {
+  _onTOCChange(folderId, folderInfo, isNew) {
     if (isNew) {
       // - add
       this._addFolder(folderInfo);
@@ -255,7 +253,7 @@ FoldersTOC.prototype = evt.mix({
     }
   },
 
-  _addFolder: function(folderInfo) {
+  _addFolder(folderInfo) {
     let sortString = this._makeFolderSortString(folderInfo);
     let idx = bsearchForInsert(this.folderSortStrings, sortString, strcmp);
     this.items.splice(idx, 0, folderInfo);
@@ -267,7 +265,7 @@ FoldersTOC.prototype = evt.mix({
     this.emit('add', this.folderInfoToWireRep(folderInfo), idx);
   },
 
-  _removeFolderById: function(id) {
+  _removeFolderById(id) {
     let folderInfo = this.foldersById.get(id);
     let idx = this.items.indexOf(folderInfo);
     logic(this, 'removeFolderById', { id: id, index: idx });
@@ -287,11 +285,11 @@ FoldersTOC.prototype = evt.mix({
    *
    * TODO: Actually have our logic not be the same as getFirstFolderWithType.
    */
-  getCanonicalFolderByType: function(type) {
+  getCanonicalFolderByType(type) {
     return this.items.find(folder => folder.type === type) || null;
   },
 
-  generatePersistenceInfo: function() {
+  generatePersistenceInfo() {
     return this._foldersDbState;
   },
 
@@ -299,7 +297,7 @@ FoldersTOC.prototype = evt.mix({
    * Generate the wire rep for a folder *belonging to this account*, mixing in
    * account engine details, and in the future, maybe other details too.
    */
-  folderInfoToWireRep: function(folder) {
+  folderInfoToWireRep(folder) {
     let mixFromAccount;
     // If this account syncs on a per-account basis, spread the sync information
     // that sync_refresh stashed on the account.
@@ -328,5 +326,3 @@ FoldersTOC.prototype = evt.mix({
   }
 });
 
-return FoldersTOC;
-});

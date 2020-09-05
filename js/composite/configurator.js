@@ -2,16 +2,13 @@
  * Configurator for imap+smtp and pop3+smtp.
  **/
 
-define(function(require) {
-'use strict';
-
-const { PERFNOW } = require('../date');
+import { PERFNOW } from '../date';
 
 /**
  * Consuming userDetails and domainInfo, create the account-specific account
  * definition fragments.
  */
-return function(userDetails, domainInfo) {
+export default function(userDetails, domainInfo) {
   let incomingType = (domainInfo.type === 'imap+smtp' ? 'imap' : 'pop3');
   let password = null;
   // If the account has an outgoingPassword, use that; otherwise
@@ -83,5 +80,4 @@ return function(userDetails, domainInfo) {
       sendConnInfo: smtpConnInfo
     }
   };
-};
-}); // end define
+}

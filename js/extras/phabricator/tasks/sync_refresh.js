@@ -1,7 +1,7 @@
 import logic from 'logic';
 
 import { shallowClone } from '../../../util';
-import { NOW, millisecsToSeconds } from '../../../date';
+import { NOW } from '../../../date';
 
 import TaskDefiner from '../../../task_infra/task_definer';
 
@@ -95,143 +95,61 @@ export default TaskDefiner.defineAtMostOnceTask([
       let account = await ctx.universe.acquireAccount(ctx, req.accountId);
 
       const modifiedStart = syncState.rawSyncState.lastDateModifiedEpochSecs;
+      const userPhid = account.accountDef.engineFields.userPhid;
 
-      logic(ctx, 'syncStart', { modifiedStart });
-
+      let syncDate = NOW();
+      logic(ctx, 'syncStart', { syncDate, modifiedStart, userPhid });
 
       let results = await account.client.apiCall(
         'differential.revision.search',
         {
           constraints: {
             modifiedStart,
+            responsiblePHIDs: [userPhid],
           },
           // Prefer oldest updated date first because this monotonically moves
           // the lastDateModified forward even if we only consume a portion of
           // the results.  This means we don't actually need to process the
           // result using the built-in paging mechanism because we effectively
           // are doing our own bite-sized paging.
+          //
+          // XXX: That said, we do need to deal with the risk of the same
+          // lastDateModified hypothetically existing on both sides of a paging
+          // boundary and us accidentally consuming the entries on the next
+          // page.
+          //
+          // TODO: Compensate for the above edge case.  A simple approach would
+          // be to decrement the highestDateModified in situations where paging
+          // is occurring.  (And in cases when we think that date stamp is too
+          // close to now, allowing for future records to share that same date.)
           order: 'outdated',
         }
       );
 
+      // We track the highest date modified as we process revisions.  Normally
+      // this is something we'd hide inside the sync state helper, but the flow
+      // here is simple enough that it seems beneficial to expose this.
+      let highestDateModified = 0;
 
-
-      let { mailboxInfo, result: messages } = await account.pimap.listMessages(
-        ctx,
-        allMailFolderInfo,
-        '1:*',
-        [
-          'UID',
-          'INTERNALDATE',
-          'X-GM-THRID',
-          'X-GM-LABELS',
-          // We don't need/want FLAGS for new messsages (ones with a higher UID
-          // than we've seen before), but it's potentially kinder to gmail to
-          // ask for everything in a single go.
-          'FLAGS',
-          // Same deal for the X-GM-MSGID.  We are able to do a more efficient
-          // db access pattern if we have it, but it's not really useful in the
-          // new conversation/new message case.
-          'X-GM-MSGID'
-        ],
-        {
-          byUid: true,
-          changedSince: syncState.modseq
+      // Process the list of DREVs, producing spin-off tasks as a byproduct.
+      for (const revInfo of results.data) {
+        const drevModified = revInfo.fields.dateModified;
+        if (drevModified > highestDateModified) {
+          highestDateModified = drevModified;
         }
-      );
 
-      // To avoid getting redundant information in the future, we need to know
-      // the effective modseq of this fetch request.  Because we don't
-      // necessarily re-enter the folder above and there's nothing saying that
-      // the apparent MODSEQ can only change on entry, we must consider the
-      // MODSEQs of the results we are provided.
-      let highestModseq = a64.maxDecimal64Strings(
-        mailboxInfo.highestModseq, syncState.modseq);
-      for (let msg of messages) {
-        let uid = msg.uid; // already parsed into a number by browserbox
-        let dateTS = parseImapDateTime(msg.internaldate);
-        let rawConvId = parseGmailConvId(msg['x-gm-thrid']);
-        // Unwrap the imap-parser tagged { type, value } objects.  (If this
-        // were a singular value that wasn't a list it would automatically be
-        // unwrapped.)
-        let rawLabels = msg['x-gm-labels'];
-        let flags = msg.flags;
-
-        highestModseq = a64.maxDecimal64Strings(highestModseq, msg.modseq);
-
-        // Have store_labels apply any (offline) requests that have not yet been
-        // replayed to the server.
-        ctx.synchronouslyConsultOtherTask(
-          { name: 'store_labels', accountId: req.accountId },
-          { uid: uid, value: rawLabels });
-        // same with store_flags
-        ctx.synchronouslyConsultOtherTask(
-          { name: 'store_flags', accountId: req.accountId },
-          { uid: uid, value: flags });
-
-        let labelFolderIds = labelMapper.labelsToFolderIds(rawLabels);
-
-        // Is this a new message?
-        if (uid > syncState.lastHighUid) {
-          // Does this message meet our sync criteria on its own?
-          if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
-            // (Yes, it's a yay message.)
-            // Is this a conversation we already know about?
-            if (syncState.isKnownRawConvId(rawConvId)) {
-              syncState.newYayMessageInExistingConv(
-                uid, rawConvId, dateTS);
-            } else { // no, it's a new conversation to us!
-              syncState.newYayMessageInNewConv(uid, rawConvId, dateTS);
-            }
-          // Okay, it didn't meet it on its own, but does it belong to a
-          // conversation we care about?
-          } else if (syncState.isKnownRawConvId(rawConvId)) {
-            syncState.newMehMessageInExistingConv(uid, rawConvId, dateTS);
-          } else { // We don't care.
-            syncState.newMootMessage(uid);
-          }
-        } else { // It's an existing message
-          let newState = {
-            rawMsgId: parseGmailMsgId(msg['x-gm-msgid']),
-            flags,
-            labels: labelFolderIds
-          };
-          if (syncState.messageMeetsSyncCriteria(dateTS, labelFolderIds)) {
-            // it's currently a yay message, but was it always a yay message?
-            if (syncState.yayUids.has(uid)) {
-              // yes, forever awesome.
-              syncState.existingMessageUpdated(
-                uid, rawConvId, dateTS, newState);
-            } else if (syncState.mehUids.has(uid)) {
-              // no, it was meh, but is now suddenly fabulous
-              syncState.existingMehMessageIsNowYay(
-                uid, rawConvId, dateTS, newState);
-            } else {
-              // Not aware of the message, so inductively this conversation is
-              // new to us.
-              syncState.existingIgnoredMessageIsNowYayInNewConv(
-                uid, rawConvId, dateTS);
-            }
-          // Okay, so not currently a yay message, but was it before?
-          } else if (syncState.yayUids.has(uid)) {
-            // it was yay, is now meh, this potentially even means we no longer
-            // care about the conversation at all
-            syncState.existingYayMessageIsNowMeh(
-              uid, rawConvId, dateTS);
-          } else if (syncState.mehUids.has(uid)) {
-            // it was meh, it's still meh, it's just an update
-            syncState.existingMessageUpdated(
-              uid, rawConvId, dateTS, newState);
-          } else {
-            syncState.existingMootMessage(uid);
-          }
-        }
+        syncState.foundDrev({
+          drevId: revInfo.id,
+          drevPhid: revInfo.phid,
+          modifiedStamp: drevModified,
+        });
       }
 
-      syncState.lastHighUid = mailboxInfo.uidNext - 1;
-      syncState.modseq = highestModseq;
-      syncState.finalizePendingRemovals();
-      logic(ctx, 'syncEnd', { modseq: syncState.modseq });
+      if (highestDateModified) {
+        syncState.rawSyncState.lastDateModifiedEpochSecs = highestDateModified;
+      }
+
+      logic(ctx, 'syncEnd', { highestDateModified });
 
       return {
         mutations: {

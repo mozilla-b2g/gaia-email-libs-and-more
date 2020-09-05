@@ -64,7 +64,7 @@ import cleanupConversation from 'app_logic/conv_client_cleanup';
  * @property {Boolean} hasDraft
  * @property {Boolean} hasAttachments
  */
-function MailConversation(api, wireRep, overlays, matchInfo, slice, handle) {
+export default function MailConversation(api, wireRep, overlays, matchInfo, slice, handle) {
   evt.Emitter.call(this);
   this._api = api;
   this._slice = slice;

@@ -27,7 +27,7 @@ export default class PhabricatorSyncStateHelper {
     this.tasksToSchedule = [];
   }
 
-  _makeDrevConvTask(drevId, drevPhid, modifiedStamp) {
+  _makeDrevConvTask({ drevId, drevPhid, modifiedStamp }) {
     let convId = this._accountId + '.' + drevId;
     let task = {
       type: 'sync_drev',
@@ -38,5 +38,13 @@ export default class PhabricatorSyncStateHelper {
     };
     this.tasksToSchedule.push(task);
     return task;
+  }
+
+  /**
+   * Mark a DREV for further synchronization.  We don't care if we knew about
+   * it before or not.
+   */
+  foundDrev(drevInfo) {
+    this._makeDrevConvTask(drevInfo);
   }
 }

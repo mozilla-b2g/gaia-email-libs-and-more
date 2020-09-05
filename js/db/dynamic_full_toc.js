@@ -1,13 +1,10 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import { bsearchMaybeExists, bsearchForInsert } from '../util';
 
-const util = require('../util');
-const bsearchMaybeExists = util.bsearchMaybeExists;
-const bsearchForInsert = util.bsearchForInsert;
+import { conversationMessageComparator } from './comparators';
 
-const BaseTOC = require('./base_toc');
+import BaseTOC from './base_toc';
 
 /**
  * Represent ordered lists of data that are always memory resident and may
@@ -15,7 +12,7 @@ const BaseTOC = require('./base_toc');
  * derived views, but could envolve as use-cases arise.  Or more TOC
  * implementations should be created.
  */
-function DynamicFullTOC({ comparator, idKey, topOrderingKey, onFlush }) {
+export default function DynamicFullTOC({ comparator, idKey, topOrderingKey, onFlush }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'DynamicFullTOC');
@@ -56,11 +53,10 @@ DynamicFullTOC.prototype = BaseTOC.mix({
     this.items.splice(newIndex, 0, item);
   },
 
-  updateItem: function(item) {
-
+  updateItem: function(/*item*/) {
   },
 
-  removeItem: function(id) {
+  removeItem: function(/*id*/) {
   },
 
   setItems: function(items) {
@@ -233,7 +229,4 @@ DynamicFullTOC.prototype = BaseTOC.mix({
       newValidDataSet: newKnownSet
     };
   }
-});
-
-return DynamicFullTOC;
 });

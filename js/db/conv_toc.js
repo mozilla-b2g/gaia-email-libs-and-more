@@ -1,16 +1,10 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { bsearchMaybeExists, bsearchForInsert } from '../util';
 
-const util = require('../util');
-const bsearchMaybeExists = util.bsearchMaybeExists;
-const bsearchForInsert = util.bsearchForInsert;
+import BaseTOC from './base_toc';
 
-const BaseTOC = require('./base_toc');
-
-const { conversationMessageComparator } = require('./comparators');
+import { conversationMessageComparator } from './comparators';
 
 /**
  * The Conversation Table-of-Contents is in charge of backing view slices
@@ -29,7 +23,7 @@ const { conversationMessageComparator } = require('./comparators');
  * view slice is requested for a given conversation and destroyed once no more
  * view slices care about.
  */
-function ConversationTOC({ db, query, dataOverlayManager }) {
+export default function ConversationTOC({ db, query, dataOverlayManager }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'ConversationTOC');
@@ -50,11 +44,11 @@ ConversationTOC.prototype = BaseTOC.mix({
   overlayNamespace: 'messages',
   heightAware: false,
 
-  __activateTOC: co.wrap(function*() {
+  async __activateTOC() {
     // NB: Although our signature is for this to just provide us with the id's,
     // this actually has the byproduct of loading the header records and placing
     // them in the cache because we can't currently just get the keys.
-    let idsWithDates = yield this.query.execute();
+    let idsWithDates = await this.query.execute();
 
     // Sort the IDs in the same order as used by the binary search used later
     // for modifications done with this class.
@@ -62,9 +56,9 @@ ConversationTOC.prototype = BaseTOC.mix({
 
     this.idsWithDates = idsWithDates;
     this.query.bind(this, this.onTOCChange, this.onConvChange);
-  }),
+  },
 
-  __deactivateTOC: function(firstTime) {
+  __deactivateTOC(firstTime) {
     this.idsWithDates = [];
     if (!firstTime) {
       this.query.destroy(this);
@@ -96,8 +90,7 @@ ConversationTOC.prototype = BaseTOC.mix({
    * @param {MessageInfo} item
    * @param {Boolean} freshlyAdded
    */
-  onTOCChange: function({ id, preDate, postDate, item, freshlyAdded,
-                          matchInfo }) {
+  onTOCChange({ id, preDate, postDate, item, freshlyAdded, matchInfo }) {
     let metadataOnly = item && !freshlyAdded;
 
     if (freshlyAdded) {
@@ -135,7 +128,7 @@ ConversationTOC.prototype = BaseTOC.mix({
    * Listener for changes on the conversation to detect when it's deleted so we
    * can clean ourselves out.  No TOC events are generated in this case.
    */
-  onConvChange: function(convId, convInfo) {
+  onConvChange(convId, convInfo) {
     if (convInfo === null) {
       // Our conversation was deleted and no longer exists.  Clean everything
       // out.
@@ -147,7 +140,7 @@ ConversationTOC.prototype = BaseTOC.mix({
   /**
    * Return an array of the conversation id's occupying the given indices.
    */
-  sliceIds: function(begin, end) {
+  sliceIds(begin, end) {
     let ids = [];
     let idsWithDates = this.idsWithDates;
     for (let i = begin; i < end; i++) {
@@ -161,14 +154,14 @@ ConversationTOC.prototype = BaseTOC.mix({
    * latching us to the top.  We use this for the coordinate-space case where
    * there is nothing loaded yet.
    */
-  getTopOrderingKey: function() {
+  getTopOrderingKey() {
     return {
       date: new Date(2200, 0),
       id: ''
     };
   },
 
-  getOrderingKeyForIndex: function(index) {
+  getOrderingKeyForIndex(index) {
     if (this.idsWithDates.length === 0) {
       return this.getTopOrderingKey();
     } else if (index < 0) {
@@ -179,13 +172,13 @@ ConversationTOC.prototype = BaseTOC.mix({
     return this.idsWithDates[index];
   },
 
-  findIndexForOrderingKey: function(key) {
+  findIndexForOrderingKey(key) {
     let index = bsearchForInsert(this.idsWithDates, key,
                                  conversationMessageComparator);
     return index;
   },
 
-  getDataForSliceRange: function(beginInclusive, endExclusive,
+  getDataForSliceRange(beginInclusive, endExclusive,
       alreadyKnownData, alreadyKnownOverlays) {
     beginInclusive = Math.max(0, beginInclusive);
     endExclusive = Math.min(endExclusive, this.idsWithDates.length);
@@ -256,7 +249,4 @@ ConversationTOC.prototype = BaseTOC.mix({
       newValidDataSet: newKnownSet
     };
   }
-});
-
-return ConversationTOC;
 });

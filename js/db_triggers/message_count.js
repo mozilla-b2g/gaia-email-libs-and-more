@@ -1,11 +1,8 @@
-define(function() {
-'use strict';
-
 /**
  * We maintain a tally of known messages (locally) in each folder.  See the
  * `FolderMeta` defition in folder_info_rep.js for more information.
  */
-return {
+export default {
   name: 'message_count',
 
   'msg!*!add': function(triggerCtx, message) {
@@ -54,4 +51,3 @@ return {
     });
   }
 };
-});

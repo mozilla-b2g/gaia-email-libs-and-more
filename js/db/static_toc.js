@@ -1,16 +1,13 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
-
-const BaseTOC = require('./base_toc');
+import BaseTOC from './base_toc';
 
 /**
  * Wraps an unchanging array of items to be used by a WindowedListProxy.
  * No overlay support, no variable height support.  Some form of parametrized
  * reusable TOC is probably in the cards for fancier needs in the future.
  */
-function StaticTOC({ items }) {
+export default function StaticTOC({ items }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'StaticTOC');
@@ -24,11 +21,11 @@ StaticTOC.prototype = BaseTOC.mix({
   overlayNamespace: null,
   heightAware: false,
 
-  __activateTOC: function() {
+  __activateTOC() {
     return Promise.resolve(this);
   },
 
-  __deactivateTOC: function(/*firstTime*/) {
+  __deactivateTOC(/*firstTime*/) {
   },
 
   get length() {
@@ -42,25 +39,25 @@ StaticTOC.prototype = BaseTOC.mix({
   /**
    * Our ordering key is just the index.
    */
-  getTopOrderingKey: function() {
+  getTopOrderingKey() {
     return 0;
   },
 
   /**
    * Our ordering key is just the index.
    */
-  getOrderingKeyForIndex: function(index) {
+  getOrderingKeyForIndex(index) {
     return index;
   },
 
   /**
    * Our ordering key is just the index.
    */
-  findIndexForOrderingKey: function(key) {
+  findIndexForOrderingKey(key) {
     return key;
   },
 
-  getDataForSliceRange: function(beginInclusive, endExclusive,
+  getDataForSliceRange(beginInclusive, endExclusive,
       alreadyKnownData/*, alreadyKnownOverlays*/) {
     beginInclusive = Math.max(0, beginInclusive);
     endExclusive = Math.min(endExclusive, this.items.length);
@@ -104,7 +101,4 @@ StaticTOC.prototype = BaseTOC.mix({
       newValidDataSet: newKnownSet
     };
   }
-});
-
-return StaticTOC;
 });

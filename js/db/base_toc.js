@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
-
-const evt = require('evt');
-const logic = require('logic');
-const RefedResource = require('../refed_resource');
+import evt from 'evt';
+import logic from 'logic';
+import RefedResource from '../refed_resource';
 
 /**
  * Base class for TOC implementations.
@@ -13,7 +10,7 @@ const RefedResource = require('../refed_resource');
  * clarity" and "oh crap, code duplication, this is not going to end well!".
  * (Most of the code was also subtly different for each TOC up to this point.)
  */
-function BaseTOC({ metaHelpers }) {
+export default function BaseTOC({ metaHelpers }) {
   RefedResource.apply(this, arguments);
   evt.Emitter.call(this);
 
@@ -89,6 +86,7 @@ BaseTOC.prototype = evt.mix(RefedResource.mix({
 BaseTOC.mix = function(obj) {
   Object.keys(BaseTOC.prototype).forEach(function(prop) {
     // allow optional methods like "flush" which we only define as null.
+    // eslint-disable-next-line no-prototype-builtins
     if (!obj.hasOwnProperty(prop)) {
       obj[prop] = BaseTOC.prototype[prop];
     } else if (BaseTOC.prototype[prop]) {
@@ -97,6 +95,3 @@ BaseTOC.mix = function(obj) {
   });
   return obj;
 };
-
-return BaseTOC;
-});

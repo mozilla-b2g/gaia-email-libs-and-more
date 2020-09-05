@@ -1,17 +1,10 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { bsearchMaybeExists, bsearchForInsert } from '../util';
 
-const util = require('../util');
-const bsearchMaybeExists = util.bsearchMaybeExists;
-const bsearchForInsert = util.bsearchForInsert;
+import { folderConversationComparator } from './comparators';
 
-
-const { folderConversationComparator } = require('./comparators');
-
-const BaseTOC = require('./base_toc');
+import BaseTOC from './base_toc';
 
 /**
  * Backs view-slices listing the conversations in a folder.
@@ -28,7 +21,7 @@ const BaseTOC = require('./base_toc');
  * perspective, if a conversation gets updated, it is no longer the same and
  * we instead treat the position where the { date, id } would be inserted now.
  */
-function FolderConversationsTOC({ db, query, dataOverlayManager }) {
+export default function FolderConversationsTOC({ db, query, dataOverlayManager }) {
   BaseTOC.apply(this, arguments);
 
   logic.defineScope(this, 'FolderConversationsTOC');
@@ -51,8 +44,8 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
   overlayNamespace: 'conversations',
   heightAware: true,
 
-  __activateTOC: co.wrap(function*() {
-    let idsWithDates = yield this.query.execute();
+  async __activateTOC() {
+    let idsWithDates = await this.query.execute();
 
     this.idsWithDates = idsWithDates;
 
@@ -63,9 +56,9 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     this.totalHeight = totalHeight;
 
     this.query.bind(this, this.onTOCChange);
-  }),
+  },
 
-  __deactivateTOC: function(firstTime) {
+  __deactivateTOC(firstTime) {
     this.idsWithDates = [];
     this.totalHeight = 0;
     if (!firstTime) {
@@ -92,7 +85,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    *   In the case of a non-deletion
    * @param {Number} oldHeight
    */
-  onTOCChange: function(change) {
+  onTOCChange(change) {
     // Is this just a change in the data rather than in the ordering?
     let dataOnly = change.removeDate === change.addDate;
 
@@ -143,7 +136,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
   /**
    * Return an array of the conversation id's occupying the given indices.
    */
-  sliceIds: function(begin, end) {
+  sliceIds(begin, end) {
     let ids = [];
     let idsWithDates = this.idsWithDates;
     for (let i = begin; i < end; i++) {
@@ -152,7 +145,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     return ids;
   },
 
-  getOrderingKeyForIndex: function(index) {
+  getOrderingKeyForIndex(index) {
     if (this.idsWithDates.length === 0) {
       return this.getTopOrderingKey();
     } else if (index < 0) {
@@ -168,7 +161,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    * latching us to the top.  We use this for the coordinate-space case where
    * there is nothing loaded yet.
    */
-  getTopOrderingKey: function() {
+  getTopOrderingKey() {
     return {
       date: new Date(2200, 0),
       id: '',
@@ -176,7 +169,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     };
   },
 
-  findIndexForOrderingKey: function(key) {
+  findIndexForOrderingKey(key) {
     let index = bsearchForInsert(this.idsWithDates, key,
                                  folderConversationComparator);
     return index;
@@ -204,7 +197,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    *   The height offset the item with the given ordering key ends at.
    *   (You can also think of this as the offset the next item starts at.)
    */
-  getInfoForOffset: function(desiredOffset) {
+  getInfoForOffset(desiredOffset) {
     // NB: because this is brute-force, we are falling back to var since we know
     // that let is bad news in SpiderMonkey at the current tim.
     var actualOffset = 0;
@@ -231,7 +224,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     };
   },
 
-  getHeightOffsetForIndex: function(desiredIndex) {
+  getHeightOffsetForIndex(desiredIndex) {
     let height = 0;
     let idsWithDates = this.idsWithDates;
     desiredIndex = Math.min(desiredIndex, idsWithDates.length);
@@ -257,7 +250,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    * @prop {Number} overconsumed
    *   Additional height units covered by this returned index.
    */
-  _walkToCoverHeight: function(startIndex, delta, heightToConsume) {
+  _walkToCoverHeight(startIndex, delta, heightToConsume) {
     let index = startIndex;
     let idsWithDates = this.idsWithDates;
     let info = (index < idsWithDates.length) && idsWithDates[index];
@@ -283,7 +276,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
    * place.  When we inevitably need this logic someplace else, we should
    * partition all this crap out into a mix-in or something we can subclass.
    */
-  findIndicesFromCoordinateSoup: function(req) {
+  findIndicesFromCoordinateSoup(req) {
     let focusIndex = this.findIndexForOrderingKey(req.orderingKey);
     if (focusIndex >= this.idsWithDates.length && this.idsWithDates.length) {
       // Don't try and display something that doesn't exist.  Display at least
@@ -313,7 +306,7 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
     return rval;
   },
 
-  getDataForSliceRange: function(beginInclusive, endExclusive,
+  getDataForSliceRange(beginInclusive, endExclusive,
       alreadyKnownData, alreadyKnownOverlays) {
     beginInclusive = Math.max(0, beginInclusive);
     endExclusive = Math.min(endExclusive, this.idsWithDates.length);
@@ -378,7 +371,4 @@ FolderConversationsTOC.prototype = BaseTOC.mix({
       newValidDataSet: newKnownSet
     };
   }
-});
-
-return FolderConversationsTOC;
 });

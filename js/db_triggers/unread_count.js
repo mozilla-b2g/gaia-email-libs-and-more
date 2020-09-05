@@ -1,11 +1,8 @@
-define(function() {
-'use strict';
-
 /**
  * This trigger listens to changes on conversations in order to adjust the
  * local unread conversation count for all folders.
  */
-return {
+export default {
   name: 'unread_count',
 
   'conv!*!add': function(triggerCtx, convInfo) {
@@ -88,4 +85,3 @@ return {
     }
   }
 };
-});
