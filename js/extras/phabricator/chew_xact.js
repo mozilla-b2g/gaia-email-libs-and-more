@@ -22,14 +22,16 @@ import mailRep from '../../db/mail_rep';
  * `PatchChewer`.
  */
 export class TransactionChewer {
-  constructor({ convId, oldConvInfo, oldMessages }) {
+  constructor({ userChewer, convId, oldConvInfo, oldMessages }) {
+    this.userChewer = userChewer;
     this.convId = convId;
     this.oldConvInfo = oldConvInfo;
 
     this.oldMessages = oldMessages;
+    // This is a mapping from the message id we synthesize.
     const oldById = this.oldById = new Map();
     for (const old of oldMessages) {
-      oldById.set();
+      oldById.set(old.id, old);
     }
   }
 
@@ -40,6 +42,17 @@ export class TransactionChewer {
 
     const msgInfo = mailRep.makeMessageInfo({
       id: msgId,
+      umid: tx.phid,
+      guid: null,
+      // TODO: Figure out how to deal with `dateModified`...
+      date: secondsToMillisecs(tx.dateCreated),
+      author: this.userChewer.mapPhid(tx.authorPHID),
+      // TODO: Convert nick name-checks to "to"?
+      flags: [],
+      // XXX/TODO: Is there any point to putting messages in folders versus just
+      // leaving it at a conversation granularity?
+      folderIds: new Set(),
+      subject: '',
 
     });
   }
