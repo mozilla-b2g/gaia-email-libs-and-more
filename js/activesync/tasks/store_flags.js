@@ -1,39 +1,35 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let co = require('co');
+import FolderSyncStateHelper from '../folder_sync_state_helper';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import modifyFolderMessages from '../smotocol/modify_folder_messages';
 
-const FolderSyncStateHelper = require('../folder_sync_state_helper');
-
-const modifyFolderMessages = require('../smotocol/modify_folder_messages');
+import MixinStoreFlags from '../../task_mixins/mix_store_flags';
 
 /**
  * @see MixStoreFlagsMixin
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_store_flags'),
+export default TaskDefiner.defineComplexTask([
+  MixinStoreFlags,
   {
     name: 'store_flags',
 
-    execute: co.wrap(function*(ctx, persistentState, memoryState,
-                               marker) {
+    async execute(ctx, persistentState, memoryState, marker) {
       let { umidChanges } = persistentState;
 
       let changes = umidChanges.get(marker.umid);
 
-      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
 
       // -- Read the umidLocation
-      let fromDb = yield ctx.read({
+      let fromDb = await ctx.read({
         umidLocations: new Map([[marker.umid, null]])
       });
 
       let [folderId, messageServerId] = fromDb.umidLocations.get(marker.umid);
 
       // -- Exclusive access to the sync state needed for the folder syncKey
-      fromDb = yield ctx.beginMutate({
+      fromDb = await ctx.beginMutate({
         syncStates: new Map([[folderId, null]])
       });
       let rawSyncState = fromDb.syncStates.get(folderId);
@@ -42,7 +38,7 @@ return TaskDefiner.defineComplexTask([
 
       let folderInfo = account.getFolderById(folderId);
 
-      let conn = yield account.ensureConnection();
+      let conn = await account.ensureConnection();
 
       let readMap = new Map();
       let flagMap = new Map();
@@ -64,7 +60,7 @@ return TaskDefiner.defineComplexTask([
         }
       }
 
-      syncState.syncKey = (yield* modifyFolderMessages(
+      syncState.syncKey = (await modifyFolderMessages(
         conn,
         {
           folderServerId: folderInfo.serverId,
@@ -77,11 +73,10 @@ return TaskDefiner.defineComplexTask([
       umidChanges.delete(marker.umid);
 
       // - Return / finalize
-      yield ctx.finishTask({
+      await ctx.finishTask({
         syncStates: new Map([[folderId, syncState.rawSyncState]]),
         complexTaskState: persistentState
       });
-    })
+    }
   }
 ]);
-});

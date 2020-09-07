@@ -1,28 +1,23 @@
-define(function(require) {
-'use strict';
+import { shallowClone } from '../../util';
+import { prioritizeNewer } from '../../date_priority_adjuster';
 
-let co = require('co');
-let { shallowClone } = require('../../util');
-let { prioritizeNewer } = require('../../date_priority_adjuster');
+import TaskDefiner from '../../task_infra/task_definer';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import { resolveConversationTaskHelper } from '../../task_mixins/conv_resolver';
 
-let { resolveConversationTaskHelper } =
-  require('../../task_mixins/conv_resolver');
+import { conversationMessageComparator } from '../../db/comparators';
 
-let { conversationMessageComparator } = require('../../db/comparators');
-
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
 /**
  * Fetch the envelope and snippet for a POP3 message and create and thread the
  * message.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'sync_message',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
 
       // We don't have any a priori name-able exclusive resources.
@@ -37,18 +32,18 @@ return TaskDefiner.defineSimpleTask([
         plannedTask.relPriority = prioritizeNewer(rawTask.dateTS);
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         taskState: plannedTask
       });
-    }),
+    },
 
-    execute: co.wrap(function*(ctx, req) {
+    async execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
       // NB: We don't actually need this right now since the connection knows
       // the UIDL to message number mapping.  But if it gets optimized more, it
       // would want this persistent state.
       /*
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
       let rawSyncState = fromDb.syncStates.get(req.accountId);
@@ -57,21 +52,21 @@ return TaskDefiner.defineSimpleTask([
       */
 
       // -- Establish the connection
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let popAccount = account.popAccount;
-      let conn = yield popAccount.ensureConnection();
+      let conn = await popAccount.ensureConnection();
 
       // -- Make sure the UIDL mapping is active
-      yield conn.loadMessageList(); // we don't care about the return value.
+      await conn.loadMessageList(); // we don't care about the return value.
 
       let messageNumber = conn.uidlToId[req.uidl];
 
       let messageInfo =
-        yield conn.downloadPartialMessageByNumber(messageNumber);
+        await conn.downloadPartialMessageByNumber(messageNumber);
 
       // -- Resolve the conversation this goes in.
       let { convId, existingConv, messageId, headerIdWrites, extraTasks } =
-        yield* resolveConversationTaskHelper(
+        await resolveConversationTaskHelper(
           ctx, messageInfo, req.accountId, req.umid);
 
       // Perform fixups to make the messageInfo valid.
@@ -85,7 +80,7 @@ return TaskDefiner.defineSimpleTask([
       let allMessages;
       let newConversations, modifiedConversations;
       if (existingConv) {
-        let fromDb = yield ctx.beginMutate({
+        let fromDb = await ctx.beginMutate({
           conversations: new Map([[convId, null]]),
           messagesByConversation: new Map([[convId, null]])
         });
@@ -107,7 +102,7 @@ return TaskDefiner.defineSimpleTask([
         newConversations = [convInfo];
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: modifiedConversations,
           headerIdMaps: headerIdWrites,
@@ -119,7 +114,6 @@ return TaskDefiner.defineSimpleTask([
           tasks: extraTasks
         }
       });
-    }),
+    },
   }
 ]);
-});

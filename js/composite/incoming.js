@@ -14,7 +14,7 @@ import $acctmixins from '../accountmixins';
  * The rest of the parameters match those passed to Pop3Account and
  * ImapAccount.
  */
-export default function CompositeIncomingAccount(
+export function CompositeIncomingAccount(
       universe, compositeAccount, accountId, credentials,
       connInfo, foldersTOC, dbConn/*, existingProtoConn */) {
   // our logic scope is defined by our subclass

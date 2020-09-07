@@ -12,21 +12,18 @@
  * message with any text/html parts, we generate an HTML block for all parts.
  **/
 
-define(function(require, exports) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import $util from '../util';
+import * as $mailchewStrings from './mailchew_strings';
+import * as $quotechew from './quotechew';
+import * as $htmlchew from './htmlchew';
 
-const $util = require('../util');
-const $mailchewStrings = require('./mailchew_strings');
-const $quotechew = require('./quotechew');
-const $htmlchew = require('./htmlchew');
+import { DESIRED_SNIPPET_LENGTH } from '../syncbase';
 
-const { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+import { makeBodyPart } from '../db/mail_rep';
 
-const { makeBodyPart } = require('../db/mail_rep');
-
-const asyncFetchBlob = require('../async_blob_fetcher');
+import asyncFetchBlob from '../async_blob_fetcher';
 
 const scope = logic.scope('MailChew');
 
@@ -35,7 +32,7 @@ const scope = logic.scope('MailChew');
  * @param  {MailSenderIdentity} identity The current composer identity
  * @return {String} The text to be inserted into the body
  */
-exports.generateBaseComposeParts = function generateBaseComposeBody(identity) {
+export function generateBagenerateBaseComposePartsseComposeBody(identity) {
   let textMsg;
   if (identity.signatureEnabled &&
       identity.signature &&
@@ -46,7 +43,7 @@ exports.generateBaseComposeParts = function generateBaseComposeBody(identity) {
   }
 
   return makeBodyPartsFromTextAndHTML(textMsg, null);
-};
+}
 
 
 var RE_RE = /^[Rr][Ee]:/;
@@ -73,7 +70,7 @@ var RE_RE = /^[Rr][Ee]:/;
  * weird "Re(###):" or "Re[###]:" idiom; see
  * http://mxr.mozilla.org/comm-central/ident?i=NS_MsgStripRE for more details.
  */
-exports.generateReplySubject = function generateReplySubject(origSubject) {
+export function generateReplySubject(origSubject) {
   var re = 'Re: ';
   if (origSubject) {
     if (RE_RE.test(origSubject)) {
@@ -83,7 +80,7 @@ exports.generateReplySubject = function generateReplySubject(origSubject) {
     return re + origSubject;
   }
   return re;
-};
+}
 
 var RE_FWD = /^[Ff][Ww][Dd]:/;
 
@@ -92,7 +89,7 @@ var RE_FWD = /^[Ff][Ww][Dd]:/;
  * simply prepending "Fwd: " to the message if it does not already have an
  * "Fwd:" equivalent.
  */
-exports.generateForwardSubject = function generateForwardSubject(origSubject) {
+export function generateForwardSubject(origSubject) {
   var fwd = 'Fwd: ';
   if (origSubject) {
     if (RE_FWD.test(origSubject)) {
@@ -102,12 +99,12 @@ exports.generateForwardSubject = function generateForwardSubject(origSubject) {
     return fwd + origSubject;
   }
   return fwd;
-};
+}
 
 /**
  * Create an unquoted message-id header (no arrow braces!).
  */
-exports.generateMessageIdHeaderValue = function() {
+export function generateMessageIdHeaderValue() {
   // We previously used Date.now() for the first part of the string as part of
   // an intentional anti-collision technique, but at that time we were always
   // generating the id at send time, which meant that there was also no
@@ -120,7 +117,7 @@ exports.generateMessageIdHeaderValue = function() {
   // reliably update.  But why take any risks with privacy?)
   return Math.random().toString(16).substr(2) +
          Math.random().toString(16).substr(1) + '@mozgaia';
-};
+}
 
 var l10n_wroteString = '{name} wrote',
     l10n_originalMessageString = 'Original Message';
@@ -149,20 +146,20 @@ var l10n_forward_header_labels = {
   cc: 'CC'
 };
 
-exports.setLocalizedStrings = function(strings) {
+export function setLocalizedStrings(strings) {
   l10n_wroteString = strings.wrote;
   l10n_originalMessageString = strings.originalMessage;
 
   l10n_forward_header_labels = strings.forwardHeaderLabels;
-};
+}
 
 // Grab the localized strings, if not available, listen for the event that
 // sets them.
 if ($mailchewStrings.strings) {
-  exports.setLocalizedStrings($mailchewStrings.strings);
+  setLocalizedStrings($mailchewStrings.strings);
 }
 $mailchewStrings.events.on('strings', function(strings) {
-  exports.setLocalizedStrings(strings);
+  setLocalizedStrings(strings);
 });
 
 function makeBodyPartsFromTextAndHTML(textMsg, htmlMsg) {
@@ -209,8 +206,8 @@ function makeBodyPartsFromTextAndHTML(textMsg, htmlMsg) {
  * This does not include potentially required work such as propagating embedded
  * attachments or de-sanitizing links/embedded images/external images.
  */
-exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
-                                       refGuid) {
+export async function generateReplyParts(reps, authorPair, msgDate, identity,
+                                        refGuid) {
   var useName = authorPair.name ? authorPair.name.trim() : authorPair.address;
 
   // TODO: clean up the l10n manipulation here; this manipulation is okay
@@ -226,7 +223,7 @@ exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
 
     let rep;
     if (repType === 'plain') {
-      rep = yield asyncFetchBlob(repBlob, 'json');
+      rep = await asyncFetchBlob(repBlob, 'json');
       var replyText = $quotechew.generateReplyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
@@ -238,7 +235,7 @@ exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
       }
     }
     else if (repType === 'html') {
-      rep = yield asyncFetchBlob(repBlob, 'text');
+      rep = await asyncFetchBlob(repBlob, 'text');
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -274,7 +271,7 @@ exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
   }
 
   return makeBodyPartsFromTextAndHTML(textMsg, htmlMsg);
-};
+}
 
 /**
  * Generate the body parts of an inline forward message.
@@ -282,7 +279,7 @@ exports.generateReplyParts = function*(reps, authorPair, msgDate, identity,
  * XXX the l10n string building here screws up when RTL enters the picture.
  * See https://bugzilla.mozilla.org/show_bug.cgi?id=1177350
  */
-exports.generateForwardParts = function*(sourceMessage, identity) {
+export async function generateForwardParts(sourceMessage, identity) {
   var textMsg = '\n\n', htmlMsg = null;
 
   if (identity.signature && identity.signatureEnabled) {
@@ -342,7 +339,7 @@ exports.generateForwardParts = function*(sourceMessage, identity) {
 
     let rep;
     if (repType === 'plain') {
-      rep = yield asyncFetchBlob(repBlob, 'json');
+      rep = await asyncFetchBlob(repBlob, 'json');
       let forwardText = $quotechew.generateForwardBodyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
@@ -353,7 +350,7 @@ exports.generateForwardParts = function*(sourceMessage, identity) {
         textMsg += forwardText;
       }
     } else if (repType === 'html') {
-      rep = yield asyncFetchBlob(repBlob, 'text');
+      rep = await asyncFetchBlob(repBlob, 'text');
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -366,7 +363,7 @@ exports.generateForwardParts = function*(sourceMessage, identity) {
   }
 
   return makeBodyPartsFromTextAndHTML(textMsg, htmlMsg);
-};
+}
 
 var HTML_WRAP_TOP =
   '<html><body><body bgcolor="#FFFFFF" text="#000000">';
@@ -377,12 +374,12 @@ var HTML_WRAP_BOTTOM =
  * Combine the user's plaintext composition with the read-only HTML we provided
  * them into a final HTML representation.
  */
-exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
+export function mergeUserTextWithHTML(text, html) {
   return HTML_WRAP_TOP +
          $htmlchew.wrapTextIntoSafeHTMLString(text, 'div') +
          html +
          HTML_WRAP_BOTTOM;
-};
+}
 
 /**
  * Generate the snippet and parsed body from the message body's content.  This
@@ -407,7 +404,7 @@ exports.mergeUserTextWithHTML = function mergeReplyTextWithHTML(text, html) {
  *   here.
  * @return {{ contentBlob, snippet }}
  */
-exports.processMessageContent = function processMessageContent(
+export function processMessageContent(
     content, type, isDownloaded, generateSnippet) {
   // Strip any trailing newline.
   if (content.slice(-1) === '\n') {
@@ -477,5 +474,4 @@ exports.processMessageContent = function processMessageContent(
   }
 
   return { contentBlob, snippet, authoredBodySize };
-};
-}); // end define
+}

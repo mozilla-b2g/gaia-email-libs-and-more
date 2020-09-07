@@ -1,23 +1,18 @@
-define(function(require) {
-'use strict';
+import { effectiveAuthorGivenReplyTo, addressPairFromIdentity,
+        replyToFromIdentity } from './address_helpers';
 
-const { effectiveAuthorGivenReplyTo, addressPairFromIdentity,
-        replyToFromIdentity } = require('./address_helpers');
+import { generateReplySubject, generateReplyParts } from '../bodies/mailchew';
 
-const { generateReplySubject, generateReplyParts } =
-  require('../bodies/mailchew');
+import replyAllRecipients from './reply_all_recipients';
+import replyToSenderRecipients from './reply_to_sender_recipients';
 
-const replyAllRecipients = require('./reply_all_recipients');
-const replyToSenderRecipients = require('./reply_to_sender_recipients');
-
-const { makeMessageInfo, makeDraftInfo } = require('../db/mail_rep');
+import { makeMessageInfo, makeDraftInfo } from '../db/mail_rep';
 
 /**
  * Given a populated MessageInfo, derive a new MessageInfo that is a reply to
- * that message.  This is an inherently asynchronous process; you need to yield*
- * to this generator.
+ * that message.  This is an inherently asynchronous process.
  */
-return function* deriveQuotedReply({ sourceMessage, replyMode, identity,
+export default async function deriveQuotedReply({ sourceMessage, replyMode, identity,
                                      messageId, umid, guid, date, folderIds }) {
   // -- Figure out the recipients
   let sourceRecipients = {
@@ -57,7 +52,7 @@ return function* deriveQuotedReply({ sourceMessage, replyMode, identity,
   let subject = generateReplySubject(sourceMessage.subject);
 
   // -- Build the body
-  let bodyReps = yield* generateReplyParts(
+  let bodyReps = await generateReplyParts(
     sourceMessage.bodyReps,
     // Used for the "{author} wrote" bit, which favors display name, so
     // allowing the non-SPF-verified reply-to versus the maybe-SPF-verified
@@ -98,5 +93,4 @@ return function* deriveQuotedReply({ sourceMessage, replyMode, identity,
     bodyReps,
     draftInfo
   });
-};
-});
+}

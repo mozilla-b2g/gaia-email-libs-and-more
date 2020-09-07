@@ -1,24 +1,20 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const co = require('co');
+import FolderSyncStateHelper from '../folder_sync_state_helper';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
-const FolderSyncStateHelper = require('../folder_sync_state_helper');
+import { processMessageContent } from '../../bodies/mailchew';
 
-const churnConversation = require('../../churn_drivers/conv_churn_driver');
+import downloadBody from '../smotocol/download_body';
+import downloadBody25 from '../smotocol/download_body_25';
 
-const { processMessageContent } = require('../../bodies/mailchew');
-
-const downloadBody = require('../smotocol/download_body');
-const downloadBody25 = require('../smotocol/download_body_25');
-
-const { Enums: asbEnum } = require('activesync/codepages/AirSyncBase');
+import { Enums as asbEnum } from 'activesync/codepages/AirSyncBase';
 
 
-const { MAX_SNIPPET_BYTES } = require('../../syncbase');
+import { MAX_SNIPPET_BYTES } from '../../syncbase';
 
+import MixinSyncBody from '../../task_mixins/mix_sync_body';
 
 /**
  * The desired number of bytes to fetch when downloading bodies, but the body's
@@ -39,21 +35,21 @@ const DESIRED_TEXT_SNIPPET_BYTES = 512;
  *   the FolderSyncState too.  It's not so bad that we need to mark 2.5 with
  *   a different engine, but it's certainly frustrating.
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_sync_body'),
+export default TaskDefiner.defineComplexTask([
+  MixinSyncBody,
   {
-    execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
+    async execute(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
 
       // -- Acquire the account and establish a connection
       // We need the protcol version to know whether our mutation request needs
       // the folder sync state or not.
-      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
-      let conn = yield account.ensureConnection();
+      let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
+      let conn = await account.ensureConnection();
       let use25 = conn.currentVersion.lt('12.0');
 
       // -- Retrieve the conversation and its messages for mutation
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
         messagesByConversation: new Map([[req.convId, null]])
       });
@@ -69,7 +65,7 @@ return TaskDefiner.defineComplexTask([
       }
 
       // We need to look up all the umidLocations.
-      yield ctx.read({
+      await ctx.read({
         umidLocations
       });
 
@@ -81,7 +77,7 @@ return TaskDefiner.defineComplexTask([
       for (let [folderId] of umidLocations.values()) {
         rawSyncStateReads.set(folderId, null);
       }
-      yield ctx.mutateMore({
+      await ctx.mutateMore({
         syncStates: rawSyncStateReads
       });
 
@@ -138,7 +134,7 @@ return TaskDefiner.defineComplexTask([
           // the destructuring assignment expression into existing variables
           // really annoys jshint (known bug), so I'm doing things manually for
           // now.
-          let result = yield* downloadBody25(
+          let result = await downloadBody25(
             conn,
             {
               folderSyncKey: syncState.syncKey,
@@ -149,7 +145,7 @@ return TaskDefiner.defineComplexTask([
           bodyContent = result.bodyContent;
           syncState.syncKey = result.syncKey;
         } else {
-          bodyContent = (yield* downloadBody(
+          bodyContent = (await downloadBody(
             conn,
             {
               folderServerId,
@@ -188,7 +184,7 @@ return TaskDefiner.defineComplexTask([
       // steal its implementation if the todo is gone.
       memoryState.delete(req.convId);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, convInfo]]),
           messages: modifiedMessagesMap,
@@ -198,7 +194,6 @@ return TaskDefiner.defineComplexTask([
           syncStates: rawSyncStateReads
         },
       });
-    })
+    }
   }
 ]);
-});

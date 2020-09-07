@@ -5,9 +5,9 @@
 
 import logic from 'logic';
 import $acctmixins from '../accountmixins';
-import $imapacct from '../imap/account';
-import $pop3acct from '../pop3/account';
-import $smtpacct from '../smtp/account';
+import * as $imapacct from '../imap/account';
+import * as $pop3acct from '../pop3/account';
+import * as $smtpacct from '../smtp/account';
 import allback from '../allback';
 
 var PIECE_ACCOUNT_TYPE_TO_CLASS = {

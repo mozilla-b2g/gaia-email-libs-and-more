@@ -3,22 +3,17 @@
  * async as needed.
  **/
 
-define(
-  [
-    'exports',
-    'evt'
-  ],
-  function(
-    exports,
-    evt
-  ) {
-'use strict';
+import evt from 'evt';
 
-exports.events = new evt.Emitter();
+export const events = new evt.Emitter();
 
-exports.set = function set(strings) {
-  exports.strings = strings;
-  exports.events.emit('strings', strings);
-};
+// This will get mutated below.  ES Module bindings are live, so this should
+// technically work, but maybe our consumer just listens for the event and its
+// payload anyways?
+export let strings = null;
 
-});
+export function set(_strings) {
+  strings = _strings;
+  events.emit('strings', strings);
+}
+

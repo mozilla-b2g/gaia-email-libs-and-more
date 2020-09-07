@@ -1,12 +1,9 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import $AirSync from 'activesync/codepages/AirSync';
 
-const $AirSync = require('activesync/codepages/AirSync');
-
-const getFolderSyncKey = require('./get_folder_sync_key');
-const getItemEstimate = require('./get_item_estimate');
+import getFolderSyncKey from './get_folder_sync_key';
+import getItemEstimate from './get_item_estimate';
 
 /**
  * Compound protocol logic to guesstimate the best filter choice that will
@@ -26,18 +23,18 @@ const getItemEstimate = require('./get_item_estimate');
  *
  * @return {{ syncKey, filterType }}
  */
-function* inferFilterType(
+export default async function inferFilterType(
   conn,
   { folderServerId, desiredMessageCount }) {
   const Type = $AirSync.Enums.FilterType;
 
   // -- Get a 2-week syncKey
   let filterType = Type.TwoWeeksBack;
-  let { syncKey } = yield* getFolderSyncKey(
+  let { syncKey } = await getFolderSyncKey(
     conn, { folderServerId, filterType });
 
   // -- Get the item estimate for that 2-week syncKey
-  let { estimate } = yield* getItemEstimate(
+  let { estimate } = await getItemEstimate(
     conn, { folderSyncKey: syncKey, folderServerId, filterType });
 
   // -- Math!
@@ -62,9 +59,9 @@ function* inferFilterType(
     // if the messages are not homogeneously distributed, like if this is an
     // archive folder that only contains messages older than a month.
     filterType = Type.NoFilter;
-    syncKey = (yield* getFolderSyncKey(
+    syncKey = (await getFolderSyncKey(
       conn, { folderServerId, filterType })).syncKey;
-    estimate = (yield* getItemEstimate(
+    estimate = (await getItemEstimate(
       conn, { folderSyncKey: syncKey, folderServerId, filterType })).estimate;
 
     if (estimate > desiredMessageCount) {
@@ -77,13 +74,10 @@ function* inferFilterType(
 
   if (filterType !== desiredFilterType) {
     filterType = desiredFilterType;
-    syncKey = (yield* getFolderSyncKey(
+    syncKey = (await getFolderSyncKey(
       conn, { folderServerId, filterType })).syncKey;
   }
 
   logic(conn, 'inferFilterType', { filterType });
   return { filterType, syncKey };
 }
-
-return inferFilterType;
-});

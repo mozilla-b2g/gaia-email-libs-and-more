@@ -1,36 +1,32 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
+import logic from 'logic';
 
-const co = require('co');
-const evt = require('evt');
-const logic = require('logic');
+import { shallowClone } from '../../util';
+import { NOW } from '../../date';
 
-const { shallowClone } = require('../../util');
-const { NOW } = require('../../date');
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import FolderSyncStateHelper from '../folder_sync_state_helper';
 
-const FolderSyncStateHelper = require('../folder_sync_state_helper');
+import getFolderSyncKey from '../smotocol/get_folder_sync_key';
+import inferFilterType from '../smotocol/infer_filter_type';
+import enumerateFolderChanges from '../smotocol/enum_folder_changes';
 
-const getFolderSyncKey = require('../smotocol/get_folder_sync_key');
-const inferFilterType = require('../smotocol/infer_filter_type');
-const enumerateFolderChanges = require('../smotocol/enum_folder_changes');
+import { convIdFromMessageId, messageIdComponentFromUmid } from
+  '../../id_conversions';
 
-const { convIdFromMessageId, messageIdComponentFromUmid } =
-  require('../../id_conversions');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
-const churnConversation = require('../../churn_drivers/conv_churn_driver');
+import { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } from '../../syncbase';
 
-const { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } = require('../../syncbase');
-
-const { syncNormalOverlay } =
-  require('../../task_helpers/sync_overlay_helpers');
+import { syncNormalOverlay } from
+  '../../task_helpers/sync_overlay_helpers';
 
 /**
  * Sync a folder for the first time and steady-state.  (Compare with our IMAP
  * implementations that have special "sync_grow" tasks.)
  */
-return TaskDefiner.defineAtMostOnceTask([
+export default TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
     binByArg: 'folderId',
@@ -58,10 +54,10 @@ return TaskDefiner.defineAtMostOnceTask([
      * line right now between whether reuse would be better; keep it in mind as
      * things change.
      */
-    helped_plan: co.wrap(function*(ctx, rawTask) {
+    async helped_plan(ctx, rawTask) {
       // Get the folder
       let foldersTOC =
-        yield ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
+        await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
       let folderInfo = foldersTOC.foldersById.get(rawTask.folderId);
 
       // - Only plan if the folder is real AKA it has a serverId.
@@ -94,11 +90,11 @@ return TaskDefiner.defineAtMostOnceTask([
         remainInProgressUntil: groupPromise,
         result: groupPromise
       };
-    }),
+    },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.folderId, null]])
       });
 
@@ -106,8 +102,8 @@ return TaskDefiner.defineAtMostOnceTask([
       let syncState = new FolderSyncStateHelper(
         ctx, rawSyncState, req.accountId, req.folderId, 'refresh');
 
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
-      let conn = yield account.ensureConnection();
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
+      let conn = await account.ensureConnection();
 
       let folderInfo = account.getFolderById(req.folderId);
 
@@ -155,7 +151,7 @@ return TaskDefiner.defineAtMostOnceTask([
         if (!syncState.filterType) {
           logic(ctx, 'inferringFilterType');
           // NB: manual destructing to shut up jslint.
-          let results = yield* inferFilterType(
+          let results = await inferFilterType(
               conn,
               {
                 folderServerId: folderInfo.serverId,
@@ -167,7 +163,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
         // - Get a sync key if needed
         if (!syncState.syncKey || syncState.syncKey === '0') {
-          syncState.syncKey = (yield* getFolderSyncKey(
+          syncState.syncKey = (await getFolderSyncKey(
             conn,
             {
               folderServerId: folderInfo.serverId,
@@ -178,7 +174,7 @@ return TaskDefiner.defineAtMostOnceTask([
         // - Try and sync
         syncDate = NOW();
         let { invalidSyncKey, syncKey, moreToSync } =
-          yield* enumerateFolderChanges(
+          await enumerateFolderChanges(
             conn,
             {
               folderSyncKey: syncState.syncKey,
@@ -201,7 +197,7 @@ return TaskDefiner.defineAtMostOnceTask([
 
       // -- Issue name reads if needed.
       if (syncState.umidNameReads.size) {
-        yield ctx.read({
+        await ctx.read({
           umidNames: syncState.umidNameReads // mutated as a side-effect.
         });
         syncState.generateSyncConvTasks();
@@ -230,7 +226,6 @@ return TaskDefiner.defineAtMostOnceTask([
             ]])
         }
       };
-    })
+    }
   }
 ]);
-});

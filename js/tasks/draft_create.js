@@ -1,21 +1,17 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
 
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
+import { accountIdFromFolderId, accountIdFromMessageId, convIdFromMessageId }
+  from '../id_conversions';
 
-const { accountIdFromFolderId, accountIdFromMessageId, convIdFromMessageId } =
-  require('../id_conversions');
+import { NOW } from '../date';
 
-const { NOW } = require('../date');
+import { generateMessageIdHeaderValue } from '../bodies/mailchew';
 
-const { generateMessageIdHeaderValue } = require('../bodies/mailchew');
+import deriveBlankDraft from '../drafts/derive_blank_draft';
+import deriveInlineForward from '../drafts/derive_inline_forward';
+import deriveQuotedReply from '../drafts/derive_quoted_reply';
 
-const deriveBlankDraft = require('../drafts/derive_blank_draft');
-const deriveInlineForward = require('../drafts/derive_inline_forward');
-const deriveQuotedReply = require('../drafts/derive_quoted_reply');
-
-const churnConversation = require('../churn_drivers/conv_churn_driver');
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
 /**
  * Global task to create a new message (either a blank one, a reply, or a
@@ -27,11 +23,11 @@ const churnConversation = require('../churn_drivers/conv_churn_driver');
  * (And we really don't want the front-end trying to figure the right answer out
  * on its own.)
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'draft_create',
 
-    plan: co.wrap(function*(ctx, req) {
+    async plan(ctx, req) {
       // -- Determine Account
       // This one is easy, it's the account the message belongs to or the folder
       // belongs to.
@@ -44,7 +40,7 @@ return TaskDefiner.defineSimpleTask([
         accountId = accountIdFromFolderId(req.folderId);
       }
 
-      let account = yield ctx.universe.acquireAccount(ctx, accountId);
+      let account = await ctx.universe.acquireAccount(ctx, accountId);
       let draftFolderInfo = account.getFirstFolderWithType('localdrafts');
 
       // -- Determine identity
@@ -99,7 +95,7 @@ return TaskDefiner.defineSimpleTask([
       // - Reply
       else if (req.draftType === 'reply') {
         // Load the conversation and its messages, acquiring a lock.
-        let fromDb = yield ctx.beginMutate({
+        let fromDb = await ctx.beginMutate({
           conversations: new Map([[convId, null]]),
           messagesByConversation: new Map([[convId, null]])
         });
@@ -110,7 +106,7 @@ return TaskDefiner.defineSimpleTask([
         let sourceMessage =
           loadedMessages.find(msg => msg.id === req.refMessageId);
 
-        messageInfo = yield* deriveQuotedReply({
+        messageInfo = await deriveQuotedReply({
           sourceMessage,
           replyMode: req.mode,
           identity,
@@ -128,12 +124,12 @@ return TaskDefiner.defineSimpleTask([
         // Load the source message (which does *not* form part of our new
         // conversation.)
         let sourceMessageKey = [req.refMessageId, req.refMessageDate];
-        let fromDb = yield ctx.beginMutate({
+        let fromDb = await ctx.beginMutate({
           messages: new Map([[sourceMessageKey, null]])
         });
         let sourceMessage = fromDb.messages.get(req.refMessageId);
 
-        messageInfo = yield* deriveInlineForward({
+        messageInfo = await deriveInlineForward({
           sourceMessage,
           identity,
           messageId,
@@ -149,7 +145,7 @@ return TaskDefiner.defineSimpleTask([
       let convInfo = churnConversation(convId, oldConvInfo, allMessages);
 
       if (oldConvInfo) {
-        yield ctx.finishTask({
+        await ctx.finishTask({
           mutations: {
             conversations: new Map([[convId, convInfo]]),
           },
@@ -158,7 +154,7 @@ return TaskDefiner.defineSimpleTask([
           }
         });
       } else {
-        yield ctx.finishTask({
+        await ctx.finishTask({
           newData: {
             conversations: [convInfo],
             messages: [messageInfo]
@@ -171,9 +167,8 @@ return TaskDefiner.defineSimpleTask([
       // is the only sane way to convey this information.  (Even though in
       // general we don't want tasks to directly return information.)
       return ctx.returnValue({ messageId, messageDate: date });
-    }),
+    },
 
     execute: null
   }
 ]);
-});

@@ -1,20 +1,19 @@
-define(function(require) {
-'use strict';
+import evt from 'evt';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const evt = require('evt');
-const TaskDefiner = require('../../task_infra/task_definer');
+import normalizeFolder from '../normalize_folder';
+import AccountSyncStateHelper from '../account_sync_state_helper';
 
-const normalizeFolder = require('../normalize_folder');
-const AccountSyncStateHelper = require('../account_sync_state_helper');
+import enumerateHierarchyChanges from '../smotocol/enum_hierarchy_changes';
 
-const enumerateHierarchyChanges = require('../smotocol/enum_hierarchy_changes');
+import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
 
 /**
  * Sync the folder list for an ActiveSync account.  We leverage IMAP's mix-in
  * for the infrastructure (that wants to move someplace less IMAPpy.)
  */
-return TaskDefiner.defineSimpleTask([
-  require('../../task_mixins/mix_sync_folder_list'),
+export default TaskDefiner.defineSimpleTask([
+  MixinSyncFolderList,
   {
     essentialOfflineFolders: [
       // Although the inbox is an online folder, we aren't daring enough to
@@ -35,13 +34,13 @@ return TaskDefiner.defineSimpleTask([
       },
     ],
 
-    syncFolders: function*(ctx, account) {
+    async syncFolders(ctx, account) {
       let foldersTOC = account.foldersTOC;
-      let conn = yield account.ensureConnection();
+      let conn = await account.ensureConnection();
       let newFolders = [];
       let modifiedFolders = new Map();
 
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[account.id, null]])
       });
 
@@ -91,7 +90,7 @@ return TaskDefiner.defineSimpleTask([
         modifiedFolders.set(folderId, null);
       });
 
-      syncState.hierarchySyncKey = (yield* enumerateHierarchyChanges(
+      syncState.hierarchySyncKey = (await enumerateHierarchyChanges(
         conn,
         { hierarchySyncKey: syncState.hierarchySyncKey, emitter }
       )).hierarchySyncKey;
@@ -118,4 +117,3 @@ return TaskDefiner.defineSimpleTask([
     }
   }
 ]);
-});

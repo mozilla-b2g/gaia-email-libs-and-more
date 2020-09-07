@@ -1,3 +1,5 @@
+/* eslint-disable no-use-before-define */
+/* eslint-disable no-unused-vars */
 /**
  * Process text/plain message bodies for quoting / signatures.
  *
@@ -33,14 +35,6 @@
  * things no one cares about.
  **/
 
-define(
-  [
-    'exports'
-  ],
-  function(
-    exports
-  ) {
-'use strict';
 
 ////////////////////////////////////////////////////////////////////////////////
 // Content Type Encoding
@@ -194,8 +188,9 @@ var RE_LEGAL_BOILER_START = /^(?:This message|Este mensaje)/;
  */
 function indexOfDefault(string, search, startIndex, defVal) {
   var idx = string.indexOf(search, startIndex);
-  if (idx === -1)
+  if (idx === -1) {
     return defVal;
+  }
   return idx;
 }
 
@@ -210,11 +205,11 @@ function countNewlinesInRegion(string, startIndex, endIndex) {
   var idx = startIndex - 1, count = 0;
   for (;;) {
     idx = string.indexOf(NEWLINE, idx + 1);
-    if (idx === -1 || idx >= endIndex)
+    if (idx === -1 || idx >= endIndex) {
       return count;
+    }
     count++;
   }
-  return null;
 }
 
 /**
@@ -233,7 +228,7 @@ function countNewlinesInRegion(string, startIndex, endIndex) {
  *   block or the end of the message.  We keep incrementally looking backwards
  *   until we reach something that we don't think is boilerplate.
  */
-exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
+export function quoteProcessTextBody(fullBodyText) {
   // Our serialized representation of the body, incrementally built.  Consists
   // of pairwise integer codes and content string blocks.
   var contentRep = [];
@@ -260,8 +255,9 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         spaceOk = true;
       }
       else if (c === CHARCODE_SPACE) {
-        if (!spaceOk)
+        if (!spaceOk) {
           break;
+        }
         lastStartOffset++;
         spaceOk = false;
       }
@@ -269,8 +265,9 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         break;
       }
     }
-    if (lastStartOffset)
+    if (lastStartOffset) {
       line = line.substring(lastStartOffset);
+    }
     return count;
   }
 
@@ -293,7 +290,7 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
    * - Legal boilerplate must be delimited by an ASCII line.
    */
   function lookBackwardsForBoilerplate(chunk) {
-    var idxLineStart, idxLineEnd, line,
+    var idxLineStart, idxLineEnd, chunkLine,
         idxRegionEnd = chunk.length,
         scanLinesLeft = MAX_BOILERPLATE_LINES,
         sawNonWhitespaceLine = false,
@@ -343,17 +340,17 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
          idxLineEnd = idxLineStart - 1,
            idxLineStart = chunk.lastIndexOf('\n', idxLineEnd - 1) + 1,
            scanLinesLeft--) {
-
       // (do not include the newline character)
-      line = chunk.substring(idxLineStart, idxLineEnd);
+      chunkLine = chunk.substring(idxLineStart, idxLineEnd);
 
       // - Skip whitespace lines.
-      if (!line.length ||
-          (line.length === 1 && line.charCodeAt(0) === CHARCODE_NBSP))
+      if (!chunkLine.length ||
+          (chunkLine.length === 1 && chunkLine.charCodeAt(0) === CHARCODE_NBSP)) {
         continue;
+      }
 
       // - Explicit signature demarcation
-      if (RE_SIGNATURE_LINE.test(line)) {
+      if (RE_SIGNATURE_LINE.test(chunkLine)) {
         // Check if this is just tagging something we decided was boilerplate in
         // a proper signature wrapper.  If so, then execute a boilerplate merge.
         if (idxLineEnd + 1 === lastBoilerplateStart) {
@@ -366,7 +363,7 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       }
 
       // - Section delimiter; try and classify what lives in this section
-      if (RE_SECTION_DELIM.test(line)) {
+      if (RE_SECTION_DELIM.test(chunkLine)) {
         if (lastContentLine) {
           // - Look for a legal disclaimer sequentially following the line.
           if (RE_LEGAL_BOILER_START.test(lastContentLine)) {
@@ -386,14 +383,14 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       // - A line with content!
       if (!sawNonWhitespaceLine) {
         // - Product boilerplate (must be first/only non-whitespace line)
-        if (!sawProduct && RE_PRODUCT_BOILER.test(line)) {
+        if (!sawProduct && RE_PRODUCT_BOILER.test(chunkLine)) {
           pushBoilerplate(CT_BOILERPLATE_PRODUCT);
           sawProduct = true;
           continue;
         }
         sawNonWhitespaceLine = true;
       }
-      lastContentLine = line;
+      lastContentLine = chunkLine;
     }
 
     return chunk;
@@ -414,15 +411,17 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
       if (atePreLines) {
         // decrement atePreLines if we are not the first chunk because then we get
         // an implicit/free newline.
-        if (contentRep.length)
+        if (contentRep.length) {
           atePreLines--;
+        }
         contentRep.push((atePreLines&0xff) << 8 | CT_AUTHORED_CONTENT);
         contentRep.push('');
       }
     }
     else {
-      if (upToPoint === undefined)
+      if (upToPoint === undefined) {
         upToPoint = idxLineStart;
+      }
 
       var chunk = fullBodyText.substring(idxRegionStart,
                                          idxLastNonWhitespaceLineEnd);
@@ -503,10 +502,11 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
                     CT_QUOTED_REPLY);
     contentRep.push(quoteRunLines.join('\n'));
     inQuoteDepth = newQuoteDepth;
-    if (inQuoteDepth)
+    if (inQuoteDepth) {
       quoteRunLines = [];
-    else
+    } else {
       quoteRunLines = null;
+    }
 
     ateQuoteLines = 0;
     generatedQuoteBlock = true;
@@ -555,7 +555,6 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
        idxLineStart = idxLineEnd + 1,
          idxLineEnd = indexOfDefault(fullBodyText, '\n', idxLineStart,
                                      fullBodyText.length)) {
-
     line = fullBodyText.substring(idxLineStart, idxLineEnd);
 
     // - Do not process purely whitespace lines.
@@ -566,10 +565,12 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
     if (!line.length ||
         (line.length === 1
          && line.charCodeAt(0) === CHARCODE_NBSP)) {
-      if (inQuoteDepth)
+      if (inQuoteDepth) {
         pushQuote(0);
-      if (idxRegionStart === null)
+      }
+      if (idxRegionStart === null) {
         atePreLines++;
+      }
       continue;
     }
 
@@ -580,7 +581,6 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         // - Check for a "Blah wrote:" content line
         if (lastNonWhitespaceLine &&
             RE_WROTE_LINE.test(lastNonWhitespaceLine)) {
-
           // But surprise!  This could be a non-format-flowed message where the
           // true lead-in line started on the previous line and the "wrote" bit
           // that triggered us spills over.
@@ -628,15 +628,17 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
           idxLastNonWhitespaceLineEnd = idxPrevLastNonWhitespaceLineEnd;
           // Nuke the content region if the lead-in was the start of the region;
           // this can be inferred by there being no prior content line.
-          if (idxLastNonWhitespaceLineEnd === null)
+          if (idxLastNonWhitespaceLineEnd === null) {
             idxRegionStart = null;
+          }
 
           var leadin = lastNonWhitespaceLine;
           pushContent(!generatedQuoteBlock, upToPoint);
           var leadinNewlines = 0;
-          if (upToPoint + 1 !== idxLineStart)
+          if (upToPoint + 1 !== idxLineStart) {
             leadinNewlines = countNewlinesInRegion(fullBodyText,
                                                    upToPoint + 1, idxLineStart);
+          }
           contentRep.push((leadinNewlines << 8) | CT_LEADIN_TO_QUOTE);
           contentRep.push(leadin);
         }
@@ -662,8 +664,9 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
         pushQuote(0);
         idxLastNonWhitespaceLineEnd = null;
       }
-      if (idxRegionStart === null)
+      if (idxRegionStart === null) {
         idxRegionStart = idxLineStart;
+      }
 
       lastNonWhitespaceLine = line;
       idxPrevLastNonWhitespaceLineEnd = idxLastNonWhitespaceLineEnd;
@@ -682,7 +685,7 @@ exports.quoteProcessTextBody = function quoteProcessTextBody(fullBodyText) {
   }
 
   return contentRep;
-};
+}
 
 /**
  * The maximum number of characters to shrink the snippet to try and find a
@@ -699,29 +702,34 @@ var RE_NORMALIZE_WHITESPACE = /\s+/g;
  * all whitespace to a single space character for each instance, then truncate
  * with a minor attempt to align on word boundaries.
  */
-exports.generateSnippet = function generateSnippet(rep, desiredLength) {
+export function generateSnippet(rep, desiredLength) {
   for (var i = 0; i < rep.length; i += 2) {
     var etype = rep[i]&0xf, block = rep[i + 1];
     switch (etype) {
       case CT_AUTHORED_CONTENT:
-        if (!block.length)
+        if (!block.length) {
           break;
+        }
         // - truncate
         // (no need to truncate if short)
-        if (block.length < desiredLength)
+        if (block.length < desiredLength) {
           return block.trim().replace(RE_NORMALIZE_WHITESPACE, ' ');
+        }
         // try and truncate on a whitespace boundary
         var idxPrevSpace = block.lastIndexOf(' ', desiredLength);
-        if (desiredLength - idxPrevSpace < MAX_WORD_SHRINK)
+        if (desiredLength - idxPrevSpace < MAX_WORD_SHRINK) {
           return block.substring(0, idxPrevSpace).trim()
                       .replace(RE_NORMALIZE_WHITESPACE, ' ');
+        }
         return block.substring(0, desiredLength).trim()
                     .replace(RE_NORMALIZE_WHITESPACE, ' ');
+      default:
+        break;
     }
   }
 
   return '';
-};
+}
 
 /**
  * What is the deepest quoting level that we should repeat?  Our goal is not to be
@@ -756,8 +764,9 @@ var replyQuoteBlankLine = [
 var replyPrefix = '> ', replyNewlineReplace = '\n> ';
 
 function expandQuotedPrefix(s, depth) {
-  if (s.charCodeAt(0) === CHARCODE_NEWLINE)
+  if (s.charCodeAt(0) === CHARCODE_NEWLINE) {
     return replyQuotePrefixStringsNoSpace[depth];
+  }
   return replyQuotePrefixStrings[depth];
 }
 
@@ -770,10 +779,11 @@ function expandQuoted(s, depth) {
   var ws = replyQuoteNewlineReplaceStrings[depth],
       nows = replyQuoteNewlineReplaceStringsNoSpace[depth];
   return s.replace(RE_NEWLINE, function(m, idx) {
-    if (s.charCodeAt(idx+1) === CHARCODE_NEWLINE)
+    if (s.charCodeAt(idx+1) === CHARCODE_NEWLINE) {
       return nows;
-    else
+    } else {
       return ws;
+    }
   });
 }
 
@@ -788,7 +798,7 @@ function expandQuoted(s, depth) {
  *    counts of newlines we ate to try and reconstruct whitespace and the
  *    message verbatim.)
  */
-exports.generateReplyText = function generateReplyText(rep) {
+export function generateReplyText(rep) {
   var strBits = [];
   // For the insertion of delimiting whitespace newlines between blocks, we want
   // to continue the quoting
@@ -862,7 +872,7 @@ exports.generateReplyText = function generateReplyText(rep) {
   }
 
   return strBits.join('');
-};
+}
 
 /**
  * Regenerate the text of a message for forwarding.  'Original Message' is not
@@ -872,7 +882,7 @@ exports.generateReplyText = function generateReplyText(rep) {
  * We attempt to generate a message as close to the original message as
  * possible, but it doesn't have to be 100%.
  */
-exports.generateForwardBodyText = function generateForwardBodyText(rep) {
+export function generateForwardBodyText(rep) {
   var strBits = [], nl;
 
   for (var i = 0; i < rep.length; i += 2) {
@@ -935,9 +945,9 @@ exports.generateForwardBodyText = function generateForwardBodyText(rep) {
   }
 
   return strBits.join('');
-};
+}
 
-exports.estimateAuthoredBodySize = function(bodyRep) {
+export function estimateAuthoredBodySize(bodyRep) {
   let authoredBodySize = 0;
   for (var iRep = 0; iRep < bodyRep.length; iRep += 2) {
     var etype = bodyRep[iRep]&0xf, block = bodyRep[iRep + 1];
@@ -952,5 +962,4 @@ exports.estimateAuthoredBodySize = function(bodyRep) {
   }
 
   return authoredBodySize;
-};
-}); // end define
+}

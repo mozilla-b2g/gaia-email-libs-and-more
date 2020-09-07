@@ -1,5 +1,5 @@
 import logic from 'logic';
-import $mailchewStrings from './bodies/mailchew_strings';
+import * as $mailchewStrings from './bodies/mailchew_strings';
 
 import BridgeContext from './bridge/bridge_context';
 import BatchManager from './bridge/batch_manager';

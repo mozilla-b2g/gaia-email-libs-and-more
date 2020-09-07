@@ -1,3 +1,4 @@
+/* eslint-disable no-fallthrough */
 /**
  * Process text/html for message body purposes.  Specifically:
  *
@@ -13,11 +14,8 @@
  * that's a tall order to get right, so it's mightily postponed.
  **/
 
-define(function(require, exports) {
-'use strict';
-
-var $bleach = require('bleach');
-var { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
+import $bleach from 'bleach';
+import { DESIRED_SNIPPET_LENGTH } from '../syncbase';
 
 /**
  * Whitelisted HTML tags list. Currently from nsTreeSanitizer.cpp which credits
@@ -417,19 +415,21 @@ function stashLinks(lowerTag, attrs) {
     if (srcAttr) {
       if (RE_CID_URL.test(srcAttr.escaped)) {
         srcAttr.name = 'cid-src';
-        if (classAttr)
+        if (classAttr) {
           classAttr.escaped += ' moz-embedded-image';
-        else
+        } else {
           attrs.push({ name: 'class', escaped: 'moz-embedded-image' });
+        }
         // strip the cid: bit, it is necessarily there and therefore redundant.
         srcAttr.escaped = srcAttr.escaped.substring(4);
       }
       else if (RE_HTTP_URL.test(srcAttr.escaped)) {
         srcAttr.name = 'ext-src';
-        if (classAttr)
+        if (classAttr) {
           classAttr.escaped += ' moz-external-image';
-        else
+        } else {
           attrs.push({ name: 'class', escaped: 'moz-external-image' });
+        }
       }
     }
   }
@@ -452,12 +452,12 @@ function stashLinks(lowerTag, attrs) {
       var link = linkAttr.escaped;
       if (RE_HTTP_URL.test(link) ||
           RE_MAILTO_URL.test(link)) {
-
         linkAttr.name = 'ext-href';
-        if (classAttr)
+        if (classAttr) {
           classAttr.escaped += ' moz-external-link';
-        else
+        } else {
           attrs.push({ name: 'class', escaped: 'moz-external-link' });
+        }
       }
       else {
         // paranoia; no known benefit if this got through
@@ -513,19 +513,19 @@ var BLEACH_SNIPPET_SETTINGS = {
  *   The sanitized HTML string wrapped into a div container.
  * }
  */
-exports.sanitizeAndNormalizeHtml = function sanitizeAndNormalize(htmlString) {
+export function sanitizeAndNormalizeHtml(htmlString) {
   return $bleach.clean(htmlString, BLEACH_SETTINGS);
-};
+}
 
 /**
  * Derive snippet text from the an HTML string. It will also sanitize it.
  * Note that it unescapes HTML enttities, so best to only use this output
  * in textContent cases.
  */
-exports.generateSnippet = function generateSnippet(htmlString) {
+export function generateSnippet(htmlString) {
   return $bleach.unescapeHTMLEntities($bleach.clean(htmlString,
                                                     BLEACH_SNIPPET_SETTINGS));
-};
+}
 
 /**
  * Upper-bound the searchable text string we'll build.  Note that this is
@@ -596,7 +596,7 @@ var BLEACH_SEARCHABLE_TEXT_WITHOUT_QUOTES_SETTINGS = {
  * - Generate a semantic representation similar/identical to the one used by
  *   quotechew (at least for this searchable text mode.)
  */
-exports.generateSearchableTextVersion = function(htmlString, includeQuotes) {
+export function generateSearchableTextVersion(htmlString, includeQuotes) {
   var settings;
   if (includeQuotes) {
     settings = BLEACH_SEARCHABLE_TEXT_WITH_QUOTES_SETTINGS;
@@ -606,7 +606,7 @@ exports.generateSearchableTextVersion = function(htmlString, includeQuotes) {
   }
   var cleaned = $bleach.clean(htmlString, settings);
   return $bleach.unescapeHTMLEntities(cleaned);
-};
+}
 
 /**
  * Wrap text/plain content into a serialized HTML string safe for insertion
@@ -618,7 +618,7 @@ exports.generateSearchableTextVersion = function(htmlString, includeQuotes) {
  * things resemble text/plain.
  *
  */
-exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
+export function wrapTextIntoSafeHTMLString(text, wrapTag,
                                               transformNewlines, attrs) {
   if (transformNewlines === undefined) {
     transformNewlines = true;
@@ -639,14 +639,13 @@ exports.wrapTextIntoSafeHTMLString = function(text, wrapTag,
   }
 
   return '<' + wrapTag + attributes + '>' + text + '</' + wrapTag + '>';
-};
+}
 
 var RE_QUOTE_CHAR = /"/g;
 
 /**
  * Make an HTML attribute value safe.
  */
-exports.escapeAttrValue = function(s) {
+export function escapeAttrValue(s) {
   return s.replace(RE_QUOTE_CHAR, '&quot;');
-};
-}); // end define
+}

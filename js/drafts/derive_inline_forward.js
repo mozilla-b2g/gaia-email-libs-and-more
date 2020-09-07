@@ -1,27 +1,23 @@
-define(function(require) {
-'use strict';
+import { addressPairFromIdentity, replyToFromIdentity } from
+  './address_helpers';
 
-const { addressPairFromIdentity, replyToFromIdentity } =
-  require('./address_helpers');
+import { generateForwardSubject, generateForwardParts } from
+  '../bodies/mailchew';
 
-const { generateForwardSubject, generateForwardParts } =
-  require('../bodies/mailchew');
-
-const { makeMessageInfo, makeDraftInfo } = require('../db/mail_rep');
+import { makeMessageInfo, makeDraftInfo } from '../db/mail_rep';
 
 
 /**
  * Given a populated MessageInfo, derive a new MessageInfo that is an inline
- * forward of that message.  This is an inherently asynchronous process; you
- * need to yield* to this generator.
+ * forward of that message.  This is an inherently asynchronous process.
  */
-return function* deriveInlineForward({ sourceMessage, identity, messageId, umid,
+export default async function deriveInlineForward({ sourceMessage, identity, messageId, umid,
                                        guid, date, folderIds }) {
   // -- Subject
   let subject = generateForwardSubject(sourceMessage.subject);
 
   // -- Build the body
-  let bodyReps = yield* generateForwardParts( sourceMessage, identity);
+  let bodyReps = await generateForwardParts( sourceMessage, identity);
 
   let draftInfo = makeDraftInfo({
     draftType: 'forward',
@@ -58,5 +54,5 @@ return function* deriveInlineForward({ sourceMessage, identity, messageId, umid,
     bodyReps,
     draftInfo
   });
-};
-});
+}
+
