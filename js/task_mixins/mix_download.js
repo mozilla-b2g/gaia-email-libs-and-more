@@ -8,7 +8,7 @@ import { NOW } from '../date';
 import churnConversation from '../churn_drivers/conv_churn_driver';
 
 // (DeviceStorage is not available here on the worker so we need to remote.)
-import router from '../worker-router';
+import * as router from '../worker-router';
 const sendStorageMessage = router.registerCallbackType('devicestorage');
 
 import { DEVICE_STORAGE_NAME } from '../syncbase';

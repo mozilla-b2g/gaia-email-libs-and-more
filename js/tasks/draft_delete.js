@@ -1,12 +1,7 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
-const co = require('co');
-
-const TaskDefiner = require('../task_infra/task_definer');
-const churnConversation = require('../churn_drivers/conv_churn_driver');
-
-const { convIdFromMessageId } = require('../id_conversions');
+import { convIdFromMessageId } from '../id_conversions';
 
 /**
  * Per-account task to delete the draft without any type of undo mechanism.
@@ -15,14 +10,14 @@ const { convIdFromMessageId } = require('../id_conversions');
  * This is quite simple right now.  We just load the conversation, re-chew it,
  * and save the modified conversation with the message deleted.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'draft_delete',
 
-    plan: co.wrap(function*(ctx, req) {
+    async plan(ctx, req) {
       let { messageId } = req;
       let convId = convIdFromMessageId(messageId);
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[convId, null]]),
         messagesByConversation: new Map([[convId, null]])
       });
@@ -48,15 +43,14 @@ return TaskDefiner.defineSimpleTask([
         modifiedConversations.set(convId, null);
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: modifiedConversations,
           messages: modifiedMessagesMap
         }
       });
-    }),
+    },
 
     execute: null
   }
 ]);
-});

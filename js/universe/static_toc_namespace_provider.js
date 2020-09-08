@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import StaticTOC from '../db/static_toc';
 
-const StaticTOC = require('../db/static_toc');
-
-return function makeStaticTOCNamespaceProvider(staticMap) {
+export default function makeStaticTOCNamespaceProvider(staticMap) {
   const tocCache = new Map();
   return function(args) {
     const { name } = args;
@@ -30,5 +27,4 @@ return function makeStaticTOCNamespaceProvider(staticMap) {
     }
     return args.ctx.acquire(toc);
   };
-};
-});
+}

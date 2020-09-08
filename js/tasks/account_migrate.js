@@ -1,8 +1,4 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
+import TaskDefiner from '../task_infra/task_definer';
 
 /**
  * Account migration via account re-creation during the planning phase.
@@ -14,21 +10,20 @@ const TaskDefiner = require('../task_infra/task_definer');
  * This implementation assumes that the MailUniverse.init method is continuing
  * to propagate the nextAccountNum from the old config.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'account_migrate',
 
-    plan: co.wrap(function*(ctx, raw) {
+    async plan(ctx, raw) {
       let { accountDef } = raw;
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         newData: {
           accounts: [accountDef]
         }
       });
-    }),
+    },
 
     execute: null
   }
 ]);
-});

@@ -1,18 +1,13 @@
-define(function(require) {
-'use strict';
+import { BLOB_BASE64_BATCH_CONVERT_SIZE } from '../syncbase';
 
-const co = require('co');
+import TaskDefiner from '../task_infra/task_definer';
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
-const { BLOB_BASE64_BATCH_CONVERT_SIZE } = require('../syncbase');
+import { makeAttachmentPart } from '../db/mail_rep';
+import { mimeStyleBase64Encode } from 'safe-base64';
+import asyncFetchBlob from '../async_blob_fetcher';
 
-const TaskDefiner = require('../task_infra/task_definer');
-const churnConversation = require('../churn_drivers/conv_churn_driver');
-
-const { makeAttachmentPart } = require('../db/mail_rep');
-const { mimeStyleBase64Encode } = require('safe-base64');
-const asyncFetchBlob = require('../async_blob_fetcher');
-
-const { convIdFromMessageId } = require('../id_conversions');
+import { convIdFromMessageId } from '../id_conversions';
 
 /**
  * Per-account task to incrementally convert an attachment into its base64
@@ -42,14 +37,14 @@ const { convIdFromMessageId } = require('../id_conversions');
  *
  * Implementation note:
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'draft_attach',
 
-    plan: co.wrap(function*(ctx, req) {
+    async plan(ctx, req) {
       let { messageId } = req;
       let convId = convIdFromMessageId(messageId);
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[convId, null]]),
         messagesByConversation: new Map([[convId, null]])
       });
@@ -89,7 +84,7 @@ return TaskDefiner.defineSimpleTask([
         let slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
         blobOffset = nextOffset;
 
-        let arraybuffer = yield asyncFetchBlob(slicedBlob, 'arraybuffer');
+        let arraybuffer = await asyncFetchBlob(slicedBlob, 'arraybuffer');
         let binaryDataU8 = new Uint8Array(arraybuffer);
         let encodedU8 = mimeStyleBase64Encode(binaryDataU8);
         messageInfo.attaching.file.push(new Blob([encodedU8],
@@ -99,12 +94,12 @@ return TaskDefiner.defineSimpleTask([
         // to issue an additional write anyways, we do that outside the loop.)
 
         // - Issue the incremental write
-        yield ctx.dangerousIncrementalWrite({
+        await ctx.dangerousIncrementalWrite({
           messages: new Map([[messageId, messageInfo]])
         });
 
         // - Read back the Blob for memory usage reasons.
-        let flushedReads = yield ctx.mutateMore({
+        let flushedReads = await ctx.mutateMore({
           flushedMessageReads: true,
           messages: new Map([[messageKey, null]])
         });
@@ -124,15 +119,14 @@ return TaskDefiner.defineSimpleTask([
       let convInfo = churnConversation(convId, oldConvInfo, messages);
 
       // -- Victory!
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[convId, convInfo]]),
           messages: modifiedMessagesMap
         }
       });
-    }),
+    },
 
     execute: null
   }
 ]);
-});

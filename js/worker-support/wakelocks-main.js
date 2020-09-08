@@ -4,9 +4,6 @@
  * This file runs on the main thread, receiving messages sent from a
  * SmartWakeLock instance -> through the router -> to this file.
  */
-define(function() {
-'use strict';
-
 let nextId = 1;
 let locks = new Map();
 
@@ -20,14 +17,14 @@ function requestWakeLock(type) {
   return id;
 }
 
-var self = {
+var me = {
   name: 'wakelocks',
   sendMessage: null,
   process: function(uid, cmd, args) {
     switch (cmd) {
       case 'requestWakeLock':
         var type = args[0];
-        self.sendMessage(uid, cmd, [requestWakeLock(type)]);
+        me.sendMessage(uid, cmd, [requestWakeLock(type)]);
         break;
       case 'unlock':
         var id = args[0];
@@ -36,7 +33,7 @@ var self = {
           lock.unlock();
           locks.delete(id);
         }
-        self.sendMessage(uid, cmd, []);
+        me.sendMessage(uid, cmd, []);
         break;
       default:
         break;
@@ -47,5 +44,5 @@ var self = {
   // wake-lock to hand off to the back-end.
   requestWakeLock
 };
-return self;
-});
+
+export default me;

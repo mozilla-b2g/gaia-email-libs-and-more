@@ -1,9 +1,7 @@
-define(function() {
-'use strict';
-
+/* eslint-disable no-prototype-builtins */
 var listeners = {};
 
-function receiveMessage(evt) {
+export function receiveMessage(evt) {
   var data = evt.data;
 //dump('\x1b[37mw <= M: recv: '+data.type+' '+data.uid+' '+data.cmd +'\x1b[0m\n');
   var listener = listeners[data.type];
@@ -15,11 +13,11 @@ function receiveMessage(evt) {
 window.addEventListener('message', receiveMessage);
 
 
-function unregister(type) {
+export function unregister(type) {
   delete listeners[type];
 }
 
-function registerSimple(type, callback) {
+export function registerSimple(type, callback) {
   listeners[type] = callback;
 
   return function sendSimpleMessage(cmd, args) {
@@ -34,7 +32,7 @@ var callbackSenders = {};
  * Register a message type that allows sending messages that expect a return
  * message which should resolve the returned Promise.
  */
-function registerCallbackType(type) {
+export function registerCallbackType(type) {
   if (callbackSenders.hasOwnProperty(type)) {
     return callbackSenders[type];
   }
@@ -66,7 +64,7 @@ function registerCallbackType(type) {
  * Register a message type that gets associated with a specific set of callbacks
  * keyed by 'cmd' for received messages.
  */
-function registerInstanceType(type) {
+export function registerInstanceType(type) {
   var uid = 0;
   var instanceMap = {};
   listeners[type] = function receiveInstanceMessage(data) {
@@ -98,17 +96,8 @@ function registerInstanceType(type) {
   };
 }
 
-function shutdown() {
+export function shutdown() {
   window.removeEventListener('message', receiveMessage);
   listeners = {};
   callbackSenders = {};
 }
-
-return {
-  registerSimple: registerSimple,
-  registerCallbackType: registerCallbackType,
-  registerInstanceType: registerInstanceType,
-  unregister: unregister,
-  shutdown: shutdown
-};
-}); // end define

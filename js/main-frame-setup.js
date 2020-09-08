@@ -23,7 +23,7 @@ import logic from 'logic';
 // messages that we receive before we finish setup.
 //
 import * as $mailapi from './mailapi';
-import $router from './worker-support/main-router';
+import * as $router from './worker-support/main-router';
 import $configparser from './worker-support/configparser-main';
 import $cronsync from './worker-support/cronsync-main';
 import $devicestorage from './worker-support/devicestorage-main';

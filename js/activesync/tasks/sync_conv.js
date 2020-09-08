@@ -1,16 +1,15 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import { applyChanges } from '../../delta_algebra';
 
-const { applyChanges } = require('../../delta_algebra');
+import MixinSyncConv from '../../task_mixins/mix_sync_conv';
 
 /**
  * Planning-only task that applies modifications to a conversation based on
  * other sync logic.
  */
-return TaskDefiner.defineSimpleTask([
-  require('../../task_mixins/mix_sync_conv'),
+export default TaskDefiner.defineSimpleTask([
+  MixinSyncConv,
   {
     name: 'sync_conv',
 
@@ -19,4 +18,3 @@ return TaskDefiner.defineSimpleTask([
     },
   }
 ]);
-});

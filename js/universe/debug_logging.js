@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * Configures the "logic" logging subsystem to conform to current user and/or
  * test settings for the back-end.  The front-end "clientapi" has its own
@@ -9,12 +6,9 @@ define(function(require) {
  * At startup the MailUniverse tells us the config directly.  The MailUniverse
  * also binds us to "config" updates from the MailDB.
  */
-function DebugLogging() {
+export default function DebugLogging() {
 
 }
 DebugLogging.prototype = {
 
 };
-
-return DebugLogging;
-});

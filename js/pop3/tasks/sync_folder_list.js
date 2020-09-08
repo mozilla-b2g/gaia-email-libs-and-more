@@ -1,13 +1,12 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
 
 /**
  * Create the POP3 offline-only folders.
  */
-return TaskDefiner.defineSimpleTask([
-  require('../../task_mixins/mix_sync_folder_list'),
+export default TaskDefiner.defineSimpleTask([
+  MixinSyncFolderList,
   {
     essentialOfflineFolders: [
       // Note that versus IMAP, our inbox is offline.
@@ -38,4 +37,3 @@ return TaskDefiner.defineSimpleTask([
     execute: null
   }
 ]);
-});

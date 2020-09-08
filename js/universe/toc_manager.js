@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const makeNamespaceProvider = require('./static_toc_namespace_provider');
+import makeNamespaceProvider from './static_toc_namespace_provider';
 
 /**
  * Simple registry of TOC namespaces that extensions can provide.  Exists to
@@ -12,7 +9,7 @@ const makeNamespaceProvider = require('./static_toc_namespace_provider');
  * but maybe generic is the way to go.  For experimental account types we'll
  * be hewing more generic and we'll see how that goes.
  */
-function TOCManager() {
+export default function TOCManager() {
   this._namespaceProviders = new Map();
 }
 TOCManager.prototype = {
@@ -48,5 +45,3 @@ TOCManager.prototype = {
     return provider({ ctx, name });
   },
 };
-return TOCManager;
-});

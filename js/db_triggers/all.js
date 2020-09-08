@@ -1,4 +1,7 @@
+import TriggerUnreadCount from './unread_count';
+import TriggerMessageCount from './message_count';
+
 export default [
-  require('./unread_count'),
-  require('./message_count')
+  TriggerUnreadCount,
+  TriggerMessageCount,
 ];

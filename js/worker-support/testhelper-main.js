@@ -1,30 +1,17 @@
+/* eslint-disable no-use-before-define */
 /**
  * Assist mailapi/testhelper by spinning up the main thread support modules and
  * establishing a bouncer to redirect all mailapi traffic back to a MailAPI
  * instance instantiated in the worker.
  **/
 
-define(
-  [
-    './main-router',
-    './configparser-main',
-    './cronsync-main',
-    './devicestorage-main',
-    './maildb-main',
-    './net-main',
-    '../mailapi',
-    'exports'
-  ],
-  function(
-    $router,
-    $configparser,
-    $cronsync,
-    $devicestorage,
-    $maildb,
-    $net,
-    $mailapi,
-    exports
-  ) {
+import $router from './main-router';
+import $configparser from './configparser-main';
+import $cronsync from './cronsync-main';
+import $devicestorage from './devicestorage-main';
+import $maildb from './maildb-main';
+import $net from './net-main';
+import * as $mailapi from  '../mailapi';
 
 var realisticBridge = {
   name: 'bridge',
@@ -87,10 +74,9 @@ var testHelper = {
     else if (cmd === 'checkDatabaseDoesNotContain') {
       var tablesAndKeyPrefixes = args;
       var idb = $maildb._debugDB._db,
-          desiredStores = [], i, checkArgs;
+          desiredStores = [];
 
-      for (i = 0; i < tablesAndKeyPrefixes.length; i++) {
-        checkArgs = tablesAndKeyPrefixes[i];
+      for (const checkArgs of tablesAndKeyPrefixes) {
         desiredStores.push(checkArgs.table);
       }
       var trans = idb.transaction(desiredStores, 'readonly');
@@ -109,16 +95,18 @@ var testHelper = {
             req = store.get(range);
         req.onerror = function(event) {
           results.push({ errCode: event.target.errorCode });
-          if (--waitCount === 0)
+          if (--waitCount === 0) {
             sendResults();
+          }
         };
         req.onsuccess = function() {
           results.push({ errCode: null,
                          table: checkArgs.table,
                          prefix: checkArgs.prefix,
                          hasResult: req.result !== undefined });
-          if (--waitCount === 0)
+          if (--waitCount === 0) {
             sendResults();
+          }
         };
       });
     }
@@ -126,7 +114,7 @@ var testHelper = {
      * Support fake-server stand-up.
      */
     else if (cmd === 'startFakeServer') {
-
+      // TODO: Uh, remove this after figuring out if this ever worked?
     }
   }
 };
@@ -137,8 +125,9 @@ var mainBridge = {
   name: 'main-bridge',
   sendMessage: null,
   process: function(uid, cmd, args) {
-    if (gMailAPI)
+    if (gMailAPI) {
       gMailAPI.__bridgeReceive(args);
+    }
   }
 };
 $router.register(mainBridge);
@@ -154,7 +143,7 @@ var deviceStorageTestHelper = {
     }
     else if (cmd === 'detach') {
       var detachCount = 1, self = this;
-      function nextDetach(path, result) {
+      const nextDetach = (path, result) => {
         if (path) {
           console.log('devicestorage:', path, result);
         }
@@ -165,7 +154,7 @@ var deviceStorageTestHelper = {
         self._storage.removeEventListener('change', self._bound_onChange);
         self._storage = null;
         self.sendMessage(null, 'detached', null);
-      }
+      };
       args.nuke.forEach(function(path) {
         detachCount++;
         var req = self._storage.delete(path);
@@ -202,5 +191,3 @@ $router.register($cronsync);
 $router.register($devicestorage);
 $router.register($maildb);
 $router.register($net);
-
-}); // end define

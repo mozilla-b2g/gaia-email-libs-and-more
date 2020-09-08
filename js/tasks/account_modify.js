@@ -1,21 +1,17 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
+import TaskDefiner from '../task_infra/task_definer';
 
-const logic = require('logic');
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
-
-const { NOW } = require('../date');
+import { NOW } from '../date';
 
 /**
  * Manipulate account settings.  This mainly entails mapping the request fields
  * onto the actual storage fields.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'account_modify',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       // Access the account for read-only consultation.  Because we don't need
       // to wait on any network access and because of how things actually work,
       // we could absolutely acquire this for write mutation and do an explicit
@@ -127,7 +123,7 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         atomicClobbers: {
           accounts: new Map([
             [
@@ -137,7 +133,6 @@ return TaskDefiner.defineSimpleTask([
           ])
         }
       });
-    })
+    }
   }
 ]);
-});

@@ -1,13 +1,8 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
 
-const co = require('co');
+import messageSummarize from 'app_logic/new_message_summarizer';
 
-const TaskDefiner = require('../task_infra/task_definer');
-
-const messageSummarize = require('app_logic/new_message_summarizer');
-
-const { convIdFromMessageId } = require('../id_conversions');
+import { convIdFromMessageId } from '../id_conversions';
 
 /**
  * Per-account tracking of "new" messages and the conversations they belong to.
@@ -102,7 +97,7 @@ const { convIdFromMessageId } = require('../id_conversions');
  *
  * ## Data Structure ##
  */
-return TaskDefiner.defineComplexTask([
+export default TaskDefiner.defineComplexTask([
   {
     name: 'new_tracking',
 
@@ -167,10 +162,10 @@ return TaskDefiner.defineComplexTask([
     /**
      * Clear the current newness state for this task.
      */
-    plan: co.wrap(function*(ctx, persistentState, memoryState, req) {
+    async plan(ctx, persistentState, memoryState, req) {
       // If we have nothing new tracked, fast-path out without any other writes.
       if (!persistentState.newByConv.size) {
-        yield ctx.finishTask({});
+        await ctx.finishTask({});
         return;
       }
 
@@ -187,18 +182,18 @@ return TaskDefiner.defineComplexTask([
         persistentState.newByConv.clear();
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         newData: { tasks: newTasks },
         complexTaskState: persistentState
       });
-    }),
+    },
 
     execute: null,
 
     /**
      * Expose our newByConv state for the benefit of new_flush.
      */
-    consult: function(askingCtx, persistentState /*, memoryState, argDict */) {
+    consult(askingCtx, persistentState /*, memoryState, argDict */) {
       return persistentState.newByConv;
     },
 
@@ -293,4 +288,4 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-});
+

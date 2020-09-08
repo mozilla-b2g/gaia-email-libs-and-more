@@ -1,16 +1,12 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import { accountIdFromFolderId } from '../id_conversions';
 
-const { accountIdFromFolderId } = require('../id_conversions');
+import { accountModules, engineTaskMappings, engineBackEndFacts } from
+  '../engine_glue';
 
-const { accountModules, engineTaskMappings, engineBackEndFacts } =
-  require('../engine_glue');
-
-const AccountsTOC = require('../db/accounts_toc');
-const FoldersTOC = require('../db/folders_toc');
-
+import AccountsTOC from '../db/accounts_toc';
+import FoldersTOC from '../db/folders_toc';
 
 /**
  * Helper function that takes a function(id) {} and causes it to return any
@@ -57,7 +53,7 @@ function prereqify(mapPropName, func, forgetOnResolve) {
  * Manages account instance life-cycles, and the TOC of accounts and the
  * per-account folder TOC's.
  */
-function AccountManager({ db, universe, taskRegistry, taskResources }) {
+export default function AccountManager({ db, universe, taskRegistry, taskResources }) {
   logic.defineScope(this, 'AccountManager');
 
   this.db = db;
@@ -368,5 +364,3 @@ AccountManager.prototype = {
     }
   },
 };
-return AccountManager;
-});

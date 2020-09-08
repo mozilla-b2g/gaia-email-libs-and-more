@@ -121,6 +121,9 @@ TriggerManager.prototype = {
         // Everything else is something to bind.
         default: {
           let handlerFunc = triggerDef[key];
+          if (!handlerFunc || !handlerFunc.bind) {
+            throw new Error(`${triggerName} has broken handler '${key}: ${handlerFunc}`);
+          }
           let boundHandler = handlerFunc.bind(null, triggerContext);
           this.db.on(key, boundHandler);
         }

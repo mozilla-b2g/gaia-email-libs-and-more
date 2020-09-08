@@ -1,18 +1,13 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../task_infra/task_definer';
 
-let co = require('co');
+import SyncStateHelper from '../sync_state_helper';
 
-let TaskDefiner = require('../../task_infra/task_definer');
-
-let SyncStateHelper = require('../sync_state_helper');
-
-const { POP3_MAX_MESSAGES_PER_SYNC } = require('../../syncbase');
+import { POP3_MAX_MESSAGES_PER_SYNC } from '../../syncbase';
 
 /**
  * Sync some messages out of the the overflow set.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'sync_grow',
 
@@ -28,9 +23,9 @@ return TaskDefiner.defineSimpleTask([
       ];
     },
 
-    execute: co.wrap(function*(ctx, req) {
+    async execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
       let rawSyncState = fromDb.syncStates.get(req.accountId);
@@ -45,15 +40,15 @@ return TaskDefiner.defineSimpleTask([
       // while we're in here.
       // TODO: deletion inference here (rather than relying on refresh and
       // error handling in sync_message to handle things.)
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let popAccount = account.popAccount;
 
       // as per the above, we're intentionally doing this just for side-effects.
-      yield popAccount.ensureConnection();
+      await popAccount.ensureConnection();
 
       syncState.syncOverflowMessages(POP3_MAX_MESSAGES_PER_SYNC);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           syncStates: new Map([[req.accountId, syncState.rawSyncState]]),
           umidNames: syncState.umidNameWrites,
@@ -63,7 +58,6 @@ return TaskDefiner.defineSimpleTask([
           tasks: syncState.tasksToSchedule
         }
       });
-    })
+    }
   }
 ]);
-});

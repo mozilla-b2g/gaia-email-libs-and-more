@@ -1,3 +1,4 @@
+/* eslint-disable no-use-before-define */
 /**
  * The main-thread counterpart to our tcp-socket.js wrapper.
  *
@@ -34,10 +35,7 @@
  *   excessively clever buffering regimes because those could back-fire and
  *   such effort is better spent on enhancing TCPSocket.
  */
-define(function(require) {
-'use strict';
-
-var asyncFetchBlob = require('../async_blob_fetcher');
+import asyncFetchBlob from '../async_blob_fetcher';
 
 // Active sockets
 var sockInfoByUID = {};
@@ -59,8 +57,8 @@ function open(uid, host, port, options) {
     backlog: [],
   };
 
-  sock.onopen = function(evt) {
-    self.sendMessage(uid, 'onopen');
+  sock.onopen = function(/*evt*/) {
+    me.sendMessage(uid, 'onopen');
   };
 
   sock.onerror = function(evt) {
@@ -76,15 +74,15 @@ function open(uid, host, port, options) {
     else {
       wrappedErr = err;
     }
-    self.sendMessage(uid, 'onerror', wrappedErr);
+    me.sendMessage(uid, 'onerror', wrappedErr);
   };
 
   sock.ondata = function(evt) {
     var buf = evt.data;
-    self.sendMessage(uid, 'ondata', buf, [buf]);
+    me.sendMessage(uid, 'ondata', buf, [buf]);
   };
 
-  sock.ondrain = function(evt) {
+  sock.ondrain = function(/*evt*/) {
     // If we have an activeBlob and data already to send, then send it.
     // If we have an activeBlob but no data, then fetchNextBlobChunk has
     // an outstanding chunk fetch and it will issue the write directly.
@@ -96,12 +94,12 @@ function open(uid, host, port, options) {
       fetchNextBlobChunk(sockInfo);
     } else {
       // Only forward the drain event if we aren't still taking over.
-      self.sendMessage(uid, 'ondrain');
+      me.sendMessage(uid, 'ondrain');
     }
   };
 
-  sock.onclose = function(evt) {
-    self.sendMessage(uid, 'onclose');
+  sock.onclose = function(/*evt*/) {
+    me.sendMessage(uid, 'onclose');
     delete sockInfoByUID[uid];
   };
 }
@@ -149,7 +147,7 @@ function fetchNextBlobChunk(sockInfo) {
   }
 
   var nextOffset =
-        Math.min(sockInfo.blobOffset + self.BLOB_BLOCK_READ_SIZE,
+        Math.min(sockInfo.blobOffset + me.BLOB_BLOCK_READ_SIZE,
                  sockInfo.activeBlob.size);
   console.log('net-main(' + sockInfo.uid + '): Fetching bytes',
               sockInfo.blobOffset, 'through', nextOffset, 'of',
@@ -175,7 +173,7 @@ function fetchNextBlobChunk(sockInfo) {
   };
   asyncFetchBlob(blobSlice, 'arraybuffer').then(
     gotChunk,
-    (err) => {
+    (/*err*/) => {
       // I/O errors are fatal to the connection; our abstraction does not let us
       // bubble the error.  The good news is that errors are highly unlikely.
       sockInfo.sock.close();
@@ -184,8 +182,9 @@ function fetchNextBlobChunk(sockInfo) {
 
 function close(uid) {
   var sockInfo = sockInfoByUID[uid];
-  if (!sockInfo)
+  if (!sockInfo) {
     return;
+  }
   var sock = sockInfo.sock;
   sock.close();
   sock.onopen = null;
@@ -193,7 +192,7 @@ function close(uid) {
   sock.ondata = null;
   sock.ondrain = null;
   sock.onclose = null;
-  self.sendMessage(uid, 'onclose');
+  me.sendMessage(uid, 'onclose');
   delete sockInfoByUID[uid];
 }
 
@@ -212,7 +211,7 @@ function write(uid, data, offset, length) {
 
   // Fake an onprogress event so that we can delay wakelock expiration
   // as long as data still flows to the server.
-  self.sendMessage(uid, 'onprogress', []);
+  me.sendMessage(uid, 'onprogress', []);
 
   if (data instanceof Blob) {
     beginBlobSend(sockInfo, data);
@@ -225,13 +224,14 @@ function write(uid, data, offset, length) {
 
 function upgradeToSecure(uid) {
   var sockInfo = sockInfoByUID[uid];
-  if (!sockInfo)
+  if (!sockInfo) {
     return;
+  }
   sockInfo.sock.upgradeToSecure();
 }
 
 
-var self = {
+var me = {
   name: 'netsocket',
   sendMessage: null,
 
@@ -261,5 +261,6 @@ var self = {
     }
   }
 };
-return self;
-});
+
+export default me;
+

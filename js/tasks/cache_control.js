@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * This (global) complex task is responsible for tracking downloaded Blobs and
  * getting rid of them when appropriate, informed by usage hints.  Attachment
@@ -60,4 +57,3 @@ define(function(require) {
  * using, we can subtract off what we know about in here and assume the rest is
  * synced messages/conversations.
  */
-});

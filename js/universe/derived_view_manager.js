@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
+import WindowedListProxy from '../bridge/windowed_list_proxy';
 
-const logic = require('logic');
-const WindowedListProxy = require('../bridge/windowed_list_proxy');
-
-function DerivedViewManager() {
+export default function DerivedViewManager() {
   logic.defineScope(this, 'DerivedViewManager');
   this._providersByName = new Map();
 }
@@ -52,6 +49,3 @@ DerivedViewManager.prototype = {
     return derivedView;
   }
 };
-
-return DerivedViewManager;
-});

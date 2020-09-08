@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
+import logic from 'logic';
 
 /**
  * Tracks the set of activated extensions and registers them with the
@@ -23,7 +20,7 @@ const logic = require('logic');
  *
  * We're not doing the
  */
-function ExtensionManager({ derivedViewManager, tocManager }) {
+export default function ExtensionManager({ derivedViewManager, tocManager }) {
   logic.defineScope(this, 'ExtensionManager');
   this._extensionDefs = [];
 
@@ -86,8 +83,4 @@ ExtensionManager.prototype = {
       this.registerExtension(extDef, source);
     }
   },
-
-
 };
-return ExtensionManager;
-});

@@ -1,19 +1,15 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
+import logic from 'logic';
+import TaskDefiner from '../task_infra/task_definer';
 
 /**
  * Manipulate identity settings.  Right now we only support one identity per
  * account and we hard-code the path, though it wouldn't take much to
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'config_modify',
 
-    plan: co.wrap(function*(ctx, rawTask) {
+    async plan(ctx, rawTask) {
       // Access the account for read-only consultation.  Because we don't need
       // to wait on any network access and because of how things actually work,
       // we could absolutely acquire this for write mutation and do an explicit
@@ -37,7 +33,7 @@ return TaskDefiner.defineSimpleTask([
         }
       }
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         atomicClobbers: {
           config: new Map([
             [
@@ -47,7 +43,6 @@ return TaskDefiner.defineSimpleTask([
           ])
         }
       });
-    })
+    }
   }
 ]);
-});

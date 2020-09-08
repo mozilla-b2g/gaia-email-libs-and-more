@@ -1,12 +1,10 @@
-define(function(require) {
-'use strict';
+/* eslint-disable no-prototype-builtins */
+import logic from 'logic';
+import * as router from '../worker-router';
+import { CRONSYNC_MAX_DURATION_MS } from '../syncbase';
 
-const logic = require('logic');
-const router = require('../worker-router');
-const { CRONSYNC_MAX_DURATION_MS } = require('../syncbase');
-
-const { wrapMainThreadAcquiredWakelock } = require('../wakelocks');
-const { NOW } = require('../date');
+import { wrapMainThreadAcquiredWakelock } from '../wakelocks';
+import { NOW } from '../date';
 
 /**
  * Support logic for cronsync/periodic sync to deal with the fact that the
@@ -38,7 +36,7 @@ const { NOW } = require('../date');
  *   and it would be silly to introduce an additional layer of delayed
  *   processing here when cronsync-main already has one.
  */
-function CronSyncSupport({ universe, db, accountManager }) {
+export default function CronSyncSupport({ universe, db, accountManager }) {
   // Needed so we can schedule tasks.
   this._universe = universe;
   // Needed so we can directly write to the bounded log.
@@ -128,7 +126,7 @@ CronSyncSupport.prototype = {
    *   A promise that will be resolved when the ensureSync request has
    *   completed.
    */
-  ensureSync: function(why) {
+  ensureSync(why) {
     // Only execute ensureSync if it is not already in progress. Otherwise, due
     // to async timing of mozAlarm setting, could end up with two sync tasks for
     // the same ID.
@@ -159,6 +157,7 @@ CronSyncSupport.prototype = {
     }
 
     this.sendCronSync('ensureSync', [syncData]);
+    return null;
   },
 
   /**
@@ -465,6 +464,3 @@ CronSyncSupport.prototype = {
     router.unregister('cronsync');
   }
 };
-
-return CronSyncSupport;
-}); // end define

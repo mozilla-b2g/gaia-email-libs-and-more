@@ -12,7 +12,7 @@ import WindowedListProxy from './bridge/windowed_list_proxy';
  * `same-frame-setup.js` is the only place that hooks them up together right
  * now.
  */
-function MailBridge(universe, db, name) {
+export default function MailBridge(universe, db, name) {
   logic.defineScope(this, 'MailBridge', { name: name });
   this.name = name;
   this.universe = universe;
@@ -713,5 +713,3 @@ MailBridge.prototype = {
   }
 
 };
-
-export default MailBridge;

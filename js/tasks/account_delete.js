@@ -1,8 +1,4 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-const TaskDefiner = require('../task_infra/task_definer');
+import TaskDefiner from '../task_infra/task_definer';
 
 /**
  * Delete an account.
@@ -40,7 +36,7 @@ const TaskDefiner = require('../task_infra/task_definer');
  * TODO: This should probably moot most of the tasks associated with the
  * account.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'account_delete',
     args: ['accountId'],
@@ -56,18 +52,17 @@ return TaskDefiner.defineSimpleTask([
       ];
     },
 
-    execute: co.wrap(function*(ctx, planned) {
+    async execute(ctx, planned) {
       // Acquire a write-lock on the account so we can delete it.
-      yield ctx.beginMutate({
+      await ctx.beginMutate({
         accounts: new Map([[planned.accountId, null]])
       });
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           accounts: new Map([[planned.accountId, null]])
         }
       });
-    })
+    }
   }
 ]);
-});

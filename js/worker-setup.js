@@ -1,17 +1,14 @@
-define(function(require) {
-'use strict';
-
 /**
  * This is the actual root module
  **/
 
-const logic = require('logic');
+import logic from 'logic';
 
-const $router = require('./worker-router');
-const MailBridge = require('./mailbridge');
-const MailUniverse = require('./mailuniverse');
+import * as $router from './worker-router';
+import MailBridge from './mailbridge';
+import MailUniverse from './mailuniverse';
 
-const appExtensions = require('app_logic/worker_extensions');
+import appExtensions from 'app_logic/worker_extensions';
 
 const routerBridgeMaker = $router.registerInstanceType('bridge');
 
@@ -64,6 +61,3 @@ var sendControl = $router.registerSimple('control', function(data) {
   }
 });
 sendControl('hello');
-
-////////////////////////////////////////////////////////////////////////////////
-});

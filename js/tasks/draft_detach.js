@@ -1,25 +1,20 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../task_infra/task_definer';
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
-const co = require('co');
-
-const TaskDefiner = require('../task_infra/task_definer');
-const churnConversation = require('../churn_drivers/conv_churn_driver');
-
-const { convIdFromMessageId } = require('../id_conversions');
+import { convIdFromMessageId } from '../id_conversions';
 
 /**
  * Per-account task to remove an attachment from a draft.  This is trivial and
  * very similar to saving a draft, so will likely be consolidated.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'draft_detach',
 
-    plan: co.wrap(function*(ctx, req) {
+    async plan(ctx, req) {
       let { messageId } = req;
       let convId = convIdFromMessageId(messageId);
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[convId, null]]),
         messagesByConversation: new Map([[convId, null]])
       });
@@ -46,15 +41,14 @@ return TaskDefiner.defineSimpleTask([
       let oldConvInfo = fromDb.conversations.get(req.convId);
       let convInfo = churnConversation(convId, oldConvInfo, messages);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[convId, convInfo]]),
           messages: modifiedMessagesMap
         }
       });
-    }),
+    },
 
     execute: null
   }
 ]);
-});

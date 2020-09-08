@@ -1,18 +1,13 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import TaskDefiner from '../task_infra/task_definer';
+import churnConversation from '../churn_drivers/conv_churn_driver';
 
-const TaskDefiner = require('../task_infra/task_definer');
-const churnConversation = require('../churn_drivers/conv_churn_driver');
+import { convIdFromMessageId } from '../id_conversions';
 
-const { convIdFromMessageId } = require('../id_conversions');
+import { DESIRED_SNIPPET_LENGTH } from '../syncbase';
 
-const { DESIRED_SNIPPET_LENGTH } = require('../syncbase');
-
-const { quoteProcessTextBody, generateSnippet } =
-  require('../bodies/quotechew');
+import { quoteProcessTextBody, generateSnippet } from '../bodies/quotechew';
 
 /**
  * Per-account task to update the non-attachment parts of an existing draft.
@@ -20,14 +15,14 @@ const { quoteProcessTextBody, generateSnippet } =
  * This is quite simple right now.  We just load the conversation, re-chew it,
  * and save the modified conversation and message.
  */
-return TaskDefiner.defineSimpleTask([
+export default TaskDefiner.defineSimpleTask([
   {
     name: 'draft_save',
 
-    plan: co.wrap(function*(ctx, req) {
+    async plan(ctx, req) {
       let { messageId } = req;
       let convId = convIdFromMessageId(messageId);
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[convId, null]]),
         messagesByConversation: new Map([[convId, null]])
       });
@@ -74,15 +69,14 @@ return TaskDefiner.defineSimpleTask([
       let oldConvInfo = fromDb.conversations.get(req.convId);
       let convInfo = churnConversation(convId, oldConvInfo, messages);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[convId, convInfo]]),
           messages: modifiedMessagesMap
         }
       });
-    }),
+    },
 
     execute: null
   }
 ]);
-});
