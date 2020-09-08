@@ -475,3 +475,24 @@ export function processMessageContent(
 
   return { contentBlob, snippet, authoredBodySize };
 }
+
+/**
+ * Given an attribute data structure, encode it into JSON and wrap it in a Blob
+ * so that it can be treated as a body part.
+ *
+ * The object is expected to have the following keys and values:
+ * - schema: 'phabricator' for now, but this could include 'bugzilla' in the
+ *   future.
+ * - attrs: An array of objects where each object has the following keys/values:
+ *   - name: The name of the attribute.
+ *
+ */
+export function processAttributeContent(attrData) {
+  const contentBlob = new Blob([JSON.stringify(attrData)],
+                               { type: 'application/json' });
+  return {
+    contentBlob,
+    snippet: '',
+    authoredBodySize: contentBlob.size,
+  };
+}

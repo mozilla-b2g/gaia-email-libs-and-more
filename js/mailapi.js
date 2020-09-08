@@ -55,7 +55,7 @@ const LEGAL_CONFIG_KEYS = ['debugLogging'];
  * @constructor
  * @memberof module:mailapi
  */
-export default function MailAPI() {
+export function MailAPI() {
   evt.Emitter.call(this);
   logic.defineScope(this, 'MailAPI', {});
   this._nextHandle = 1;

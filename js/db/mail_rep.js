@@ -34,6 +34,9 @@
  * @property {DateMS} date
  *   The INTERNALDATE corresponding to the message.  This is held immutable.  If
  *   it changes you need to delete the record and re-add it.
+ * @property {DateMS} [dateModified=date]
+ *   For messages that can be edited, this is the date the message was last
+ *   edited.
  * @property {NameAddressPair} author
  * @property {NameAddressPair[]} to
  * @property {NameAddressPair[]} cc
@@ -124,6 +127,7 @@ export function makeMessageInfo(raw) {
     umid: raw.umid || null,
     guid: raw.guid || null,
     date: raw.date,
+    dateModified: raw.dateModified || raw.date,
     author: raw.author,
     to: raw.to || null,
     cc: raw.cc || null,
@@ -196,7 +200,7 @@ export function makeDraftInfo(raw) {
 
  /**
   * @typedef {Object} BodyPartInfo
-  * @prop {'plain'|'html'} type
+  * @prop {'plain'|'html'|'attr'} type
   *   The type/kind/variety of body-part.  This is not a MIME type or really
   *   even sub-type.  We have specific representations for plain and HTML types,
   *   this is saying which is which in a self-describing way.
@@ -225,9 +229,9 @@ export function makeDraftInfo(raw) {
   *   > 0 and !isDownloaded).  TODO: clean this up further, even if it's just
   *   renaming this to rawImapPartInfo.
   * @prop {Blob} contentBlob
-  *   A Blob either containing a JSON-serialized quotechew.js representation or
-  *   an htmlchew.js sanitized HTML representation, depending on our `type`.
-  *   See the relevant files for more detail.
+  *   A Blob either containing a JSON-serialized quotechew.js representation,
+  *   an htmlchew.js sanitized HTML representation, or the 'attr' JSON rep,
+  *   depending on our `type`.  See the relevant files for more detail.
   * @prop {Number} authoredBodySize
   *   See comment for `MessageInfo.authoredBodySize`.  But, in short, the
   *   best-effort length of the newly authored content in this body part, as

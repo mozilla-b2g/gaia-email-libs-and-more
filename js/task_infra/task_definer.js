@@ -52,9 +52,12 @@ function mixInvokingBaseHooks(baseImpl, mixparts) {
 }
 
 /**
- * Singleton support logic
+ * Singleton support logic.
+ *
+ * Note that this doesn't want to be directly exported; we export a singleton
+ * instance of this class.
  */
-export default function TaskDefiner() {
+function TaskDefiner() {
 }
 TaskDefiner.prototype = {
   /**
@@ -132,3 +135,5 @@ TaskDefiner.prototype = {
     return mixInvokingBaseHooks(ComplexTaskBase, mixparts);
   }
 };
+
+export default new TaskDefiner();
