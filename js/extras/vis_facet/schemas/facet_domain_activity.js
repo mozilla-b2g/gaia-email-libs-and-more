@@ -1,12 +1,9 @@
-define(function() {
-'use strict';
-
 /**
  * Lightly modified version of facet_activity_sparkline altered to aggregate
  * based on sender domain rather than specific email addresses.  Really it's
  * just some label changes plus the change in "gather" and "extract".
  */
-return {
+export default {
   name: 'Domain Activity Sparkline',
   provider: 'vis_facet',
   type: 'facet',
@@ -164,4 +161,4 @@ return {
     }
   }
 };
-});
+

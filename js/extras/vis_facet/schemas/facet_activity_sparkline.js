@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Create a top-N list of author facets, each of which contains limited author
  * summary info (email address for now), plus a histogram of author activity.
@@ -28,7 +25,7 @@ define(function() {
  *   it down to the top N authors using that rank.  We currently don't re-sort
  *   alphabetically or anything
  */
-return {
+export default {
   name: 'Activity Sparkline',
   provider: 'vis_facet',
   type: 'facet',
@@ -185,4 +182,4 @@ return {
     }
   }
 };
-});
+

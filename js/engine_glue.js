@@ -32,27 +32,31 @@ export const configuratorModules = new Map([
   /*
   [
     'activesync',
-    function() {
-      return import('gelam/activesync/configurator');
+    async function() {
+      const mod = await import('gelam/activesync/configurator');
+      return mod.default;
     }
   ],
   */
   [
     'imap+smtp',
-    function() {
-      return import('gelam/composite/configurator');
+    async function() {
+      const mod = await import('gelam/composite/configurator');
+      return mod.default;
     }
   ],
   [
     'pop3+smtp',
-    function() {
-      return import('gelam/composite/configurator');
+    async function() {
+      const mod = await import('gelam/composite/configurator');
+      return mod.default;
     }
   ],
   [
     'phabricator',
-    function() {
-      return import('gelam/extras/phabricator/configurator');
+    async function() {
+      const mod = await import('gelam/extras/phabricator/configurator');
+      return mod.default;
     }
   ]
 ]);
@@ -65,8 +69,9 @@ export const validatorModules = new Map([
   /*
   [
     'activesync',
-    function() {
-      return new Promise(function(resolve) {
+    async function() {
+      const mod = await new Promise(function(resolve) {
+        return mod.default;
         require(['gelam/activesync/validator'], function(mod) {
           resolve(mod);
         });
@@ -76,20 +81,23 @@ export const validatorModules = new Map([
   */
   [
     'imap+smtp',
-    function() {
-      return import('gelam/composite/validator');
+    async function() {
+      const mod = await import('gelam/composite/validator');
+      return mod.default;
     }
   ],
   [
     'pop3+smtp',
-    function() {
-      return import('gelam/composite/validator');
+    async function() {
+      const mod = await import('gelam/composite/validator');
+      return mod.default;
     }
   ],
   [
     'phabricator',
-    function() {
-      return import('gelam/extras/phabricator/validator');
+    async function() {
+      const mod = await import('gelam/extras/phabricator/validator');
+      return mod.default;
     }
   ]
 ]);
@@ -102,27 +110,31 @@ export const accountModules = new Map([
   /*
   [
     'activesync',
-    function() {
-      return import('gelam/activesync/account');
+    async function() {
+      const mod = await import('gelam/activesync/account');
+      return mod.default;
     }
   ],
   */
   [
     'imap+smtp',
-    function() {
-      return import('gelam/composite/account');
+    async function() {
+      const mod = await import('gelam/composite/account');
+      return mod.default;
     }
   ],
   [
     'pop3+smtp',
-    function() {
-      return import('gelam/composite/account');
+    async function() {
+      const mod = await import('gelam/composite/account');
+      return mod.default;
     }
   ],
   [
     'phabricator',
-    function() {
-      return import('gelam/extras/phabricator/account');
+    async function() {
+      const mod = await import('gelam/extras/phabricator/account');
+      return mod.default;
     }
   ]
 ]);
@@ -134,34 +146,39 @@ export const accountModules = new Map([
 export const engineTaskMappings = new Map([
   [
     'gmailImap',
-    function() {
-      return import('gelam/imap/gmail_tasks');
+    async function() {
+      const mod = await import('gelam/imap/gmail_tasks');
+      return mod.default;
     }
   ],
   [
     'vanillaImap',
-    function() {
-      return import('gelam/imap/vanilla_tasks');
+    async function() {
+      const mod = await import('gelam/imap/vanilla_tasks');
+      return mod.default;
     }
   ],
   /*
   [
     'activesync',
-    function() {
-      return import('gelam/activesync/activesync_tasks');
+    async function() {
+      const mod = await import('gelam/activesync/activesync_tasks');
+      return mod.default;
     }
   ],
   */
   [
     'pop3',
-    function() {
-      return import('gelam/pop3/pop3_tasks');
+    async function() {
+      const mod = await import('gelam/pop3/pop3_tasks');
+      return mod.default;
     }
   ],
   [
     'phabricator',
-    function() {
-      return import('gelam/extras/phabricator/phabricator_tasks');
+    async function() {
+      const mod = await import('gelam/extras/phabricator/phabricator_tasks');
+      return mod.default;
     }
   ]
 ]);

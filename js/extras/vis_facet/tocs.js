@@ -1,13 +1,13 @@
-define(function(require) {
-'use strict';
+//import FacetActivitySparkline from './schemas/facet_activity_sparkline';
 
-return {
+import OverviewScatterByDate from './schemas/overview_scatter_by_date';
+
+export default {
   faceters: [
-    require('./schemas/facet_activity_sparkline')
+    //FacetActivitySparkline,
   ],
 
   overviews: [
-    //require('./schemas/overview_scatter_by_date')
+    //OverviewScatterByDate,
   ]
 };
-});

@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Conversation-threading visualization.  This is a Vega-ized version of an
  * initially hand-coded d3 visualization.
@@ -49,7 +46,7 @@ define(function() {
  *     structure in a subset, but arguably that would be better implemented by
  *
  */
-return {
+export default {
   name: 'Conversation Threading',
   provider: 'vis_facet',
   type: 'conversation-summary',
@@ -203,4 +200,3 @@ return {
     }
   }
 };
-});

@@ -1,7 +1,5 @@
-define(function(/*require*/) {
-'use strict';
+// import VisFacet from gelam/extras/vis_facet/worker_def';
 
-return [
-  require('gelam/extras/vis_facet/worker_def')
+export default [
+  // VisFacet,
 ];
-});

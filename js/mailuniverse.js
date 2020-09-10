@@ -185,7 +185,7 @@ MailUniverse.prototype = {
         console.warn('If you forget how to turn us off, see:');
         console.warn('https://wiki.mozilla.org/Gaia/Email/SecretDebugMode');
         console.warn('...................................................');
-        logic.realtimeLogEverything();
+        logic.realtimeLogEverything = true;
       }
     }
   },

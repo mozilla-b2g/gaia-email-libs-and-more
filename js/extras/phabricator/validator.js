@@ -51,7 +51,7 @@ export default async function validatePhabricator({ userDetails, credentials, co
     groups = [];
     for (const info of projects.data) {
       // Bugzilla security groups are boring, so we want to ignore them.
-      if (!info.name.startsWith('bmo-')) {
+      if (!info.fields.name.startsWith('bmo-')) {
         groups.push({
           id: info.id,
           phid: info.phid,

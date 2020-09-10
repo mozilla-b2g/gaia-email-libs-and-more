@@ -355,13 +355,16 @@ const TRANSACTION_HANDLERS = new Map([
  * `PatchChewer`.
  */
 export class TransactionChewer {
-  constructor({ userChewer, convId, oldConvInfo, oldMessages }) {
+  constructor({ userChewer, convId, oldConvInfo, oldMessages, foldersTOC }) {
     this.userChewer = userChewer;
     this.userLookup = userChewer.mapPhid.bind(userChewer);
     this.convId = convId;
     this.oldConvInfo = oldConvInfo;
-
     this.oldMessages = oldMessages;
+    this.foldersTOC = foldersTOC;
+
+    this.inboxFolder = foldersTOC.getCanonicalFolderByType('inbox');
+
     // This is a mapping from the message id we synthesize.
     const oldById = this.oldById = new Map();
     for (const old of oldMessages) {
@@ -473,7 +476,7 @@ export class TransactionChewer {
       flags: [],
       // XXX/TODO: Is there any point to putting messages in folders versus just
       // leaving it at a conversation granularity?
-      folderIds: new Set(),
+      folderIds: new Set([this.inboxFolder.id]),
       subject: '',
       snippet,
       attachments: [],

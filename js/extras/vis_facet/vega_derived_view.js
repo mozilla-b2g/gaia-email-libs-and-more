@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import DynamicFullTOC from 'gelam/db/dynamic_full_toc';
+import FieldExtractor from 'gelam/search/field_extractor';
 
-const DynamicFullTOC = require('gelam/db/dynamic_full_toc');
-const FieldExtractor = require('gelam/search/field_extractor');
-
-const makeHackyVegaDataflow = require('./make_hacky_vega_dataflow');
+import makeHackyVegaDataflow from './make_hacky_vega_dataflow';
 
 /**
  * Our derived view is the connective tissue between calls to `deriveStuff` from
@@ -120,13 +117,10 @@ function makeView(viewDef) {
   return { toc, derivedView };
 }
 
-function makeVisFacetDerivedView(viewDef) {
+export default function makeVisFacetDerivedView(viewDef) {
   if (viewDef.type === 'facet' ||
       viewDef.type === 'overview') {
     return makeView(viewDef);
   }
   throw new Error('NoneSuch');
 }
-
-return makeVisFacetDerivedView;
-});

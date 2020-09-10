@@ -18,7 +18,7 @@ export default class PhabricatorAccount {
     this.folders = this.foldersTOC.items;
 
     this.client = new PhabricatorClient({
-      serverUrl: accountDef.connInfoFields.serverUrl,
+      serverUrl: accountDef.serverUrl,
       apiToken: accountDef.credentials.apiKey,
     });
   }

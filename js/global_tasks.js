@@ -1,22 +1,27 @@
-define(function(require) {
-'use strict';
+import AccountAutoconfig from './tasks/account_autoconfig';
+import AccountCreate from './tasks/account_create';
+import AccountDelete from './tasks/account_delete';
+import AccountMigrate from './tasks/account_migrate';
+import DraftCreate from './tasks/draft_create';
+import NewFlush from './tasks/new_flush';
 
 /**
  * Global tasks which aren't associated with a specific account type.
  */
-return [
+export default [
   // - Account management
-  require('./tasks/account_autoconfig'),
-  require('./tasks/account_create'),
-  require('./tasks/account_delete'),
-  require('./tasks/account_migrate'),
+  AccountAutoconfig,
+  AccountCreate,
+  AccountDelete,
+  AccountMigrate,
 
   // - Drafts
-  require('./tasks/draft_create'),
+  DraftCreate,
+
   // (All other drafts tasks are per-account even though they use the same
   // global implementations.)
 
   // - Aggregate state stuff
-  require('./tasks/new_flush')
+  NewFlush,
 ];
-});
+

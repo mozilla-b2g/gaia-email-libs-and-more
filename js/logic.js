@@ -1,3 +1,4 @@
+/* global dump */
 /**
  * Logic is a structured logging system with bonus features for tracking
  * asynchronous code flow and simple unit testing.
@@ -474,7 +475,7 @@ define(function(require) {
           var matchFn = (event) => {
             this.capturedLogs.push(event);
             if (this.resolved) {
-              return;
+              return true;
             }
 
             if (this.ns && event.namespace !== this.ns ||

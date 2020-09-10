@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * A heatmap where the x-axis is binned over time and the y-axis is binned over
  * authored body size, the amount of content in the message believed to be
@@ -13,7 +10,7 @@ define(function() {
  * the data in the worker.  Although a scatter plot can be super interesting,
  * shipping over all N datapoints defeats part of the goal of this example.
  */
-return {
+export default {
   name: 'Authored Size by Time',
   provider: 'vis_facet',
   type: 'overview',
@@ -157,4 +154,4 @@ return {
     }
   }
 };
-});
+

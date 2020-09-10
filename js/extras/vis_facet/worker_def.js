@@ -1,27 +1,21 @@
-define(function(require) {
-'use strict';
-
-return {
+export default {
   name: 'vis_facet',
 
   derivedViews: {
-    vis_facet: function() {
-      return new Promise(function(resolve) {
-        require(['./vega_derived_view'], function(mod) {
-          resolve(mod);
-        });
-      });
+    /*
+    async vis_facet() {
+      const mod = await import('./vega_derived_view');
+      return mod.default;
     }
+    */
   },
 
   tocs: {
-    vis_facet: function() {
-      return new Promise(function(resolve) {
-        require(['./tocs'], function(mod) {
-          resolve(mod);
-        });
-      });
+    /*
+    async vis_facet() {
+      const mod = await import('./tocs');
+      return mod.default;
     }
+    */
   }
 };
-});

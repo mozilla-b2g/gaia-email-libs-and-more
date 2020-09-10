@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const vega = require('vega');
+import vega from 'vega';
 
 /**
  * ### TODO: de-bitrot vega
@@ -49,7 +46,7 @@ const vega = require('vega');
  *   an id.  Deletions will have a null `obj`.  Additions and changes will
  *   have an `obj` object, with only additions having `isNew` be true.
  */
-return function makeHackyVegaDataflow({ backendDef, idKey }) {
+export default function makeHackyVegaDataflow({ backendDef, idKey }) {
   // - Create the model and define the core data-sources.
   const model = new Model();
   model.defs({
@@ -91,4 +88,4 @@ return function makeHackyVegaDataflow({ backendDef, idKey }) {
 
   return exposeApi;
 };
-});
+

@@ -1,7 +1,7 @@
 /**
  * These are the tasks for gmail accounts.
  */
-import GmailSyncFolderList from './vanilla_tasks/sync_folder_list';
+import VanillaSyncFolderList from './vanilla_tasks/sync_folder_list';
 
 import GmailSyncGrow from './gmail_tasks/sync_grow';
 import GmailSyncRefresh from './gmail_tasks/sync_refresh';
@@ -25,7 +25,7 @@ import CommonIdentityModify from '../tasks/identity_modify';
 import CommonNewTracking from '../tasks/new_tracking';
 
 export default [
-  GmailSyncFolderList,
+  VanillaSyncFolderList,
 
   GmailSyncGrow,
   GmailSyncRefresh,

@@ -36,6 +36,12 @@ DerivedViewManager.prototype = {
    */
   createDerivedView: function({ viewDef, ctx }) {
     const viewMaker = this._providersByName.get(viewDef.provider);
+    if (!viewMaker) {
+      // XXX this should really be using `logic`
+      console.warn('ViewMaker requested for', viewDef.provider, 'but not found');
+      return null;
+    }
+
     const { toc, derivedView } = viewMaker(viewDef);
 
     ctx.proxy = new WindowedListProxy(toc, ctx);
