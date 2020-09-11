@@ -289,7 +289,7 @@ define(function(require) {
     logic.emit('event', event);
     // If we have an associated BroadcastChannel, broadcast the event.
     if (logic.bc) {
-      logic.bc.postMessage({ mode: 'append', event });
+      logic.bc.postMessage({ mode: 'append', event: event.jsonRepresentation });
     }
 
     if (logic.realtimeLogEverything) {
@@ -800,7 +800,7 @@ define(function(require) {
    */
   logic.startAsync = function(scope, type, details) {
     var resolve, reject;
-    var promise = logic.async(scope, type, details, (_resolve, _reject) => {
+    logic.async(scope, type, details, (_resolve, _reject) => {
       resolve = _resolve;
       reject = _reject;
     });
