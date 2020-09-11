@@ -24,6 +24,7 @@ class LogicInspector extends React.Component {
       indexData: [],
       href: null,
       autoReload: true,
+      serial: 0,
       /**
        * Hacky indicator of whether we should only show log events from the most
        * recent event with type "START_OF_LOG".
@@ -53,6 +54,7 @@ class LogicInspector extends React.Component {
     if (this.state.href === nextState.href &&
         this.state.autoReload === nextState.autoReload &&
         this.state.data === nextState.data &&
+        this.state.serial === nextState.serial &&
         this.state.indexData.length === nextState.indexData.length) {
       return false;
     } else {
@@ -114,15 +116,19 @@ class LogicInspector extends React.Component {
   }
 
   navigate(url, isReload) {
-    var href = LogicInspector.getUrlParam('href', url);
-    var autoReload = !LogicInspector.getUrlParam('noreload', url);
+    url = new URL(url);
+    const href = url.searchParams.get('href');
+    const autoReload = !url.searchParams.get('noreload');
+    const viaBroadcast = !!url.searchParams.get('broadcast');
     this.setState({
-      href: href,
-      autoReload: autoReload
+      href,
+      autoReload,
+      viaBroadcast,
     });
 
     var normalizedUrl = '?' +
                         (href ? 'href=' + href : '') +
+                        (viaBroadcast ? '&broadcast=true' : '') +
                         (autoReload ? '' : '&noreload=true');
     if (isReload) {
       history.replaceState(null, '', normalizedUrl);
@@ -132,7 +138,7 @@ class LogicInspector extends React.Component {
 
     if (href) {
       fetchDetectExtract(href).then(({ data, dataType }) => {
-        if (dataType === 'raw-events' &&
+        if (dataType === 'raw-logic-events' &&
             this.state.mostRecentSessionOnly) {
           data = this.filterToMostRecentSessionOnly(data);
         }
@@ -140,6 +146,46 @@ class LogicInspector extends React.Component {
       }, (ex) => {
         console.error('Problem fetching/extracting:', ex);
       });
+    }
+
+    // We support BroadcastChannel delivery of logs so that refreshing the app
+    // UI via page reload can still send logs to the existing log window UI
+    // without requiring a window.open() to happen every time.
+    if (viaBroadcast) {
+      let data = [];
+      let serial = 0;
+      const dataType = 'raw-logic-events';
+
+      this.setState({ data, dataType });
+
+      let pendingTimeout = null;
+
+      const timeoutFired = () => {
+        pendingTimeout = null;
+        console.log('trying to trigger a flush with serial', serial);
+        this.setState({ data, serial });
+      };
+
+      this.BC = new BroadcastChannel('logic');
+      this.BC.onmessage = (evt) => {
+        if (evt.data.mode === 'clear') {
+          data = [];
+          serial++;
+          this.setState({ data, serial });
+          return;
+        }
+        if (evt.data.mode !== 'append') {
+          return;
+        }
+        serial++;
+        data.push(evt.data.event);
+
+        if (pendingTimeout) {
+          return;
+        }
+
+        pendingTimeout = setTimeout(timeoutFired, 10);
+      }
     }
   }
 
@@ -154,15 +200,8 @@ class LogicInspector extends React.Component {
     return filtered;
   }
 
-  // From http://stackoverflow.com/questions/8460265
-  static getUrlParam(name, href) {
-    href = href || window.location.href;
-    name = new RegExp('[?&]' + name.replace(/([[\]])/, '\\$1') + '=([^&#]*)');
-    return (href.match(name) || ['', ''])[1];
-  }
-
   render() {
-    if (this.state.href) {
+    if (this.state.data || this.state.href) {
       // -- Displaying a specific log
       return this.renderLog();
     } else {
@@ -209,6 +248,7 @@ class LogicInspector extends React.Component {
   }
 
   renderRawEvents() {
+    console.log('triggering renderRawEvents');
     let data = this.state.data;
     return (
       <div>

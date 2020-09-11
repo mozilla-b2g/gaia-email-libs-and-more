@@ -287,6 +287,10 @@ define(function(require) {
     var event = new LogicEvent(scope, type, details);
     logic.emit('censorEvent', event);
     logic.emit('event', event);
+    // If we have an associated BroadcastChannel, broadcast the event.
+    if (logic.bc) {
+      logic.bc.postMessage({ mode: 'append', event });
+    }
 
     if (logic.realtimeLogEverything) {
       //dump('logic: ' + event.toString() + '\n');
@@ -335,6 +339,7 @@ define(function(require) {
   // Hacky way to pass around a global config:
   logic.isCensored = false;
   logic.realtimeLogEverything = false;
+  logic.bc = null;
 
   var interceptions = {};
 

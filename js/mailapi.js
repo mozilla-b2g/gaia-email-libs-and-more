@@ -2,6 +2,8 @@ import logic from 'logic';
 // XXX proper logging configuration for the front-end too once things start
 // working happily.
 logic.realtimeLogEverything = true;
+logic.bc = new BroadcastChannel('logic');
+logic.bc.postMessage({ mode: 'clear' });
 
 // Use a relative link so that consumers do not need to create
 // special config to use main-frame-setup.

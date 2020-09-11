@@ -1,0 +1,13 @@
+{
+  "presets": [
+    [
+      "@babel/preset-env",
+      {
+        "targets": {
+          "firefox": "82"
+        }
+      }
+    ],
+    "@babel/preset-react"
+  ]
+}
