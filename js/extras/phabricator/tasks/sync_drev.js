@@ -50,7 +50,7 @@ export default TaskDefiner.defineSimpleTask([
         await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
 
       // ## Fetch the current revision details and its transactions in parallel.
-      const revDetailsProm = account.apiCall(
+      const revDetailsProm = account.client.apiCall(
         'differential.revision.search',
         {
           constraints: {
@@ -64,7 +64,7 @@ export default TaskDefiner.defineSimpleTask([
           }
         }
       );
-      const revTransactionsProm = account.apiCall(
+      const revTransactionsProm = account.client.apiCall(
         'transaction.search',
         {
           objectIdentifier: req.drevPhid,

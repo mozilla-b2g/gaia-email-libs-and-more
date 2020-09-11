@@ -95,7 +95,7 @@ export default TaskDefiner.defineAtMostOnceTask([
       let account = await ctx.universe.acquireAccount(ctx, req.accountId);
 
       const modifiedStart = syncState.rawSyncState.lastDateModifiedEpochSecs;
-      const userPhid = account.accountDef.engineFields.userPhid;
+      const userPhid = account.accountDef.engineData.userPhid;
 
       let syncDate = NOW();
       logic(ctx, 'syncStart', { syncDate, modifiedStart, userPhid });

@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 // Common idioms:
 //
 // Lead-in (URL and email):
@@ -49,7 +46,7 @@ define(function(require) {
 //                       (so also '%')
 // )
 var RE_URL =
-  /(^|[\s(,;])((?:https?:\/\/|www\d{0,3}[.][a-z0-9.\-]{2,249}|[a-z0-9.\-]{2,250}[.][a-z]{2,4}\/)[-\w.!~*'();,/?:@&=+$#%]*)/im;
+  /(^|[\s(,;])((?:https?:\/\/|www\d{0,3}[.][-a-z0-9.]{2,249}|[-a-z0-9.]{2,250}[.][a-z]{2,4}\/)[-\w.!~*'();,/?:@&=+$#%]*)/im;
 // Set of terminators that are likely to have been part of the context rather
 // than part of the URL and so should be uneaten.  This is the same as our
 // mirror lead-in set (so '(', ',', ';') plus question end-ing punctuation and
@@ -73,16 +70,16 @@ var RE_HTTP = /^https?:/i;
 //                       Otherwise we use the same base regexp from our URL
 //                       logic.
 var RE_MAIL =
-  /(^|[\s(,;<>])([^(,;<>@\s]+@[a-z0-9.\-]{2,250}[.][a-z0-9\-]{2,32})/im;
+  /(^|[\s(,;<>])([^(,;<>@\s]+@[-a-z0-9.]{2,250}[.][-a-z0-9]{2,32})/im;
 var RE_MAILTO = /^mailto:/i;
 
 /**
  * Linkify the given plaintext, producing an Array of HTML nodes as a result.
  */
-function linkifyPlain(body, doc) {
+export function linkifyPlain(body, doc) {
   var nodes = [];
   var contentStart;
-  while (true) {
+  for (;;) {
     var url = RE_URL.exec(body);
     var email = RE_MAIL.exec(body);
     var link, text;
@@ -153,12 +150,12 @@ function linkifyPlain(body, doc) {
  * HTML document.  'A' tags and their descendants are not linkified, nor
  * are the attributes of HTML nodes.
  */
-function linkifyHTML (doc) {
+export function linkifyHTML (doc) {
   function linkElem(elem) {
     var children = elem.childNodes;
     for (var i in children) {
       var sub = children[i];
-      if (sub.nodeName == '#text') {
+      if (sub.nodeName === '#text') {
         var nodes = linkifyPlain(sub.nodeValue, doc);
 
         elem.replaceChild(nodes[nodes.length-1], sub);
@@ -166,7 +163,7 @@ function linkifyHTML (doc) {
           elem.insertBefore(nodes[iNode], nodes[iNode+1]);
         }
       }
-      else if (sub.nodeName != 'A') {
+      else if (sub.nodeName !== 'A') {
         linkElem(sub);
       }
     }
@@ -174,6 +171,3 @@ function linkifyHTML (doc) {
 
   linkElem(doc.body);
 }
-
-return { linkifyPlain, linkifyHTML };
-});

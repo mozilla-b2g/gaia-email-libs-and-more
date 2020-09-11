@@ -23,8 +23,6 @@ import { DESIRED_SNIPPET_LENGTH } from '../syncbase';
 
 import { makeBodyPart } from '../db/mail_rep';
 
-import asyncFetchBlob from '../async_blob_fetcher';
-
 const scope = logic.scope('MailChew');
 
 /**
@@ -223,7 +221,7 @@ export async function generateReplyParts(reps, authorPair, msgDate, identity,
 
     let rep;
     if (repType === 'plain') {
-      rep = await asyncFetchBlob(repBlob, 'json');
+      rep = JSON.parse(await repBlob.text());
       var replyText = $quotechew.generateReplyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
@@ -235,7 +233,7 @@ export async function generateReplyParts(reps, authorPair, msgDate, identity,
       }
     }
     else if (repType === 'html') {
-      rep = await asyncFetchBlob(repBlob, 'text');
+      rep = await repBlob.text();
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg
@@ -339,7 +337,7 @@ export async function generateForwardParts(sourceMessage, identity) {
 
     let rep;
     if (repType === 'plain') {
-      rep = await asyncFetchBlob(repBlob, 'json');
+      rep = JSON.parse(await repBlob.text());
       let forwardText = $quotechew.generateForwardBodyText(rep);
       // If we've gone HTML, this needs to get concatenated onto the HTML.
       if (htmlMsg) {
@@ -350,7 +348,7 @@ export async function generateForwardParts(sourceMessage, identity) {
         textMsg += forwardText;
       }
     } else if (repType === 'html') {
-      rep = await asyncFetchBlob(repBlob, 'text');
+      rep = await repBlob.text();
       if (!htmlMsg) {
         htmlMsg = '';
         // slice off the trailing newline of textMsg

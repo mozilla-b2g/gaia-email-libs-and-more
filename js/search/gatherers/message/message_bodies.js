@@ -1,10 +1,4 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
-const asyncFetchBlob = require('../../../async_blob_fetcher');
-const { generateSearchableTextVersion } = require('../../../bodies/htmlchew');
+import { generateSearchableTextVersion } from '../../../bodies/htmlchew';
 
 /**
  * Fetch the contents of the body part Blobs as strings, also normalizing HTML
@@ -21,21 +15,20 @@ const { generateSearchableTextVersion } = require('../../../bodies/htmlchew');
  *   This has no impact on the quotechewed representation since it uses a rich
  *   markup.
  */
-function GatherMessageBodies(ignoredParams, args) {
+export default function GatherMessageBodies(ignoredParams, args) {
   this.includeQuotes = args ? (args.includeQuotes || false) : false;
 }
 GatherMessageBodies.prototype = {
-  gather: co.wrap(function*(gathered) {
+  async gather(gathered) {
     let message = gathered.message;
     let bodyPromises = message.bodyReps.map((part) => {
       // They body part may not have been fetched yet.
       if (!part.contentBlob) {
         return null;
       }
-      let fetchType = part.type === 'html' ? 'text' : 'json';
-      return asyncFetchBlob(part.contentBlob, fetchType);
+      return part.contentBlob.text();
     });
-    let fetchedBodies = yield Promise.all(bodyPromises);
+    let fetchedBodies = await Promise.all(bodyPromises);
 
     // List of the type-tagged body contents.  If a part was not downloaded,
     // we omit it from the list.  At this time there are no filters that would
@@ -45,6 +38,8 @@ GatherMessageBodies.prototype = {
     let bodyResults = [];
 
     for (let i=0; i < message.bodyReps.length; i++) {
+      // This is a string, but for 'plain' parts it will have a JSON payload
+      // that will still need to be parsed.
       let bodyObj = fetchedBodies[i];
       if (!bodyObj) {
         continue;
@@ -58,13 +53,12 @@ GatherMessageBodies.prototype = {
       } else {
         bodyResults.push({
           type: bodyRep.type,
-          rep: bodyObj
+          // Parse the JSON back into objects!
+          rep: JSON.parse(bodyObj)
         });
       }
     }
 
     return bodyResults;
-  })
+  }
 };
-return GatherMessageBodies;
-});

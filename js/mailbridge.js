@@ -415,7 +415,7 @@ MailBridge.prototype = {
     }
   },
 
-  _cmd_seekProx(msg) {
+  _cmd_seekProxy(msg) {
     let ctx = this.bridgeContext.getNamedContextOrThrow(msg.handle);
     ctx.proxy.seek(msg);
   },

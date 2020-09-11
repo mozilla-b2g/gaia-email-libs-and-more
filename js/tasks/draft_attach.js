@@ -5,7 +5,6 @@ import churnConversation from '../churn_drivers/conv_churn_driver';
 
 import { makeAttachmentPart } from '../db/mail_rep';
 import { mimeStyleBase64Encode } from 'safe-base64';
-import asyncFetchBlob from '../async_blob_fetcher';
 
 import { convIdFromMessageId } from '../id_conversions';
 
@@ -84,7 +83,7 @@ export default TaskDefiner.defineSimpleTask([
         let slicedBlob = wholeBlob.slice(blobOffset, nextOffset);
         blobOffset = nextOffset;
 
-        let arraybuffer = await asyncFetchBlob(slicedBlob, 'arraybuffer');
+        let arraybuffer = await slicedBlob.arrayBuffer();
         let binaryDataU8 = new Uint8Array(arraybuffer);
         let encodedU8 = mimeStyleBase64Encode(binaryDataU8);
         messageInfo.attaching.file.push(new Blob([encodedU8],

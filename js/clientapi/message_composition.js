@@ -1,7 +1,5 @@
 import evt from 'evt';
 
-import asyncFetchBlob from '../async_blob_fetcher';
-
 import { encodeInt as encodeA64 } from '../a64';
 
 /**
@@ -126,7 +124,7 @@ MessageComposition.prototype = evt.mix({
     };
   },
 
-  __asyncInitFromMessage: function(message) {
+  async __asyncInitFromMessage(message) {
     this._message = message;
     message.on('change', this._onMessageChange.bind(this));
     message.on('remove', this._onMessageRemove.bind(this));
@@ -151,17 +149,15 @@ MessageComposition.prototype = evt.mix({
       this.htmlBlob = null;
     }
 
-    return asyncFetchBlob(wireRep.bodyReps[0].contentBlob, 'json')
-      .then((textRep) => {
-        if (Array.isArray(textRep) &&
-            textRep.length === 2 &&
-            textRep[0] === 0x1) {
-          this.textBody = textRep[1];
-        } else {
-          this.textBody = '';
-        }
-        return this;
-      });
+    const textRep = JSON.parse(await wireRep.bodyReps[0].contentBlob.text());
+    if (Array.isArray(textRep) &&
+        textRep.length === 2 &&
+        textRep[0] === 0x1) {
+      this.textBody = textRep[1];
+    } else {
+      this.textBody = '';
+    }
+    return this;
   },
 
   /**

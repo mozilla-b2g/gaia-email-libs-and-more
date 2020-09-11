@@ -35,7 +35,6 @@
  *   excessively clever buffering regimes because those could back-fire and
  *   such effort is better spent on enhancing TCPSocket.
  */
-import asyncFetchBlob from '../async_blob_fetcher';
 
 // Active sockets
 var sockInfoByUID = {};
@@ -171,7 +170,7 @@ function fetchNextBlobChunk(sockInfo) {
 
     sockInfo.queuedData = arraybuffer;
   };
-  asyncFetchBlob(blobSlice, 'arraybuffer').then(
+  blobSlice.arrayBuffer().then(
     gotChunk,
     (/*err*/) => {
       // I/O errors are fatal to the connection; our abstraction does not let us

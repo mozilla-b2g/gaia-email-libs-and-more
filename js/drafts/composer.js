@@ -1,15 +1,8 @@
-define(function(require) {
-'use strict';
+import MimeNode from 'mailbuild';
 
-const co = require('co');
+import { mergeUserTextWithHTML } from '../bodies/mailchew';
 
-const MimeNode = require('mailbuild');
-
-const asyncFetchBlob = require('../async_blob_fetcher');
-
-const { mergeUserTextWithHTML } = require('../bodies/mailchew');
-
-const { formatAddresses } = require('../util');
+import { formatAddresses } from '../util';
 
 // MimeNode doesn't have a `removeHeader` method, but it's so helpful.
 // Upstream this when possible.
@@ -79,7 +72,7 @@ function normalizeNewlines(body) {
  *   Used to construct the outgoing message.
  * @param account
  */
-function Composer(messageInfo, account, reportHeartbeat) {
+export function Composer(messageInfo, account, reportHeartbeat) {
   this.messageInfo = messageInfo;
   this.account = account;
   this.sentDate = new Date(messageInfo.date);
@@ -110,7 +103,7 @@ Composer.prototype = {
    *   smtpclient's dot-stuffing to work, which is somewhat of a problem.
    * @return {Promise<Blob>}
    */
-  buildMessage: co.wrap(function*(opts) {
+  async buildMessage(opts) {
     let messageInfo = this.messageInfo;
     let messageNode;
 
@@ -120,12 +113,10 @@ Composer.prototype = {
     // messages in text form, but if we're sending an HTML message, we want them
     // unified into a text representation.  The better solution is for all
     // composition in the mixed scenario to be done directly in/as HTML.
-    let quoteChewedRep =
-      yield asyncFetchBlob(messageInfo.bodyReps[0].contentBlob, 'json');
+    let quoteChewedRep = JSON.parse(await messageInfo.bodyReps[0].contentBlob.text());
     let textContent = quoteChewedRep[1];
     if (messageInfo.bodyReps.length === 2) {
-      let htmlContent =
-        yield asyncFetchBlob(messageInfo.bodyReps[1].contentBlob, 'text');
+      let htmlContent = await messageInfo.bodyReps[1].contentBlob.text();
       messageNode = new MimeNode('text/html');
       messageNode.setContent(
         normalizeNewlines(
@@ -266,7 +257,7 @@ Composer.prototype = {
     this.superBlob = new Blob(splits, {
       type: this._rootNode.getHeader('content-type')
     });
-  }),
+  },
 
   /**
    * Propagate heartbeat notifications if our nominal owner told us one to use.
@@ -280,8 +271,3 @@ Composer.prototype = {
   }
 };
 
-return {
-  Composer: Composer
-};
-
-}); // end define

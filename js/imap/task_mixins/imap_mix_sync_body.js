@@ -1,30 +1,23 @@
-define(function(require) {
-'use strict';
+import imapchew from '../imapchew';
 
-let co = require('co');
+import churnConversation from '../../churn_drivers/conv_churn_driver';
 
-let imapchew = require('../imapchew');
+import { SnippetParser } from '../protocol/snippetparser';
+import { TextParser } from '../protocol/textparser';
 
-let churnConversation = require('../../churn_drivers/conv_churn_driver');
-
-let { SnippetParser } = require('../protocol/snippetparser');
-let { TextParser } = require('../protocol/textparser');
-
-let asyncFetchBlob = require('../../async_blob_fetcher');
-
-const { MAX_SNIPPET_BYTES } = require('../../syncbase');
+import { MAX_SNIPPET_BYTES } from '../../syncbase';
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
  */
 const MAX_FETCH_BYTES = (Math.pow(2, 32) - 1);
 
-return {
-  execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
+export default {
+  async execute(ctx, persistentState, memoryState, marker) {
     let req = memoryState.get(marker.convId);
 
     // -- Retrieve the conversation and its messages for mutation
-    let fromDb = yield ctx.beginMutate({
+    let fromDb = await ctx.beginMutate({
       conversations: new Map([[req.convId, null]]),
       messagesByConversation: new Map([[req.convId, null]])
     });
@@ -32,9 +25,9 @@ return {
     let loadedMessages = fromDb.messagesByConversation.get(req.convId);
     let modifiedMessagesMap = new Map();
 
-    let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+    let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
 
-    let prepared = yield this.prepForMessages(ctx, account, loadedMessages);
+    let prepared = await this.prepForMessages(ctx, account, loadedMessages);
 
     // Determine our byte budget for each message.  A zero budget means that
     // for fullBodyMessageIds-listed messages we will download them in their
@@ -114,15 +107,14 @@ return {
         // It is stored out-of-line as a Blob, so must be (asynchronously)
         // fetched.
         if (partDef.pendingBuffer) {
-          let loadedBuffer = new Uint8Array(
-            yield asyncFetchBlob(partDef.pendingBuffer, 'arraybuffer'));
+          let loadedBuffer = new Uint8Array(await partDef.pendingBuffer.arrayBuffer());
           bodyParser.parse(loadedBuffer);
         }
 
         // - Issue the fetch
         let { folderInfo, uid } = this.getFolderAndUidForMesssage(
           prepared, account, message);
-        let rawBody = yield account.pimap.fetchBody(
+        let rawBody = await account.pimap.fetchBody(
           ctx,
           folderInfo,
           {
@@ -160,12 +152,11 @@ return {
     // it's not the end of the world if we lose the request.)
     memoryState.delete(req.convId);
 
-    yield ctx.finishTask({
+    await ctx.finishTask({
       mutations: {
         conversations: new Map([[req.convId, convInfo]]),
         messages: modifiedMessagesMap
       },
     });
-  })
+  }
 };
-});

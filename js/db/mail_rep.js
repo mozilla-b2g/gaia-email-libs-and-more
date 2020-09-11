@@ -240,7 +240,8 @@ export function makeDraftInfo(raw) {
 export function makeBodyPart(raw) {
   // We don't persist body types to our representation that we don't understand.
   if (raw.type !== 'plain' &&
-      raw.type !== 'html') {
+      raw.type !== 'html' &&
+      raw.type !== 'attr') {
     throw new Error('Bad body type: ' + raw.type);
   }
   // 0 is an okay body size, but not giving us a guess is not!

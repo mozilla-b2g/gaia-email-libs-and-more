@@ -29,7 +29,7 @@ import MessageComposition from './clientapi/message_composition';
 import { accountIdFromFolderId, accountIdFromConvId, accountIdFromMessageId,
         convIdFromMessageId } from './id_conversions';
 
-import Linkify from './clientapi/bodies/linkify';
+import * as Linkify from './clientapi/bodies/linkify';
 
 /**
  * Given a list of MailFolders (that may just be null and not a list), map those

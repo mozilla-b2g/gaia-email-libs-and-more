@@ -1,11 +1,4 @@
-define(function(require) {
-'use strict';
-
-let co = require('co');
-
-let asyncFetchBlob = require('../../async_blob_fetcher');
-
-let { linkifyPlain } = require('./linkify');
+import { linkifyPlain } from './linkify';
 
 let CONTENT_TYPES_TO_CLASS_NAMES = [
     null,
@@ -35,9 +28,9 @@ let MAX_QUOTE_CLASS_NAME = 'msg-body-qmax';
  * Fetch the contents of the given quotechew'd text/plain body, and render them
  * to be children of the provided body node.
  */
-return co.wrap(function* embodyPlain(blob, bodyNode) {
+export default async function embodyPlain(blob, bodyNode) {
   var doc = bodyNode.ownerDocument;
-  var rep = yield asyncFetchBlob(blob, 'json');
+  var rep = JSON.parse(await blob.text());
 
   for (var i = 0; i < rep.length; i += 2) {
     var node = doc.createElement('div'), cname;
@@ -66,5 +59,4 @@ return co.wrap(function* embodyPlain(blob, bodyNode) {
   }
 
   return;
-});
-});
+}

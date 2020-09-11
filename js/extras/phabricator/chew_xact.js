@@ -416,14 +416,14 @@ export class TransactionChewer {
     let bodyReps = [];
     // This covers type=inline (code line comment) and type=comment (general
     // comment).
-    if (tx.comments) {
+    if (tx.comments && tx.comments.length) {
       // Comments are notable!
       this.notableChanges++;
 
       const commentText = tx.comments[0].content.raw;
       ({ contentBlob, snippet, authoredBodySize } = processMessageContent(
         commentText,
-        'text',
+        'plain',
         true, // isDownloaded
         true // generateSnippet
       ));
