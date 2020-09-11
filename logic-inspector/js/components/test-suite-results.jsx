@@ -324,7 +324,9 @@ function getEventColor({ namespace, type }) {
   for (var i = 0; i < namespace.length; i++) {
     hash = ((hash << 5) - hash) + namespace.charCodeAt(i) | 0;
   }
-  var hue = ((hash & 0x0000FF) / 256) * 360 | 0;
+  // We create a carve out 50 degrees around red at 0 to avoids red hues that
+  // would collide with errors.
+  var hue = 25 + ((hash & 0x0000FF) / 256) * 310 | 0;
   return 'hsl(' + hue + ', 80%, 40%)';
 }
 
