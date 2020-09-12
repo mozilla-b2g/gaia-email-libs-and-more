@@ -10,7 +10,7 @@ export function receiveMessage(evt) {
   }
 }
 
-window.addEventListener('message', receiveMessage);
+globalThis.addEventListener('message', receiveMessage);
 
 
 export function unregister(type) {
@@ -22,7 +22,7 @@ export function registerSimple(type, callback) {
 
   return function sendSimpleMessage(cmd, args) {
     //dump('\x1b[34mw => M: send: ' + type + ' null ' + cmd + '\x1b[0m\n');
-    window.postMessage({ type: type, uid: null, cmd: cmd, args: args });
+    globalThis.postMessage({ type: type, uid: null, cmd: cmd, args: args });
   };
 }
 
@@ -53,7 +53,7 @@ export function registerCallbackType(type) {
       callbacks[uid] = resolve;
 
       //dump('\x1b[34mw => M: send: ' + type + ' ' + uid + ' ' + cmd + '\x1b[0m\n');
-      window.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
+      globalThis.postMessage({ type: type, uid: uid++, cmd: cmd, args: args });
     });
   };
   callbackSenders[type] = sender;
@@ -84,7 +84,7 @@ export function registerInstanceType(type) {
       return {
         sendMessage: function sendInstanceMessage(cmd, args, transferArgs) {
 //dump('\x1b[34mw => M: send: ' + type + ' ' + thisUid + ' ' + cmd + '\x1b[0m\n');
-          window.postMessage({ type: type, uid: thisUid,
+          globalThis.postMessage({ type: type, uid: thisUid,
                                cmd: cmd, args: args },
                              transferArgs);
         },
@@ -97,7 +97,7 @@ export function registerInstanceType(type) {
 }
 
 export function shutdown() {
-  window.removeEventListener('message', receiveMessage);
+  globalThis.removeEventListener('message', receiveMessage);
   listeners = {};
   callbackSenders = {};
 }

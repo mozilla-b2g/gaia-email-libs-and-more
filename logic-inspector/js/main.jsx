@@ -162,7 +162,6 @@ class LogicInspector extends React.Component {
 
       const timeoutFired = () => {
         pendingTimeout = null;
-        console.log('trying to trigger a flush with serial', serial);
         this.setState({ data, serial });
       };
 
@@ -248,7 +247,6 @@ class LogicInspector extends React.Component {
   }
 
   renderRawEvents() {
-    console.log('triggering renderRawEvents');
     let data = this.state.data;
     return (
       <div>

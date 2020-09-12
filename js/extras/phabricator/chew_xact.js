@@ -82,8 +82,9 @@ const TRANSACTION_HANDLERS = new Map([
     }
   ],
   /**
-   * summary: string field with old/new, seems to be used by moz-phab to
-   * contain stack dependencies, looks like `\n\nDepends on Dnnnn`.
+   * summary: string field with old/new, This ends up being the commit message
+   * plus an automated description of the patch stack depencies that looks like
+   * `\n\nDepends on Dnnnn`.
    *
    * We ignore this for now because its content changes are boring and will
    * usually be accompanied by something that's notable.
@@ -93,6 +94,19 @@ const TRANSACTION_HANDLERS = new Map([
   [
     'summary',
     {
+      deriveAttrs(tx) {
+        return [
+          {
+            name: 'summary',
+            type: 'string',
+            old: tx.fields.old,
+            new: tx.fields.new,
+          },
+        ];
+      },
+      notable() {
+        return true;
+      }
     }
   ],
   /**
@@ -355,13 +369,14 @@ const TRANSACTION_HANDLERS = new Map([
  * `PatchChewer`.
  */
 export class TransactionChewer {
-  constructor({ userChewer, convId, oldConvInfo, oldMessages, foldersTOC }) {
+  constructor({ userChewer, convId, oldConvInfo, oldMessages, foldersTOC, revInfo }) {
     this.userChewer = userChewer;
     this.userLookup = userChewer.mapPhid.bind(userChewer);
     this.convId = convId;
     this.oldConvInfo = oldConvInfo;
     this.oldMessages = oldMessages;
     this.foldersTOC = foldersTOC;
+    this.revInfo = revInfo;
 
     this.inboxFolder = foldersTOC.getCanonicalFolderByType('inbox');
 
@@ -477,7 +492,10 @@ export class TransactionChewer {
       // XXX/TODO: Is there any point to putting messages in folders versus just
       // leaving it at a conversation granularity?
       folderIds: new Set([this.inboxFolder.id]),
-      subject: '',
+      // XXX Currently we only need this on the first message per the churn
+      // logic, but that fails to update with changes to the title, so more work
+      // is necessary, etc.
+      subject: this.revInfo.fields.title,
       snippet,
       attachments: [],
       relatedParts: null,

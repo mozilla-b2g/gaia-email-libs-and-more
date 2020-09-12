@@ -94,6 +94,8 @@ export default TaskDefiner.defineSimpleTask([
         messagesByConversation: new Map([[req.convId, null]])
       });
 
+      const revInfo = revDetails.data[0];
+
       const oldMessages = fromDb.messagesByConversation.get(req.convId);
       const oldConvInfo = fromDb.conversations.get(req.convId);
 
@@ -107,6 +109,7 @@ export default TaskDefiner.defineSimpleTask([
         oldConvInfo,
         oldMessages,
         foldersTOC,
+        revInfo,
       });
 
       for (const tx of revTransactions.data) {

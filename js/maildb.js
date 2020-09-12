@@ -7,7 +7,7 @@ import { accountIdFromFolderId, convIdFromMessageId,
 const {
   indexedDB, IDBObjectStore, IDBIndex, IDBCursor, IDBTransaction, IDBRequest,
   IDBKeyRange
-} = window;
+} = globalThis;
 
 
 /**

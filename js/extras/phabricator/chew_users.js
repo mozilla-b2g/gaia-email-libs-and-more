@@ -53,7 +53,7 @@ export class UserChewer {
     const genericPhids = [];
     const genericPhidMap = new Map();
 
-    for (const [phid, info] of this._phidToInfo.values()) {
+    for (const [phid, info] of this._phidToInfo.entries()) {
       if (phid.startsWith('PHID-USER')) {
         userPhids.push(phid);
         userPhidMap.set(phid, info);

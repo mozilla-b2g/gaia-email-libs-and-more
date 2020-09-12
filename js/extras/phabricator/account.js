@@ -41,6 +41,10 @@ export default class PhabricatorAccount {
   async checkAccount() {
     return null;
   }
+
+  shutdown() {
+    // Nothing to actually shutdown.
+  }
 }
 
 PhabricatorAccount.type = 'phabricator';
