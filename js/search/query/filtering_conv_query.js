@@ -1,15 +1,10 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
-const FilteringStream = require('../filtering_stream');
+import FilteringStream from '../filtering_stream';
 
 /**
  * Filter messages.
  */
-function FilteringConversationQuery({ ctx, db, conversationId, filterRunner,
-                                      rootGatherer }) {
+export default function FilteringConversationQuery({ ctx, db, conversationId, filterRunner,
+                                                     rootGatherer }) {
   this._db = db;
   this.conversationId = conversationId;
   this._tocEventId = null;
@@ -52,13 +47,13 @@ FilteringConversationQuery.prototype = {
    * promptly invoke bind() or we'll start firing notifications into the ether.
    * (This currently holds.)
    */
-  execute: co.wrap(function*() {
+  async execute() {
     let idsWithDates;
     ({ idsWithDates,
        drainEvents: this._drainEvents,
        tocEventId: this._tocEventId,
        convEventId: this._convEventId } =
-        yield this._db.loadConversationMessageIdsAndListen(
+        await this._db.loadConversationMessageIdsAndListen(
           this.conversationId));
 
     for (let idWithDate of idsWithDates) {
@@ -73,14 +68,14 @@ FilteringConversationQuery.prototype = {
     }
 
     return [];
-  }),
+  },
 
   /**
    * Bind the listener for TOC changes, including immediately draining all
    * buffered events that were fired between the time the DB query was issued
    * and now.
    */
-  bind: function(listenerObj, tocListenerMethod, convListenerMethod) {
+  bind(listenerObj, tocListenerMethod, convListenerMethod) {
     this._boundTOCListener = tocListenerMethod.bind(listenerObj);
     this._boundConvListener = convListenerMethod.bind(listenerObj);
     // TOC changes need to go into our filter
@@ -96,19 +91,16 @@ FilteringConversationQuery.prototype = {
    * Events from the database about the Conversation we're filtering on.  We cram
    * these into the filtering stream.
    */
-  _filteringTOCChange: function(change) {
+  _filteringTOCChange(change) {
     this._filteringStream.consider(change);
   },
 
   /**
    * Tear down everything.  Query's over.
    */
-  destroy: function() {
+  destroy() {
     this._db.removeListener(this._tocEventId, this._bound_filteringTOCChange);
     this._db.removeListener(this._convEventId, this._boundConvListener);
     this._filteringStream.destroy();
   }
 };
-
-return FilteringConversationQuery;
-});

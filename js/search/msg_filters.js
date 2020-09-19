@@ -1,45 +1,47 @@
-define(function(require) {
-'use strict';
+import { DEFAULT_SEARCH_EXCERPT_SETTINGS } from '../syncbase';
 
-const { DEFAULT_SEARCH_EXCERPT_SETTINGS } = require('../syncbase');
+import AuthorFilter from './filters/message/author_filter';
+import AuthorAddressFilter from './filters/message/author_address_filter';
+import RecipientsFilter from './filters/message/recipients_filter';
+import SubjectFilter from './filters/message/subject_filter';
+import BodyFilter from './filters/message/body_filter';
 
 /**
  * Filters that operate on messages directly.  These also get wrapped by the
  * MessageSpreadFilter for use by the conversation filters.
  **/
 
-return {
+export default {
   author: {
-    constructor: require('./filters/message/author_filter'),
+    constructor: AuthorFilter,
     params: null
   },
   authorAddress: {
-    constructor: require('./filters/message/author_address_filter'),
+    constructor: AuthorAddressFilter,
     params: null
   },
   recipients: {
-    constructor: require('./filters/message/recipients_filter'),
+    constructor: RecipientsFilter,
     params: null
   },
   subject: {
-    constructor: require('./filters/message/subject_filter'),
+    constructor: SubjectFilter,
     params: {
       excerptSettings: DEFAULT_SEARCH_EXCERPT_SETTINGS
     }
   },
   body: {
-    constructor: require('./filters/message/body_filter'),
+    constructor: BodyFilter,
     params: {
       excerptSettings: DEFAULT_SEARCH_EXCERPT_SETTINGS,
       includeQuotes: false
     }
   },
   bodyAndQuotes: {
-    constructor: require('./filters/message/body_filter'),
+    constructor: BodyFilter,
     params: {
       excerptSettings: DEFAULT_SEARCH_EXCERPT_SETTINGS,
       includeQuotes: true
     }
   }
 };
-});

@@ -1,14 +1,9 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
-const FilteringStream = require('../filtering_stream');
+import FilteringStream from '../filtering_stream';
 
 /**
  * Query that filters a folder conversations index.
  */
-function FilteringFolderQuery({ ctx, db, folderId, filterRunner,
+export default function FilteringFolderQuery({ ctx, db, folderId, filterRunner,
                                 rootGatherer, preDerivers, postDerivers }) {
   this._db = db;
   this.folderId = folderId;
@@ -50,12 +45,12 @@ FilteringFolderQuery.prototype = {
    * promptly invoke bind() or we'll start firing notifications into the ether.
    * (This currently holds.)
    */
-  execute: co.wrap(function*() {
+  async execute() {
     let idsWithDates;
     ({ idsWithDates,
       drainEvents: this._drainEvents,
       eventId: this._eventId } =
-        yield this._db.loadFolderConversationIdsAndListen(this.folderId));
+        await this._db.loadFolderConversationIdsAndListen(this.folderId));
 
     for (let idWithDate of idsWithDates) {
       this._filteringStream.consider({
@@ -70,14 +65,14 @@ FilteringFolderQuery.prototype = {
     }
 
     return [];
-  }),
+  },
 
   /**
    * Bind the listener for TOC changes, including immediately draining all
    * buffered events that were fired between the time the DB query was issued
    * and now.
    */
-  bind: function(listenerObj, listenerMethod) {
+  bind(listenerObj, listenerMethod) {
     this._boundListener = listenerMethod.bind(listenerObj);
     this._db.on(this._eventId, this._bound_filteringTOCChange);
     this._drainEvents(this._bound_filteringTOCChange);
@@ -88,18 +83,15 @@ FilteringFolderQuery.prototype = {
    * Events from the database about the folder we're filtering on.  We cram
    * these into the filtering stream.
    */
-  _filteringTOCChange: function(change) {
+  _filteringTOCChange(change) {
     this._filteringStream.consider(change);
   },
 
   /**
    * Tear down everything.  Query's over.
    */
-  destroy: function() {
+  destroy() {
     this._db.removeListener(this._eventId, this._bound_filteringTOCChange);
     this._filteringStream.destroy();
   }
 };
-
-return FilteringFolderQuery;
-});

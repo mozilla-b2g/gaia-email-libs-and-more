@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const matchRegexpOrString = require('./match_regexp_or_string');
+import matchRegexpOrString from './match_regexp_or_string';
 
 /**
  * Use matchRegexpOrString under the hood against a very large string and if we
@@ -20,7 +17,7 @@ const matchRegexpOrString = require('./match_regexp_or_string');
  * matches in a block, but we'll probably do that in this method and having the
  * call-sites plumb more settings through to us.
  */
-return function matchExcerptHighlight(searchPattern, value, path,
+export default function matchExcerptHighlight(searchPattern, value, path,
                                       excerptSettings) {
   var match = matchRegexpOrString(searchPattern, value, 0);
   if (!match) {
@@ -66,5 +63,4 @@ return function matchExcerptHighlight(searchPattern, value, path,
     matchRuns: [{ start: start - offset, length }],
     path
   };
-};
-});
+}

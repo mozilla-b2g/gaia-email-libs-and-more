@@ -1,14 +1,11 @@
-define(function(require) {
-'use strict';
-
-const searchPatternFromArgs = require('../search_pattern_from_args');
-const matchVerbatimHighlight = require('../../match_verbatim_highlight');
+import searchPatternFromArgs from '../search_pattern_from_args';
+import matchVerbatimHighlight from '../../match_verbatim_highlight';
 
 /**
  * Checks the author's email address, both from and reply-to, for a
  * case-insensitive full match.  No substring matches, no case-sensitivity.
  */
-function AuthorAddressFilter(params, args) {
+export default function AuthorAddressFilter(params, args) {
   this.searchPattern = searchPatternFromArgs(args, { exact: true });
 }
 AuthorAddressFilter.prototype = {
@@ -53,5 +50,3 @@ AuthorAddressFilter.prototype = {
            checkList(message.replyTo);
   },
 };
-return AuthorAddressFilter;
-});

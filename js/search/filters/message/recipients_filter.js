@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import searchPatternFromArgs from '../search_pattern_from_args';
+import matchVerbatimHighlight from '../../match_verbatim_highlight';
 
-const searchPatternFromArgs = require('../search_pattern_from_args');
-const matchVerbatimHighlight = require('../../match_verbatim_highlight');
-
-function RecipientsFilter(params, args) {
+export default function RecipientsFilter(params, args) {
   this.searchPattern = searchPatternFromArgs(args);
 }
 RecipientsFilter.prototype = {
@@ -46,6 +43,7 @@ RecipientsFilter.prototype = {
           return matchInfo;
         }
       }
+      return null;
     }
 
     let message = gathered.message;
@@ -53,7 +51,4 @@ RecipientsFilter.prototype = {
            checkList(message.cc) ||
            checkList(message.bcc);
   },
-
 };
-return RecipientsFilter;
-});

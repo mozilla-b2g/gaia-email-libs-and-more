@@ -1,7 +1,9 @@
-define(function(require) {
-'use strict';
+import GatherMessage from './gatherers/message';
+import GatherMessageBodies from './gatherers/message/message_bodies';
+import AuthorDomain from './gatherers/message/author_domain';
+import DaysAgo from './gatherers/message/days_ago';
 
-return {
+export default {
   /**
    * Gathers message given messageId, but this never needs to be specified as
    * a gather path by filters/friends.  It's harmless if specified, but in a
@@ -18,12 +20,12 @@ return {
    * by the key already being present in the "gatherInto".
    */
   message: {
-    constructor: require('./gatherers/message'),
+    constructor: GatherMessage,
     params: null,
     nested: null
   },
   bodyContents: {
-    constructor: require('./gatherers/message/message_bodies'),
+    constructor: GatherMessageBodies,
     params: null,
     nested: null
   },
@@ -33,14 +35,13 @@ return {
   //
   //
   authorDomain: {
-    constructor: require('./gatherers/message/author_domain'),
+    constructor: AuthorDomain,
     params: null,
     nested: null
   },
   daysAgo: {
-    constructor: require('./gatherers/message/days_ago'),
+    constructor: DaysAgo,
     params: null,
     nested: null
   }
 };
-});

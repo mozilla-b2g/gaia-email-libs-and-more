@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * This file defines the mapping between the searchFolderConversations
  * `spec.filter` and the classes that get instantiated.  (The values specified
@@ -8,18 +5,19 @@ define(function(require) {
  * uses us for this.  It then looks at the instantiated filters to derive the
  * gatherers required.
  **/
+import msgFilters from './msg_filters';
+
+import ParticipantsFilter from './filters/conversation/participants_filter';
+import MessageSpreadFilter from './filters/conversation/message_spread_filter';
 
 // The conversation specific filters.
 const convFilters = {
   participants: {
-    constructor: require('./filters/conversation/participants_filter'),
+    constructor: ParticipantsFilter,
     params: null
   },
 };
 
-const msgFilters = require('./msg_filters');
-const MessageSpreadFilter =
-  require('./filters/conversation/message_spread_filter');
 for (let key of Object.keys(msgFilters)) {
   let msgFilterDef = msgFilters[key];
   convFilters[key] = {
@@ -28,5 +26,4 @@ for (let key of Object.keys(msgFilters)) {
   };
 }
 
-return convFilters;
-});
+export default convFilters;

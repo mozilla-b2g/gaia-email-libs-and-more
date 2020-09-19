@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const { NOW, DAY_MILLIS } = require('../../../date');
+import { NOW, DAY_MILLIS } from '../../../date';
 
 /**
  * Compute the age of message in local-timezone-relative days in a hacky
@@ -24,7 +21,7 @@ const { NOW, DAY_MILLIS } = require('../../../date');
  * be to create the actual Date object to determine the actual day and do the
  * math in that domain.  We almost certainly want to use a library for that.
  */
-function DaysAgo(/* params, args */) {
+export default function DaysAgo(/* params, args */) {
   // start with now.
   let dateScratch = new Date(NOW());
   // round down to today's midnight.
@@ -45,5 +42,3 @@ DaysAgo.prototype = {
     return Promise.resolve(daysAgo);
   }
 };
-return DaysAgo;
-});

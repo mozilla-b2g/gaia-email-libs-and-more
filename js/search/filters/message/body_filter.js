@@ -1,12 +1,9 @@
-define(function(require) {
-'use strict';
-
-const matchExcerptHighlight = require('../../match_excerpt_highlight');
-const searchPatternFromArgs = require('../search_pattern_from_args');
+import matchExcerptHighlight from '../../match_excerpt_highlight';
+import searchPatternFromArgs from '../search_pattern_from_args';
 
 const CT_AUTHORED_CONTENT = 0x1;
 
-function BodyFilter(params, args) {
+export default function BodyFilter(params, args) {
   this.includeQuotes = params.includeQuotes;
   this.excerptSettings = params.excerptSettings;
   this.searchPattern = searchPatternFromArgs(args);
@@ -65,5 +62,3 @@ BodyFilter.prototype = {
   },
 
 };
-return BodyFilter;
-});

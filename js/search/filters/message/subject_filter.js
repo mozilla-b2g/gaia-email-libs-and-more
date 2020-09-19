@@ -1,10 +1,7 @@
-define(function(require) {
-'use strict';
+import searchPatternFromArgs from '../search_pattern_from_args';
+import matchExcerptHighlight from '../../match_excerpt_highlight';
 
-const searchPatternFromArgs = require('../search_pattern_from_args');
-const matchExcerptHighlight = require('../../match_excerpt_highlight');
-
-function SubjectFilter(params, args) {
+export default function SubjectFilter(params, args) {
   this.excerptSettings = params.excerptSettings;
   this.searchPattern = searchPatternFromArgs(args);
 }
@@ -32,5 +29,3 @@ SubjectFilter.prototype = {
   },
 
 };
-return SubjectFilter;
-});

@@ -1,10 +1,7 @@
-define(function() {
-'use strict';
-
 /**
  * Gather the ConversationInfo for the given conversation.
  */
-function GatherConversation({ db, ctx }) {
+export default function GatherConversation({ db, ctx }) {
   this._db = db;
   this._ctx = ctx;
 }
@@ -20,5 +17,3 @@ GatherConversation.prototype = {
     });
   }
 };
-return GatherConversation;
-});

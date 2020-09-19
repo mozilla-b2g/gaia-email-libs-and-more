@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Give it filters, it figures out how to efficiently run them, and then when
  * you ask it to filter something, it filters it for you and returns a nicely
@@ -11,7 +8,7 @@ define(function() {
  * filters don't need to be run anyways to provide useful boolean or snippet
  * indicators.
  */
-function FilterRunner({ filters }) {
+export default function FilterRunner({ filters }) {
   this.filters = filters.concat();
   // Sort the filters in order of ascending cost.
   this.filters.sort((a, b) => {
@@ -19,7 +16,7 @@ function FilterRunner({ filters }) {
   });
 }
 FilterRunner.prototype = {
-  filter: function(gathered) {
+  filter(gathered) {
     let matchInfo = {};
     let matched = this.filters.length === 0;
     for (let filter of this.filters) {
@@ -39,5 +36,3 @@ FilterRunner.prototype = {
     }
   }
 };
-return FilterRunner;
-});

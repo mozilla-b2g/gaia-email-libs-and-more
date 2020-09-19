@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Works with specific *TOC implementations to provide the smarts to the
  * WindowedListView at the other end of a bridge.  The TOC does all of the hard
@@ -57,7 +54,7 @@ define(function() {
  *   told it.)  As we hear about changes that are in our validDataSet, we remove
  *   them so that when we flush we pull the value from the database cache.
  */
-function WindowedListProxy(toc, ctx) {
+export default function WindowedListProxy(toc, ctx) {
   this.toc = toc;
   this.ctx = ctx;
   this.batchManager = ctx.batchManager;
@@ -89,7 +86,7 @@ function WindowedListProxy(toc, ctx) {
   this._bound_onOverlayPush = this.onOverlayPush.bind(this);
 }
 WindowedListProxy.prototype = {
-  __acquire: function() {
+  __acquire() {
     this.toc.on('change', this._bound_onChange);
     this.toc.on('tocMetaChange', this._bound_onTOCMetaChange);
     this.toc.on('broadcastEvent', this._bound_onBroadcastEvent);
@@ -100,7 +97,7 @@ WindowedListProxy.prototype = {
     return Promise.resolve(this);
   },
 
-  __release: function() {
+  __release() {
     this.toc.removeListener('change', this._bound_onChange);
     this.toc.removeListener('tocMetaChange', this._bound_onTOCMetaChange);
     this.toc.removeListener('broadcastEvent', this._bound_onBroadcastEvent);
@@ -109,7 +106,7 @@ WindowedListProxy.prototype = {
       this.toc.overlayNamespace, this._bound_onOverlayPush);
   },
 
-  seek: function(req) {
+  seek(req) {
     // -- Index-based modes
     if (req.mode === 'top') {
       this.mode = req.mode;
@@ -195,7 +192,7 @@ WindowedListProxy.prototype = {
    * @param {Boolean} dataOnly
    *   Is this only a data change AKA the item ordering did not change?
    */
-  onChange: function(id, dataOnly) {
+  onChange(id, dataOnly) {
     if (id === true) {
       this.validDataSet.clear();
     }
@@ -219,7 +216,7 @@ WindowedListProxy.prototype = {
   /**
    * Dirty ourselves if the overlay data for an item we know about has changed.
    */
-  onOverlayPush: function(id) {
+  onOverlayPush(id) {
     if (!this.validOverlaySet.has(id)) {
       // (We didn't know about the item, this does not affect us.  Bail.)
       return;
@@ -236,7 +233,7 @@ WindowedListProxy.prototype = {
   /**
    * The TOC Meta changed, dirty ourselves.
    */
-  onTOCMetaChange: function() {
+  onTOCMetaChange() {
     this.dirtyMeta = true;
     if (this.dirty) {
       return;
@@ -245,7 +242,7 @@ WindowedListProxy.prototype = {
     this.batchManager.registerDirtyView(this);
   },
 
-  onBroadcastEvent: function(eventName, eventData) {
+  onBroadcastEvent(eventName, eventData) {
     this.pendingBroadcastEvents.push({ name: eventName, data: eventData });
 
     this.dirty = true;
@@ -260,7 +257,7 @@ WindowedListProxy.prototype = {
    * changed by the time the promise is resolved, it's fine.
    *
    */
-  flush: function() {
+  flush() {
     // If the TOC supports flushing because it's lazy/pull-based and has
     // explicitly caused us to dirty ourselves, invokes its flush method to give
     // it a chance to synchronously bring itself up-to-date.  We do this prior
@@ -357,6 +354,3 @@ WindowedListProxy.prototype = {
     };
   }
 };
-
-return WindowedListProxy;
-});

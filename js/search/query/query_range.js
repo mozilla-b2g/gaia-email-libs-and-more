@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * Tracks and represents the continuous (sub)range of an ordering space that is
  * currently "live" from the query's perspective.  That is, this is the range
@@ -8,12 +5,9 @@ define(function(require) {
  * changes in this range and do not care about changes outside this range.
  * This also then allows us to 
  */
-function QueryRange() {
+export default function QueryRange() {
 
 }
 QueryRange.prototype = {
 
 };
-
-return QueryRange;
-});

@@ -1,7 +1,4 @@
-define(function() {
-'use strict';
-
-function NestedGatherer(rootKey, rootGatherer) {
+export default function NestedGatherer(rootKey, rootGatherer) {
   this.rootKey = rootKey;
   this.rootGatherer = rootGatherer;
   this.gatherers = new Map();
@@ -92,5 +89,3 @@ NestedGatherer.prototype = {
     }
   }
 };
-return NestedGatherer;
-});

@@ -1,13 +1,10 @@
-define(function(require) {
-'use strict';
-
 const RE_DOMAIN = /@(.+)$/;
 
 /**
  * Extract the author's email domain, favoring their reply-to domain over their
  * actual sending domain.  That choice is currently arbitrary.
  */
-function AuthorDomain(/* params, args */) {
+export default function AuthorDomain(/* params, args */) {
 }
 AuthorDomain.prototype = {
   gather: function(gathered) {
@@ -20,5 +17,3 @@ AuthorDomain.prototype = {
     return Promise.resolve(match && match[1].toLowerCase());
   }
 };
-return AuthorDomain;
-});

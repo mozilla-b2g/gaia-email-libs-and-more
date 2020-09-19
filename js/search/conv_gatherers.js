@@ -1,17 +1,17 @@
-define(function(require) {
-'use strict';
+import GatherConversation from './gatherers/conv';
+import GatherConversationMessages from './gatherers/conv_messages';
+import MessageGatherers from './msg_gatherers';
 
-return {
+export default {
   conversation: {
-    constructor: require('./gatherers/conv'),
+    constructor: GatherConversation,
     params: null,
     nested: null
   },
   messages: {
-    constructor: require('./gatherers/conv_messages'),
+    constructor: GatherConversationMessages,
     params: null,
     nestedRootKey: 'message',
-    nested: require('./msg_gatherers')
-  }
+    nested: MessageGatherers,
+  },
 };
-});

@@ -1,15 +1,12 @@
-define(function(require) {
-'use strict';
-
-const searchPatternFromArgs = require('../search_pattern_from_args');
-const matchVerbatimHighlight = require('../../match_verbatim_highlight');
+import searchPatternFromArgs from '../search_pattern_from_args';
+import matchVerbatimHighlight from '../../match_verbatim_highlight';
 
 /**
  * Author filter that checks the actual message (compare with the optimized
  * conversation participant filter that maybe should not exist).  Also checks
  * replyTo which the conversation participant one currently does not/cannot.
  */
-function AuthorFilter(params, args) {
+export default function AuthorFilter(params, args) {
   this.searchPattern = searchPatternFromArgs(args);
 }
 AuthorFilter.prototype = {
@@ -51,13 +48,11 @@ AuthorFilter.prototype = {
           return matchInfo;
         }
       }
+      return null;
     }
 
     let message = gathered.message;
     return checkList([message.author]) ||
            checkList(message.replyTo);
   },
-
 };
-return AuthorFilter;
-});

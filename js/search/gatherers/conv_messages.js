@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Gather the messages belonging to the provided conversation.
  *
@@ -8,7 +5,7 @@ define(function() {
  * result of [msgA, msgB, msgC] will be exploded in the gather context to be
  * [{ message: msgA }, { message: msgB }, { message: msgC }].
  */
-function GatherConversationMessages({ db, ctx }) {
+export default function GatherConversationMessages({ db, ctx }) {
   this._db = db;
   this._ctx = ctx;
 }
@@ -29,5 +26,3 @@ GatherConversationMessages.prototype = {
     });
   }
 };
-return GatherConversationMessages;
-});

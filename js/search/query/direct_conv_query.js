@@ -1,14 +1,9 @@
-define(function(require) {
-'use strict';
-
-const co = require('co');
-
 /**
  * Query that directly exposes the entirety of a conversation index.
  * Basically just normalizes the pre-query implementation so we don't need
  * multiple TOC variants, etc.
  */
-function DirectConversationQuery({ db, conversationId }) {
+export default function DirectConversationQuery({ db, conversationId }) {
   this._db = db;
   this.conversationId = conversationId;
   this._tocEventId = null;
@@ -24,21 +19,21 @@ DirectConversationQuery.prototype = {
    * should be invoked to allow buffered events to be replayed and to start
    * new events triggering the onTOCChange method.
    */
-  execute: co.wrap(function*() {
+  async execute() {
     let idsWithDates;
     ({ idsWithDates, drainEvents: this._drainEvents,
          tocEventId: this._tocEventId, convEventId: this._convEventId } =
-      yield this._db.loadConversationMessageIdsAndListen(this.conversationId));
+      await this._db.loadConversationMessageIdsAndListen(this.conversationId));
 
     return idsWithDates;
-  }),
+  },
 
   /**
    * Bind the listener for TOC changes, including immediately draining all
    * buffered events that were fired between the time the DB query was issued
    * and now.
    */
-  bind: function(listenerObj, tocListenerMethod, convListenerMethod) {
+  bind(listenerObj, tocListenerMethod, convListenerMethod) {
     this._boundTOCListener = tocListenerMethod.bind(listenerObj);
     this._boundConvListener = convListenerMethod.bind(listenerObj);
     this._db.on(this._tocEventId, this._boundTOCListener);
@@ -50,11 +45,8 @@ DirectConversationQuery.prototype = {
   /**
    * Tear down everything.  Query's over.
    */
-  destroy: function() {
+  destroy() {
     this._db.removeListener(this._tocEventId, this._boundTOCListener);
     this._db.removeListener(this._convEventId, this._boundConvListener);
   }
 };
-
-return DirectConversationQuery;
-});

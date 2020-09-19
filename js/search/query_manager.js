@@ -1,27 +1,24 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import DirectFolderQuery from './query/direct_folder_query';
+import FilteringFolderQuery from './query/filtering_folder_query';
 
-const DirectFolderQuery = require('./query/direct_folder_query');
-const FilteringFolderQuery = require('./query/filtering_folder_query');
+import DirectConversationQuery from './query/direct_conv_query';
+import FilteringConversationQuery from './query/filtering_conv_query';
 
-const DirectConversationQuery = require('./query/direct_conv_query');
-const FilteringConversationQuery = require('./query/filtering_conv_query');
+import FilterRunner from './filter_runner';
+import NestedGatherer from './nested_gatherer';
 
-const FilterRunner = require('./filter_runner');
-const NestedGatherer = require('./nested_gatherer');
-
-const conversationFilters = require('./conv_filters');
-const conversationGatherers = require('./conv_gatherers');
-const messageFilters = require('./msg_filters');
-const messageGatherers = require('./msg_gatherers');
+import conversationFilters from './conv_filters';
+import conversationGatherers from './conv_gatherers';
+import messageFilters from './msg_filters';
+import messageGatherers from './msg_gatherers';
 
 /**
  * Abstraction for all persistent database queries.  Read "search.md" for the
  * deets.
  */
-function QueryManager({ db, derivedViewManager }) {
+export default function QueryManager({ db, derivedViewManager }) {
   logic.defineScope(this, 'QueryManager');
   this._db = db;
   this._derivedViewManager = derivedViewManager;
@@ -206,6 +203,3 @@ QueryManager.prototype = {
     });
   }
 };
-
-return QueryManager;
-});

@@ -1,11 +1,8 @@
-define(function() {
-'use strict';
-
 /**
  * Perform simple assumed safe object attribute traversals while also
  * potentially accumulating a map of aggregate values.
  */
-function FieldExtractor({ extract, aggregate }) {
+export default function FieldExtractor({ extract, aggregate }) {
   const extractOps = this._extractOps = [];
   const aggrOps = this._aggregateOps = [];
   const aggregated = this.aggregated = {};
@@ -46,7 +43,7 @@ function FieldExtractor({ extract, aggregate }) {
   }
 }
 FieldExtractor.prototype = {
-  _traverse: function(rootObj, traversal ) {
+  _traverse(rootObj, traversal ) {
     let curObj = rootObj;
     try {
       for (let attr of traversal) {
@@ -58,7 +55,7 @@ FieldExtractor.prototype = {
     return curObj;
   },
 
-  extract: function(gathered, idName, idValue) {
+  extract(gathered, idName, idValue) {
     const extracted = {
       [idName]: idValue
     };
@@ -73,6 +70,3 @@ FieldExtractor.prototype = {
     return extracted;
   }
 };
-
-return FieldExtractor;
-});

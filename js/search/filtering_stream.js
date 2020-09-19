@@ -1,11 +1,7 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
-
-const { TransformStream, WritableStream, CountQueuingStrategy } =
-  require('streams');
-const { shallowClone } = require('../util');
+import { TransformStream, WritableStream, CountQueuingStrategy } from 'streams';
+import { shallowClone } from '../util';
 
 /**
  * The filtering stream is fed TOC change events consisting of
@@ -37,7 +33,7 @@ const { shallowClone } = require('../util');
  *
  * @param {}
  */
-return function FilteringStream({ ctx, filterRunner, rootGatherer,
+export default function FilteringStream({ ctx, filterRunner, rootGatherer,
     preDerivers, postDerivers,
     isDeletion, inputToGatherInto, mutateChangeToResembleAdd,
     mutateChangeToResembleDeletion, onFilteredUpdate }) {
@@ -215,5 +211,4 @@ return function FilteringStream({ ctx, filterRunner, rootGatherer,
       gatherStream.writable.close();
     }
   };
-};
-});
+}
