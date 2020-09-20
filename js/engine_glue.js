@@ -58,7 +58,14 @@ export const configuratorModules = new Map([
       const mod = await import('gelam/extras/phabricator/configurator');
       return mod.default;
     }
-  ]
+  ],
+  [
+    'bugzilla',
+    async function() {
+      const mod = await import('gelam/extras/bugzilla/configurator');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -99,7 +106,14 @@ export const validatorModules = new Map([
       const mod = await import('gelam/extras/phabricator/validator');
       return mod.default;
     }
-  ]
+  ],
+  [
+    'bugzilla',
+    async function() {
+      const mod = await import('gelam/extras/bugzilla/validator');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -136,7 +150,14 @@ export const accountModules = new Map([
       const mod = await import('gelam/extras/phabricator/account');
       return mod.default;
     }
-  ]
+  ],
+  [
+    'bugzilla',
+    async function() {
+      const mod = await import('gelam/extras/bugzilla/account');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -180,7 +201,14 @@ export const engineTaskMappings = new Map([
       const mod = await import('gelam/extras/phabricator/phabricator_tasks');
       return mod.default;
     }
-  ]
+  ],
+  [
+    'bugzilla',
+    async function() {
+      const mod = await import('gelam/extras/bugzilla/bugzilla_tasks');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -230,6 +258,12 @@ export const engineHacks = new Map([
       unselectableFolderTypes: new Set(),
     }
   ],
+  [
+    'bugzilla',
+    {
+      unselectableFolderTypes: new Set(),
+    }
+  ],
 ]);
 
 /**
@@ -271,6 +305,12 @@ export const engineBackEndFacts = new Map([
   ],
   [
     'phabricator',
+    {
+      syncGranularity: 'account',
+    }
+  ],
+  [
+    'bugzilla',
     {
       syncGranularity: 'account',
     }
@@ -341,6 +381,15 @@ export const engineFrontEndAccountMeta = new Map([
       usesArchiveMetaphor: false
     }
   ],
+  [
+    'bugzilla',
+    {
+      engineFacts: {
+        syncGranularity: 'account',
+      },
+      usesArchiveMetaphor: false
+    }
+  ],
 ]);
 
 /**
@@ -382,6 +431,12 @@ export const engineFrontEndFolderMeta = new Map([
   ],
   [
     'phabricator',
+    {
+      syncGranularity: 'account',
+    }
+  ],
+  [
+    'bugzilla',
     {
       syncGranularity: 'account',
     }

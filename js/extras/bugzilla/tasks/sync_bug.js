@@ -8,13 +8,13 @@ import { prioritizeNewer } from '../../../date_priority_adjuster';
 import TaskDefiner from '../../../task_infra/task_definer';
 
 import churnConversation from '../../../churn_drivers/conv_churn_driver';
-import { TransactionChewer } from '../chew_xact';
 import { UserChewer } from '../chew_users';
+import { BugChewer } from '../chew_bug';
 
 
 export default TaskDefiner.defineSimpleTask([
   {
-    name: 'sync_drev',
+    name: 'sync_bug',
 
     async plan(ctx, rawTask) {
       let plannedTask = shallowClone(rawTask);
@@ -46,30 +46,12 @@ export default TaskDefiner.defineSimpleTask([
       let foldersTOC =
         await ctx.universe.acquireAccountFoldersTOC(ctx, ctx.accountId);
 
-      // ## Fetch the current revision details and its transactions in parallel.
-      const revDetailsProm = account.client.apiCall(
-        'differential.revision.search',
-        {
-          constraints: {
-            phids: [req.drevPhid],
-          },
-          attachments: {
-            reviewers: true,
-            subscribers: true,
-            projects: true,
-            'reviewers-extra': true,
-          }
-        }
-      );
-      const revTransactionsProm = account.client.apiCall(
-        'transaction.search',
-        {
-          objectIdentifier: req.drevPhid,
-        }
-      );
-
-      const revDetails = await revDetailsProm;
-      const revTransactions = await revTransactionsProm;
+      const results = await account.client.restCall(
+        `bug/${req.bugId}`,
+        new URLSearchParams({
+          include_fields: '_all',
+        }));
+      const bugInfo = results.bugs[0];
 
       // ## Begin Mutation
       // TODO: Improve the TransactionChewer so that it's able to run for the
@@ -91,32 +73,26 @@ export default TaskDefiner.defineSimpleTask([
         messagesByConversation: new Map([[req.convId, null]])
       });
 
-      const revInfo = revDetails.data[0];
-
       const oldMessages = fromDb.messagesByConversation.get(req.convId);
       const oldConvInfo = fromDb.conversations.get(req.convId);
 
       // ## If we don't have the current version of the patch, then fetch it.
       // XXX Implement the patch stuff.
-
       const userChewer = new UserChewer();
-      const txChewer = new TransactionChewer({
+      const bugChewer = new BugChewer({
         userChewer,
         convId: req.convId,
         oldConvInfo,
         oldMessages,
         foldersTOC,
-        revInfo,
+        bugInfo,
       });
 
-      for (const tx of revTransactions.data) {
-        txChewer.chewTransaction(tx);
-      }
+      bugChewer.chewBug();
 
       await userChewer.gatherDataFromServer(account.client);
 
-
-      let convInfo = churnConversation(req.convId, oldConvInfo, txChewer.allMessages);
+      let convInfo = churnConversation(req.convId, oldConvInfo, bugChewer.allMessages);
 
       // ## Finish the task
       // Properly mark the conversation as new or modified based on whether we
@@ -131,11 +107,11 @@ export default TaskDefiner.defineSimpleTask([
       await ctx.finishTask({
         mutations: {
           conversations: modifiedConversations,
-          messages: txChewer.modifiedMessageMap
+          messages: bugChewer.modifiedMessageMap
         },
         newData: {
           conversations: newConversations,
-          messages: txChewer.newMessages
+          messages: bugChewer.newMessages
         }
       });
     },
