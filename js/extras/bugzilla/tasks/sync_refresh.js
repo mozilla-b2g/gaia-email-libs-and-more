@@ -122,6 +122,10 @@ export default TaskDefiner.defineAtMostOnceTask([
         const lastChangeDate = new Date(bugInfo.last_change_time);
         const lastChangeDatestamp = lastChangeDate.valueOf();
 
+        if (lastChangeDatestamp > highestLastChangeDatestamp) {
+          highestLastChangeDatestamp = lastChangeDatestamp;
+        }
+
         syncState.foundBug({
           bugId: bugInfo.id,
           lastChangeDatestamp,
