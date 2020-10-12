@@ -42,6 +42,8 @@ export default function TaskContext(taskThing, universe) {
   this._preMutateStates = null;
   this._subtaskCounter = 0;
 
+  this._decoratorCallbacks = [];
+
   /**
    * @type {'prep'|'mutate'|'finishing'}
    */
@@ -613,6 +615,12 @@ TaskContext.prototype = {
       taskManager.emit(`undoTasks:${this.id}`, finishData.undoTasks);
     }
 
+    // If __failsafeFinalize was invoked (and we hadn't already finished), the
+    // callbacks will already have been notified of failure and cleared.
+    for (const decoratorCallback of this._decoratorCallbacks) {
+      decoratorCallback(this, true, finishData);
+    }
+
     return this.universe.db.finishMutate(
       this,
       finishData,
@@ -648,7 +656,28 @@ TaskContext.prototype = {
     }
 
     logic(this, 'failsafeFinalize');
+
+    // notify decorator callbacks of failure
+    for (const decoratorCallback of this._decoratorCallbacks) {
+      try {
+        decoratorCallback(this, false, null);
+      } catch (ex) {
+        logic(this, 'decoratorFailsafeFail', { ex });
+      }
+    }
+    this._decoratorCallbacks = [];
+
     // empty object implies empty taskState.
     this.finishTask({});
+  },
+
+  /**
+   * A helper for `FoldersTOC.ensureLocalVirtualFolder` and similar use-cases
+   * where an in-memory source of truth needs to manage speculative shared state
+   * that should be transactionally committed to disk when the relevant tasks
+   * complete.
+   */
+  __decorateFinish(callback) {
+    this._decoratorCallbacks.push(callback);
   }
 };

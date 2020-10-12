@@ -12,8 +12,27 @@ logic.defineScope(scope, 'churnConversationDriver');
  * everything else is farmed out to the function provided by the app-logic at
  * "app_logic/conv_churn" and which will be found under "app" on the produced
  * structure.
+ *
+ * @param {*} convId
+ *   The conversation's canonical id.
+ * @param {*} oldConvInfo
+ *   If previously churned, the previous state, null if this is a fresh
+ *   conversation.
+ * @param {MessageInfo[]} messages
+ * @param {'mail'|'phab-drev'|'bug'|String} convType
+ *   The conversation type allows the app logic for churning to specialize its
+ *   behavior, as well as the UI.  We now support a mixture of account types
+ *   that aren't all email accounts, and it's counterproductive to try and force
+ *   them to all fit into the email model without specialization.
+ * @param {*} convMeta
+ *   Dictionary of extra information about the conversation itself as a
+ *   conceptual entity for the benefit of app logic and any involved extensions.
+ *   While this isn't normally a thing for vanilla email, phabricator revisions
+ *   and bugzilla bugs are not just container aggregates but first class
+ *   entities with attributes that exist independent of what we've mapped into
+ *   messages.
  */
-export default function churnConversationDriver(convId, oldConvInfo, messages) {
+export default function churnConversationDriver(convId, oldConvInfo, messages, convType='mail', convMeta) {
   let authorsByEmail = new Map();
   // The number of headers where we have already fetch snippets (or at least
   // tried to).
@@ -69,6 +88,7 @@ export default function churnConversationDriver(convId, oldConvInfo, messages) {
 
   let convInfo = {
     id: convId,
+    convType,
     date: effectiveDate,
     folderIds: convFolderIds,
     // It's up to the actual churn to clobber the height if it wants.
@@ -85,8 +105,12 @@ export default function churnConversationDriver(convId, oldConvInfo, messages) {
     app: {}
   };
 
+  // TODO: Probably extensions should get a chance to do some digesting here?
+  // Or is that something that we should leave up to the app logic so that it
+  // can draw from the extensions as a library of helpers to invoke?
+
   try {
-    appChurnConversation(convInfo, messages, oldConvInfo);
+    appChurnConversation(convInfo, messages, oldConvInfo, convType, convMeta);
   } catch (ex) {
     logic(scope, 'appChurnEx', { ex });
   }

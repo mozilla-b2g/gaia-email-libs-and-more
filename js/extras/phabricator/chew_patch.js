@@ -1,3 +1,4 @@
+import parseGitPatch from 'parse-git-patch';
 
 /**
  * Helper class that consumes a diff/patch to provide summary information
@@ -43,5 +44,59 @@
  *   semantic delta before and after the patch.
  */
 export class PatchChewer {
+  /**
+   * Given the contents of a patch as a string, return an object with keys:
+   * - dirStats: Map from flat directory paths (ex: 'foo/bar', not a hierarchy)
+   *   to objects with key:
+   *   - linesAdded: Number
+   *   - linesDeleted: Number
+   *   - fileInfos: Array of objects with keys:
+   *     - fileName
+   *     - linesAdded
+   *     - linesDeleted
+   */
+  chewPatch(patchText) {
+    const parsed = parseGitPatch(patchText);
 
+    const dirStats = new Map();
+
+    for (const pfile of parsed.files) {
+      const fileName = pfile.deleted ? pfile.beforeName : pfile.afterName;
+      const idxLastSlash = fileName.lastIndexOf('/');
+      const dirName = fileName.substring(0, idxLastSlash);
+
+      let dirInfo = dirStats.get(dirName);
+      if (!dirInfo) {
+        dirInfo = {
+          dirName,
+          linesAdded: 0,
+          linesDeleted: 0,
+          fileInfos: [],
+        };
+        dirStats.set(dirName, dirInfo);
+      }
+
+      let added = 0, deleted = 0;
+      for (const lineParsed of pfile.modifiedLines) {
+        if (lineParsed.adde) {
+          added++;
+        } else {
+          deleted++;
+        }
+      }
+      let fileInfo = {
+        fileName,
+        linesAdded: added,
+        linesDeleted: deleted,
+      };
+
+      dirInfo.fileInfos.push(fileInfo);
+      dirInfo.linesAdded += added;
+      dirInfo.linesDeleted += deleted;
+    }
+
+    return {
+      dirStats,
+    };
+  }
 }

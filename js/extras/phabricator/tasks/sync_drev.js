@@ -10,6 +10,7 @@ import TaskDefiner from '../../../task_infra/task_definer';
 import churnConversation from '../../../churn_drivers/conv_churn_driver';
 import { TransactionChewer } from '../chew_xact';
 import { UserChewer } from '../chew_users';
+import { PatchChewer } from '../chew_patch';
 
 
 export default TaskDefiner.defineSimpleTask([
@@ -96,11 +97,60 @@ export default TaskDefiner.defineSimpleTask([
       const oldMessages = fromDb.messagesByConversation.get(req.convId);
       const oldConvInfo = fromDb.conversations.get(req.convId);
 
+      let patchInfo;
+
       // ## If we don't have the current version of the patch, then fetch it.
-      // XXX Implement the patch stuff.
+      if (!oldConvInfo || !oldConvInfo.app ||
+          !oldConvInfo.app.patchInfo ||
+          oldConvInfo.app.patchInfo.diffPHID !== revInfo.fields.diffPHID) {
+        const diffPHID = revInfo.fields.diffPHID;
+
+        // The raw diff lookup needs the numeric id from the diffInfo based on
+        // my preliminary investigations, so we need to do a diff search to get
+        // that info from the diffPHID.
+        const diffInfo = (await account.client.apiCall(
+          'differential.diff.search',
+          {
+            constraints: {
+              phids: [diffPHID]
+            },
+            attachments: {
+              commits: true
+            },
+          }
+        )).data[0];
+
+        const rawDiff = await account.client.apiCall(
+          'differential.getrawdiff',
+          {
+            diffID: diffInfo.id,
+          }
+        );
+
+        const patchChewer = new PatchChewer();
+        const { dirStats } = patchChewer.chewPatch(rawDiff);
+
+        const virtFolderIds = [];
+        const dirInfos = [];
+        for (const [dirName, dirInfo] of dirStats.entries()) {
+          const virtFolderInfo = foldersTOC.ensureLocalVirtualFolder(
+            ctx, `patch-paths/${dirName}`);
+          virtFolderIds.push(virtFolderInfo.id);
+          dirInfos.push(dirInfo);
+        }
+
+        patchInfo = {
+          diffPHID,
+          virtFolderIds,
+          dirInfos,
+        };
+      } else {
+        patchInfo = oldConvInfo.app.patchInfo;
+      }
 
       const userChewer = new UserChewer();
       const txChewer = new TransactionChewer({
+        taskContext: ctx,
         userChewer,
         convId: req.convId,
         oldConvInfo,
@@ -115,8 +165,12 @@ export default TaskDefiner.defineSimpleTask([
 
       await userChewer.gatherDataFromServer(account.client);
 
+      const convMeta = {
+        patchInfo,
+      };
 
-      let convInfo = churnConversation(req.convId, oldConvInfo, txChewer.allMessages);
+      let convInfo = churnConversation(
+        req.convId, oldConvInfo, txChewer.allMessages, 'phab-drev', convMeta);
 
       // ## Finish the task
       // Properly mark the conversation as new or modified based on whether we

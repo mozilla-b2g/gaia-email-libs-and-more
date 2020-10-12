@@ -369,7 +369,8 @@ const TRANSACTION_HANDLERS = new Map([
  * `PatchChewer`.
  */
 export class TransactionChewer {
-  constructor({ userChewer, convId, oldConvInfo, oldMessages, foldersTOC, revInfo }) {
+  constructor({ taskContext, userChewer, convId, oldConvInfo, oldMessages, foldersTOC, revInfo }) {
+    this.taskCtx = taskContext;
     this.userChewer = userChewer;
     this.userLookup = userChewer.mapPhid.bind(userChewer);
     this.convId = convId;
@@ -402,6 +403,8 @@ export class TransactionChewer {
     // As explained in `../sync.md` we pad a 0 onto the end for consistency
     // with email (gmail) message id's.
     const msgId = `${this.convId}.${tx.id}.0`;
+
+    const folderIds = new Set([this.inboxFolder.id]);
 
     // If we've previously seen this message and it hasn't been modified, then
     // skip processing it.
@@ -489,9 +492,7 @@ export class TransactionChewer {
       author: this.userChewer.mapPhid(tx.authorPHID),
       // TODO: Convert nick name-checks to "to"?
       flags: [],
-      // XXX/TODO: Is there any point to putting messages in folders versus just
-      // leaving it at a conversation granularity?
-      folderIds: new Set([this.inboxFolder.id]),
+      folderIds,
       // XXX Currently we only need this on the first message per the churn
       // logic, but that fails to update with changes to the title, so more work
       // is necessary, etc.

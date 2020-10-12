@@ -8,6 +8,7 @@ import { encodeInt as encodeA64Int } from '../a64';
 import { decodeSpecificFolderIdFromFolderId } from '../id_conversions';
 
 import { engineFrontEndFolderMeta, engineHacks } from '../engine_glue';
+import { makeFolderMeta } from './folder_info_rep';
 
 let FOLDER_TYPE_TO_SORT_PRIORITY = {
   account: 'a',
@@ -39,10 +40,14 @@ function strcmp(a, b) {
 }
 
 /**
- * Self-managed Folder TOC that owns the canonical list of folders for an
- * account.
+ * Self-managed Folder TOC that owns and manages the canonical list of folders
+ * for an account.  It provides a means for tasks to idempotently create new
+ * local folders building on the database triggers mechanism, see
+ * `ensureLocalVirtualFolder.
  *
- * Each FoldersTOC is eternal.  You don't need to acquire or release it.
+ * Each FoldersTOC is eternal.  You don't need to acquire or release it, but
+ * MailUniverse does provide `MailUniverse.acquireAccountFoldersTOC` in order to
+ * better track resource utilization.
  *
  * Note: The back-end used to just order things by path.  And the front-end
  * ordered things by our crazy sort priority.  Now we use the sort priority here
@@ -59,10 +64,43 @@ export default function FoldersTOC({ db, accountDef, folders, dataOverlayManager
   this._dataOverlayManager = dataOverlayManager;
 
   /**
-   * Canonical folder state representation.  This is what goes in the database.
+   * Folder information keyed by unique id.
+   *
+   * Managed by `_addFolder` and `_removeFolderById`.
+   *
    * @type {Map<FolderId, FolderInfo>}
    */
   this.foldersById = this.itemsById = new Map();
+
+  /**
+   * Folder information keyed by path.
+   *
+   * Managed by `_addFolder` and `_removeFolderById`.
+   *
+   * @type {Map<String, FolderInfo>}
+   */
+  this.foldersByPath = new Map();
+
+  /**
+   * Like `foldersByPath` but for folders whose creation has been requested by
+   * `ensureLocalVirtualFolder` but the folder hasn't yet been flushed by a
+   * completing task.
+   *
+   * @type {Map<String, FolderInfo>}
+   */
+  this._pendingFoldersByPath = new Map();
+
+  /**
+   * A map from Task id's to `Set`s of pending folder paths.  Tasks are added
+   * to this Map by `ensureLocalVirtualFolder` when a call to
+   * `TaskContext.__decorateFinish` is made and removed by the callback
+   * `_onTaskFinishing` passed as an argument to that method.
+   *
+   * The Set values may contain paths that are no longer present in
+   * `_pendingFoldersByPath` because some other task that ensured its creation
+   * finished before the current task.
+   */
+  this._pendingTaskContextIdsToPendingPaths = new Map();
 
   /**
    * Ordered list of the folders.
@@ -165,6 +203,162 @@ FoldersTOC.prototype = evt.mix({
     return this.accountId + '.' + encodeA64Int(this._nextFolderNum++);
   },
 
+  /**
+   * Mechanism for tasks that automatically create virtual folders / labels to
+   * do so within a task without massively complicating the task logic.
+   *
+   * The core ideas here:
+   * - The FoldersTOC is the canonical source of truth for folders at all times
+   *   and so it can bring new folders into existence whenever it wants.
+   * - Database consistency demands that newly defined folders be written to
+   *   disk during the earliest task write that requested their creation or use.
+   * - Database triggers provide a mechanism for separating the implementation
+   *   details of this from tasks.
+   *
+   * The contract here is:
+   * - Any task that exposes messages/conversations using virtual folders/labels
+   *   must use this method to map the folder path to a FolderInfo instance.
+   * - This method takes the `TaskContext` to identify the task in question so
+   *   that if the folder ends up being created, it can be flushed at the
+   *   appropriate time.
+   * - The caller doesn't need to perform any additional actions because of the
+   *   awesome power of database triggers.  The first task to successfully
+   *   complete that requested the addition of a folder will cause the folder
+   *   to be added and be reported to the rest of the system.  During the time
+   *   that it is pending, it will only be visible to other calls to
+   *   `ensureLocalVirtualFolder`.
+   * - Tasks using this mechanism must not otherwise manipulate folders.  This
+   *   means that the `newData` and `mutations` members of the `finishData`
+   *   provided to `TaskContext.finishTask` must not include a `folders` field.
+   *
+   * TODO: Properly deal with localization.  The simplest solution for this
+   * is to specify a prefix character for use at the beginning of each path
+   * segment which corresponds to a localized identifier.  When the character is
+   * detected, it will be be replaced with its localized counterpart.  It would
+   * likely make sense to do this at creation time now and then run a
+   * re-localization transformation pass whenever the user changes their locale.
+   */
+  ensureLocalVirtualFolder(taskContext, folderPath) {
+    let folderInfo = this.foldersByPath.get(folderPath);
+    if (folderInfo) {
+      return folderInfo;
+    }
+
+    // There wasn't a folder with that path, so we know that by the time we
+    // leave this method, we're going to be tracking a pending folder for this
+    // task, so idempotently ensure we're all hooked up.
+    let taskPendingPaths =
+      this._pendingTaskContextIdsToPendingPaths.get(taskContext.id);
+    if (!taskPendingPaths) {
+      taskPendingPaths = new Set();
+      taskContext.__decorateFinish(this._onTaskFinishing.bind(this));
+      this._pendingTaskContextIdsToPendingPaths.set(taskContext.id, taskPendingPaths);
+    }
+
+    // It's a set, so it's fine if this path already exists.
+    taskPendingPaths.add(folderPath);
+
+    folderInfo = this._pendingFoldersByPath.get(folderPath);
+    if (folderInfo) {
+      return folderInfo;
+    }
+
+    const pathParts = folderPath.split('/');
+
+    // The folder needs to be freshly created as pending!
+    folderInfo = makeFolderMeta({
+      id: this.issueFolderId(),
+      serverId: null,
+      name: folderPath,
+      // XXX maybe we should introduce a specific virtual / label type?
+      type: 'normal',
+      path: folderPath,
+      serverPath: null,
+      delim: '/',
+      depth: pathParts.length,
+      // XXX This is potentially misleading as this is a virtual folder and is
+      // therefore dependent on the state of other folders.  But for now we are
+      // only enabling this for account-centric accounts anyways.
+      syncGranularity: 'local-only',
+    });
+
+    this._pendingFoldersByPath.set(folderPath, folderInfo);
+
+    return folderInfo;
+  },
+
+  /**
+   * Helper to `_onTaskFinishing` that returns true if the given folder path is
+   * currently pending because of a task that has not yet finished / isn't
+   * currently finishing (AKA the task on the current stack).
+   */
+  _isFolderPathPending(folderPath) {
+    for (const taskPendingPaths of
+         this._pendingTaskContextIdsToPendingPaths.values()) {
+      if (taskPendingPaths.has(folderPath)) {
+        return true;
+      }
+    }
+
+    return false;
+  },
+
+  /**
+   * Called by TaskContexts that we registered a decorator callback on inside
+   * `ensureLocalVirtualFolder`.  This is called in both success and failure
+   * cases.
+   */
+  _onTaskFinishing(taskCtx, success, finishData) {
+    const taskPendingPaths =
+      this._pendingTaskContextIdsToPendingPaths.get(taskCtx.id);
+    this._pendingTaskContextIdsToPendingPaths.delete(taskCtx.id);
+
+    for (const folderPath of taskPendingPaths) {
+      const folderInfo = this._pendingFoldersByPath.get(folderPath);
+      if (!folderInfo) {
+        // Another task may have requested the creation of this folder and
+        // already flushed it, so there's nothing for us to do for this folder!
+        continue;
+      }
+
+      if (!success) {
+        // If we didn't succeed, then we don't want to write out the new folder.
+        // We also don't want to leak it, so we may want to delete it from
+        // _pendingFoldersByPath.  But only if no other tasks are currently
+        // thinking about adding it!
+        //
+        // So check if any other tasks are pending on this folder, and if so,
+        // avoid running the delete immediately below this block.
+        // (This check avoids getting confused by our current task because we
+        // already removed ourselves from _pendingTaskContextIdsToPendingPaths.)
+        if (this._isFolderPathPending(folderPath)) {
+          continue;
+        }
+      }
+
+      // Remove the folder from the pending table since we're consuming it.
+      this._pendingFoldersByPath.delete(folderPath);
+
+      if (!success) {
+        continue;
+      }
+
+      // There's no requirement for a task to be adding newData, but we might
+      // be, so ensure the field is present.
+      if (!finishData.newData) {
+        finishData.newData = {};
+      }
+      // Avoid clobbering folders...
+      if (!finishData.newData.folders) {
+        finishData.newData.folders = [];
+      }
+      // This will result in a cascade of events that result in `_addFolder`
+      // being called and the folder being added to our canonical state, so we
+      // have no action beyond putting the folder in newData!
+      finishData.newData.folders.push(folderInfo);
+    }
+  },
+
   getAllItems() {
     return this.items;
   },
@@ -261,6 +455,7 @@ FoldersTOC.prototype = evt.mix({
           { id: folderInfo.id, index: idx, _folderInfo: folderInfo });
     this.folderSortStrings.splice(idx, 0, sortString);
     this.foldersById.set(folderInfo.id, folderInfo);
+    this.foldersByPath.set(folderInfo.path, folderInfo);
 
     this.emit('add', this.folderInfoToWireRep(folderInfo), idx);
   },
@@ -273,6 +468,7 @@ FoldersTOC.prototype = evt.mix({
       throw new Error('the folder did not exist?');
     }
     this.foldersById.delete(id);
+    this.foldersByPath.delete(folderInfo.path);
     this.items.splice(idx, 1);
     this.folderSortStrings.splice(idx, 1);
     this.emit('remove', id, idx);
