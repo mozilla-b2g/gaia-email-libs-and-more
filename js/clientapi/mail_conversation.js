@@ -74,6 +74,7 @@ export default function MailConversation(api, wireRep, overlays, matchInfo, slic
   this._wireRep = wireRep;
 
   this.id = wireRep.id;
+  this.convType = wireRep.convType;
   this.__update(wireRep, true);
   this.matchInfo = matchInfo;
 }

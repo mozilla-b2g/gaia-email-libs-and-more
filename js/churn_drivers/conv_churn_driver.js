@@ -33,7 +33,13 @@ logic.defineScope(scope, 'churnConversationDriver');
  *   messages.
  */
 export default function churnConversationDriver(convId, oldConvInfo, messages, convType='mail', convMeta) {
-  let authorsByEmail = new Map();
+  // By default, for email, we want to unique-ify based on email address.
+  let userCanonicalField = 'address';
+  if (convType === 'phab-drev') {
+    userCanonicalField = 'nick';
+  }
+
+  let authorsById = new Map();
   // The number of headers where we have already fetch snippets (or at least
   // tried to).
   let snippetCount = 0;
@@ -68,8 +74,8 @@ export default function churnConversationDriver(convId, oldConvInfo, messages, c
       convHasAttachments = true;
     }
 
-    if (!authorsByEmail.has(message.author.address)) {
-      authorsByEmail.set(message.author.address, message.author);
+    if (!authorsById.has(message.author[userCanonicalField])) {
+      authorsById.set(message.author[userCanonicalField], message.author);
     }
 
     // union this messages's folderId's into the conversation's.
@@ -96,7 +102,7 @@ export default function churnConversationDriver(convId, oldConvInfo, messages, c
     subject: messages[0].subject,
     messageCount: messages.length,
     snippetCount: snippetCount,
-    authors: Array.from(authorsByEmail.values()),
+    authors: Array.from(authorsById.values()),
     tidbits: tidbits,
     hasUnread: convHasUnread,
     hasStarred: convHasStarred,

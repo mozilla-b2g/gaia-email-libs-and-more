@@ -166,6 +166,9 @@ export default TaskDefiner.defineSimpleTask([
       await userChewer.gatherDataFromServer(account.client);
 
       const convMeta = {
+        drevInfo: {
+          status: revInfo.fields.status.name,
+        },
         patchInfo,
       };
 

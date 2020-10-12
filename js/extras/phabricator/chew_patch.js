@@ -64,6 +64,9 @@ export class PatchChewer {
       const fileName = pfile.deleted ? pfile.beforeName : pfile.afterName;
       const idxLastSlash = fileName.lastIndexOf('/');
       const dirName = fileName.substring(0, idxLastSlash);
+      if (!dirName) {
+        console.warn('Got empty dirname from', fileName, 'from', pfile);
+      }
 
       let dirInfo = dirStats.get(dirName);
       if (!dirInfo) {
@@ -78,7 +81,7 @@ export class PatchChewer {
 
       let added = 0, deleted = 0;
       for (const lineParsed of pfile.modifiedLines) {
-        if (lineParsed.adde) {
+        if (lineParsed.added) {
           added++;
         } else {
           deleted++;
