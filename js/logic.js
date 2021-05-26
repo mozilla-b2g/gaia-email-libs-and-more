@@ -64,7 +64,7 @@
  * So given the following code:
  *
  *   function Animal(name) {
- *     logic.defineScope('Animal', { name: name });
+ *     logic.defineScope(this, 'Animal', { name: name });
  *     logic(this, 'animalCreated', { why: 'because' });
  *   }
  *   Animal.prototype.say = function(what) {
