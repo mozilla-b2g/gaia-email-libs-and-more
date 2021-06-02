@@ -67,6 +67,12 @@ export class RecurringEventBundleChewer {
 
     // # Non-Recurring
     if (!rootEvent.isRecurring()) {
+      // Don't bother emitting this event if it's outside our sync range.
+      if (rootEvent.endDate.toJSDate().valueOf() < this.rangeOldestTS ||
+          rootEvent.startDate.toJSDate().valueOf() > this.rangeNewestTS) {
+        return;
+      }
+
       // Wrap this into a fake `occurrenceDetails`
       const fakeOccur = {
         recurrenceId: rootEvent.startDate,
@@ -82,12 +88,31 @@ export class RecurringEventBundleChewer {
       // ## Iterate the recurrence until it's past the end of our sync range.
       const calIter = rootEvent.iterator();
 
+      // Failsafe infinite recursion avoidance.
+      //
+      // TODO: Remove this in the future, as the ical.js library in fact does
+      // have its own invariants about making forward progress, but there have
+      // been typos in this file before that led to sadness, and it's nice to
+      // have a backstop.
+      let stepCount = 0;
+
       for (calIter.next();
-           !calIter.completed && !calIter.last.toJSDate() <= this.rangeNewestTS;
-           calIter.next()) {
+           (calIter.complete === false) &&
+             (stepCount < 1024) &&
+             (calIter.last.toJSDate().valueOf() <= this.rangeNewestTS);
+           calIter.next(), stepCount++) {
         const curOccur = calIter.last;
         const occurInfo = rootEvent.getOccurrenceDetails(curOccur);
 
+        // Skip to the next iteration if we're not yet into the sync range.
+        //
+        // (Although we are bounds-checking before/after here, we're doing it
+        // for consistency.  The loop logic above should stop the loop once we
+        // iterate beyond the end of rangeNewestTS.)
+        if (occurInfo.endDate.toJSDate().valueOf() < this.rangeOldestTS ||
+            occurInfo.startDate.toJSDate().valueOf() > this.rangeNewestTS) {
+          continue;
+        }
         this._chewOccurrence(occurInfo);
       }
     }

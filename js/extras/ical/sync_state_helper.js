@@ -15,7 +15,7 @@ export default class ICalSyncStateHelper {
       rawSyncState = {
         nextConvId: 1,
         rangeOldestTS: makeDaysAgo(30),
-        rangeNewestTS: makeDaysBefore(30),
+        rangeNewestTS: makeDaysAgo(-30),
         uidToConvIdAndLastModified: new Map(),
       };
     }
@@ -139,7 +139,7 @@ export default class ICalSyncStateHelper {
           jcalEvents: [],
           rangeOldestTS: this.rawSyncState.rangeOldestTS,
           rangeNewestTS: this.rawSyncState.rangeNewestTS,
-        })
+        });
       }
     }
   }
