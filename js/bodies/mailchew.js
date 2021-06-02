@@ -400,7 +400,7 @@ export function mergeUserTextWithHTML(text, html) {
  * @param {Boolean} generateSnippet
  *   Should we try and generate a snippet from however much content we have
  *   here.
- * @return {{ contentBlob, snippet }}
+ * @return {{ contentBlob, snippet, authoredBodySize }}
  */
 export function processMessageContent(
     content, type, isDownloaded, generateSnippet) {

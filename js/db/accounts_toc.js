@@ -10,6 +10,11 @@ import { bsearchForInsert } from '../util';
  * order.)
  */
 function accountDefComparator(a, b) {
+  if (!a.name) {
+    return -1;
+  } else if (!b.name) {
+    return 1;
+  }
   return a.name.localeCompare(b.name);
 }
 

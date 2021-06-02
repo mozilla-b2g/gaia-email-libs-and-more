@@ -66,6 +66,13 @@ export const configuratorModules = new Map([
       return mod.default;
     }
   ],
+  [
+    'ical',
+    async function() {
+      const mod = await import('gelam/extras/ical/configurator');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -114,6 +121,13 @@ export const validatorModules = new Map([
       return mod.default;
     }
   ],
+  [
+    'ical',
+    async function() {
+      const mod = await import('gelam/extras/ical/validator');
+      return mod.default;
+    }
+  ],
 ]);
 
 /**
@@ -155,6 +169,13 @@ export const accountModules = new Map([
     'bugzilla',
     async function() {
       const mod = await import('gelam/extras/bugzilla/account');
+      return mod.default;
+    }
+  ],
+  [
+    'ical',
+    async function() {
+      const mod = await import('gelam/extras/ical/account');
       return mod.default;
     }
   ],
@@ -206,6 +227,13 @@ export const engineTaskMappings = new Map([
     'bugzilla',
     async function() {
       const mod = await import('gelam/extras/bugzilla/bugzilla_tasks');
+      return mod.default;
+    }
+  ],
+  [
+    'ical',
+    async function() {
+      const mod = await import('gelam/extras/ical/ical_tasks');
       return mod.default;
     }
   ],
@@ -264,6 +292,12 @@ export const engineHacks = new Map([
       unselectableFolderTypes: new Set(),
     }
   ],
+  [
+    'ical',
+    {
+      unselectableFolderTypes: new Set(),
+    }
+  ],
 ]);
 
 /**
@@ -311,6 +345,12 @@ export const engineBackEndFacts = new Map([
   ],
   [
     'bugzilla',
+    {
+      syncGranularity: 'account',
+    }
+  ],
+  [
+    'ical',
     {
       syncGranularity: 'account',
     }
@@ -390,6 +430,15 @@ export const engineFrontEndAccountMeta = new Map([
       usesArchiveMetaphor: false
     }
   ],
+  [
+    'ical',
+    {
+      engineFacts: {
+        syncGranularity: 'account',
+      },
+      usesArchiveMetaphor: false
+    }
+  ],
 ]);
 
 /**
@@ -437,6 +486,12 @@ export const engineFrontEndFolderMeta = new Map([
   ],
   [
     'bugzilla',
+    {
+      syncGranularity: 'account',
+    }
+  ],
+  [
+    'ical',
     {
       syncGranularity: 'account',
     }
