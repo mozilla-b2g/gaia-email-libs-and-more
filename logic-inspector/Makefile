@@ -1,22 +1,14 @@
-OUT := logic-inspector.min.js
-SRC := $(shell find js/ -type f -name '*.js')
-
-.PHONY: clean
-
-BROWSERIFY_TRANSFORM = [ babelify --presets [ react ] --plugins [ transform-es2015-modules-commonjs ] ]
-
-# Rebuild when JS files change.
-$(OUT): node_modules $(SRC)
-	node_modules/.bin/browserify -t $(BROWSERIFY_TRANSFORM) js/main.js  --outfile $(OUT)
-
-.PHONY: watchify
-watchify:
-	node_modules/.bin/watchify -v --debug -t $(BROWSERIFY_TRANSFORM) js/main.js  --outfile $(OUT)
+.PHONY: build clean
 
 # If our package.json has been updated, run npm install
 node_modules: package.json
 	npm install
 	touch node_modules
+
+# XXX there previously was some actual dependency logic in here when browserify
+# was used and perhaps it could come back, but the churn here is low.
+build: node_modules
+	npm run build
 
 clean:
 	rm $(OUT)
