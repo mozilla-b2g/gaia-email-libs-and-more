@@ -72,7 +72,10 @@ export default function MailUniverse({ online, testOptions, appExtensions }) {
   /** @type{Map<FolderId, FolderConversationsTOC>} */
   this._folderConvsTOCs = new Map();
 
-  /** @type{Map<ConverastionId, ConversationTOC>} */
+  /** @type{Map<FolderId, ConversationTOC>} */
+  this._folderMessagesTOCs = new Map();
+
+  /** @type{Map<ConversationId, ConversationTOC>} */
   this._conversationTOCs = new Map();
 
   const dataOverlayManager = this.dataOverlayManager = new DataOverlayManager();
@@ -497,6 +500,43 @@ MailUniverse.prototype = {
       onForgotten: () => {
       }
     });
+    return ctx.acquire(toc);
+  },
+
+  acquireFolderMessagesTOC(ctx, folderId) {
+    let toc;
+    if (this._folderMessagesTOCs.has(folderId)) {
+      toc = this._folderMessagesTOCs.get(folderId);
+    } else {
+      // Figure out what the sync stamp source is for this account.  It hinges
+      // on the sync granularity; if it's account-based then the sync stamps
+      // will be on the account, otherwise on the folder.
+      let accountId = accountIdFromFolderId(folderId);
+      let engineFacts =
+        this.accountManager.getAccountEngineBackEndFacts(accountId);
+      let syncStampSource;
+      if (engineFacts.syncGranularity === 'account') {
+        syncStampSource = this.accountManager.getAccountDefById(accountId);
+      } else {
+        syncStampSource = this.accountManager.getFolderById(folderId);
+      }
+      toc = new ConversationTOC({
+        db: this.db,
+        query: this.queryManager.queryMessages(ctx, { folderId }),
+        dataOverlayManager: this.dataOverlayManager,
+        metaHelpers: [
+          new SyncLifecycleMetaHelper({
+            folderId,
+            syncStampSource,
+            dataOverlayManager: this.dataOverlayManager
+          }),
+        ],
+        onForgotten: () => {
+          this._folderMessagesTOCs.delete(folderId);
+        }
+      });
+      this._folderMessagesTOCs.set(folderId, toc);
+    }
     return ctx.acquire(toc);
   },
 

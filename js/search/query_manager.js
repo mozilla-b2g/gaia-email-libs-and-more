@@ -1,10 +1,12 @@
 import logic from 'logic';
 
-import DirectFolderQuery from './query/direct_folder_query';
+import DirectFolderConversationsQuery from './query/direct_folder_conv_query';
 import FilteringFolderQuery from './query/filtering_folder_query';
 
-import DirectConversationQuery from './query/direct_conv_query';
-import FilteringConversationQuery from './query/filtering_conv_query';
+import DirectFolderMessagesQuery from './query/direct_folder_messages_query';
+
+import DirectConversationMessagesQuery from './query/direct_conv_messages_query';
+import FilteringConversationMessagesQuery from './query/filtering_conv_query';
 
 import FilterRunner from './filter_runner';
 import NestedGatherer from './nested_gatherer';
@@ -135,7 +137,7 @@ QueryManager.prototype = {
   queryConversations: function(ctx, spec) {
     // -- Direct folder queries fast-path out.
     if (spec.folderId && !spec.filter) {
-      return new DirectFolderQuery({
+      return new DirectFolderConversationsQuery({
         db: this._db,
         folderId: spec.folderId
       });
@@ -169,12 +171,29 @@ QueryManager.prototype = {
   },
 
   /**
+   * Find messages independent of conversations.
+   */
+  queryMessages: function(ctx, spec) {
+    // -- Direct folder queries fast-path out.
+    if (spec.folderId && !spec.filter) {
+      return new DirectFolderMessagesQuery({
+        db: this._db,
+        folderId: spec.folderId
+      });
+    }
+
+    // TODO: Starting with just the direct load for now to make sure that works
+    // sufficiently/at all.
+    throw new Error('No messages filtering yet!');
+  },
+
+  /**
    * Find messages in a specific conversation that match a filter spec.
    */
   queryConversationMessages: function(ctx, spec) {
     // -- Direct conversation queries fast-path out
     if (spec.conversationId && !spec.filter) {
-      return new DirectConversationQuery({
+      return new DirectConversationMessagesQuery({
         db: this._db,
         conversationId: spec.conversationId
       });
@@ -194,7 +213,7 @@ QueryManager.prototype = {
       bootstrapKey: 'message',
       dbCtx
     });
-    return new FilteringConversationQuery({
+    return new FilteringConversationMessagesQuery({
       ctx,
       db: this._db,
       conversationId: spec.conversationId,

@@ -3,7 +3,7 @@
  * Basically just normalizes the pre-query implementation so we don't need
  * multiple TOC variants, etc.
  */
-export default function DirectConversationQuery({ db, conversationId }) {
+export default function DirectConversationMessagesQuery({ db, conversationId }) {
   this._db = db;
   this.conversationId = conversationId;
   this._tocEventId = null;
@@ -12,7 +12,7 @@ export default function DirectConversationQuery({ db, conversationId }) {
   this._boundTOCListener = null;
   this._boundConvListener = null;
 }
-DirectConversationQuery.prototype = {
+DirectConversationMessagesQuery.prototype = {
   /**
    * Initiate the initial query fill, returning a Promise that will be resolved
    * with the initial set.  Once the set has been processed, the `bind` method

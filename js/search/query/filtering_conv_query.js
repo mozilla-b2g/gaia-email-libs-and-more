@@ -1,10 +1,10 @@
 import FilteringStream from '../filtering_stream';
 
 /**
- * Filter messages.
+ * Filter conversation messages.
  */
-export default function FilteringConversationQuery({ ctx, db, conversationId, filterRunner,
-                                                     rootGatherer }) {
+export default function FilteringConversationMessagesQuery(
+    { ctx, db,  conversationId, filterRunner, rootGatherer }) {
   this._db = db;
   this.conversationId = conversationId;
   this._tocEventId = null;
@@ -39,7 +39,7 @@ export default function FilteringConversationQuery({ ctx, db, conversationId, fi
 
   this._bound_filteringTOCChange = this._filteringTOCChange.bind(this);
 }
-FilteringConversationQuery.prototype = {
+FilteringConversationMessagesQuery.prototype = {
   /**
    * Called by the TOC to initiate the initial fill and receive an initial big
    * glob of stuff.  For now we lie and pretend there are zero things and

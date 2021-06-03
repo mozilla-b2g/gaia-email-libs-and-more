@@ -16,7 +16,7 @@ const {
  * For convoy this gets bumped willy-nilly as I make minor changes to things.
  * We probably want to drop this way back down before merging anywhere official.
  */
-const CUR_VERSION = 122;
+const CUR_VERSION = 123;
 
 /**
  * What is the lowest database version that we are capable of performing a
@@ -148,6 +148,19 @@ const TBL_CONV_INFO = 'convInfo';
 const TBL_CONV_IDS_BY_FOLDER = 'convIdsByFolder';
 
 /**
+ * This is a message-centric version of TBL_CONV_IDS_BY_FOLDER.
+ *
+ * For now we also do the same redundant key/value approach used for
+ * conversations as well.
+ *
+ * key: [`FolderId`, `DateTS`, `GmailMessageId`]
+ * value: [`FolderId`, `DateTS`, `GmailMessageId`]
+ *
+ * Managed by: MailDB
+ */
+const TBL_MSG_IDS_BY_FOLDER = 'msgIdsByFolder';
+
+/**
  * The messages, containing both header/envelope and body aspects.  The actual
  * body parts are stored in Blobs which means that they may only be accessed
  * asynchronously.  (Contrast: in v1, headers and bodies were stored
@@ -239,7 +252,7 @@ const TASK_MUTATION_STORES = [
   TBL_TASKS, TBL_COMPLEX_TASKS,
   TBL_FOLDER_INFO,
   TBL_CONV_INFO, TBL_CONV_IDS_BY_FOLDER,
-  TBL_MESSAGES,
+  TBL_MESSAGES, TBL_MSG_IDS_BY_FOLDER,
   TBL_HEADER_ID_MAP, TBL_UMID_LOCATION, TBL_UMID_NAME,
   TBL_BOUNDED_LOGS
 ];
@@ -358,7 +371,8 @@ function valueIterator(arrayOrMap) {
   }
 }
 
-let eventForFolderId = folderId => 'fldr!' + folderId + '!convs!tocChange';
+const convEventForFolderId = folderId => 'fldr!' + folderId + '!convs!tocChange';
+const messageEventForFolderId = folderId => 'fldr!' + folderId + '!messages!tocChange';
 
 /**
  * Wrap a (read) request into a
@@ -598,6 +612,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     db.createObjectStore(TBL_CONV_INFO);
     db.createObjectStore(TBL_CONV_IDS_BY_FOLDER);
     db.createObjectStore(TBL_MESSAGES);
+    db.createObjectStore(TBL_MSG_IDS_BY_FOLDER);
     db.createObjectStore(TBL_HEADER_ID_MAP);
     db.createObjectStore(TBL_UMID_NAME);
     db.createObjectStore(TBL_UMID_LOCATION);
@@ -833,8 +848,8 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
     this.on(eventId, bufferFunc);
 
     return {
-      drainEvents: drainEvents,
-      eventId: eventId
+      drainEvents,
+      eventId,
     };
   },
 
@@ -1077,7 +1092,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
             conv.id,
             {
               date: conv.date,
-              // A well-behaved mutation will not mutate the list an instead
+              // A well-behaved mutation will not mutate the list and instead
               // replace it with a new one, but we are not so naive as to
               // have our correctness depend on that.
               folderIds: new Set(conv.folderIds),
@@ -1208,17 +1223,17 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       convStore.add(convInfo, convInfo.id);
       this.convCache.set(convInfo.id, convInfo);
 
+      const eventDeltaInfo = {
+        id: convInfo.id,
+        item: convInfo,
+        removeDate: null,
+        addDate: convInfo.date,
+        height: convInfo.height,
+        oldHeight: 0
+      };
       for (let folderId of convInfo.folderIds) {
         this.emit('conv!*!add', convInfo);
-        this.emit(eventForFolderId(folderId),
-                  {
-                    id: convInfo.id,
-                    item: convInfo,
-                    removeDate: null,
-                    addDate: convInfo.date,
-                    height: convInfo.height,
-                    oldHeight: 0
-                  });
+        this.emit(convEventForFolderId(folderId), eventDeltaInfo);
 
         convIdsStore.add(
           [folderId, convInfo.date, convInfo.id, convInfo.height], // value
@@ -1280,7 +1295,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
 
       // Notify the TOCs
       for (let folderId of added) {
-        this.emit(eventForFolderId(folderId),
+        this.emit(convEventForFolderId(folderId),
                   {
                     id: convId,
                     item: convInfo,
@@ -1293,7 +1308,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       // (We still want to generate an event even if there is no date change
       // since otherwise the TOC won't know something has changed.)
       for (let folderId of kept) {
-        this.emit(eventForFolderId(folderId),
+        this.emit(convEventForFolderId(folderId),
                   {
                     id: convId,
                     item: convInfo,
@@ -1304,7 +1319,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
                   });
       }
       for (let folderId of removed) {
-        this.emit(eventForFolderId(folderId),
+        this.emit(convEventForFolderId(folderId),
                   {
                     id: convId,
                     item: convInfo,
@@ -1324,10 +1339,13 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
         for (let folderId of preInfo.folderIds) {
           convIdsStore.delete([folderId, preInfo.date, convId]);
         }
-        for (let folderId of convFolderIds) {
-          convIdsStore.add(
-            [folderId, convInfo.date, convId, convInfo.height], // value
-            [folderId, convInfo.date, convId]); // key
+        // If this wasn't a deletion, add the updated info back.
+        if (convInfo) {
+          for (let folderId of convFolderIds) {
+            convIdsStore.add(
+              [folderId, convInfo.date, convId, convInfo.height], // value
+              [folderId, convInfo.date, convId]); // key
+          }
         }
       }
       // Otherwise we need to cleverly compute the delta
@@ -1342,6 +1360,33 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
         }
       }
     }
+  },
+
+  async loadFolderMessageIdsAndListen(folderId) {
+    let eventId = 'fldr!' + folderId + '!messages!tocChange';
+    let retval = this._bufferChangeEventsIdiom(eventId);
+
+    let trans = this._db.transaction(TBL_MSG_IDS_BY_FOLDER, 'readonly');
+    let msgIdsStore = trans.objectStore(TBL_MSG_IDS_BY_FOLDER);
+    // [folderId] lower-bounds all [FolderId, DateTS, ...] keys because a
+    // shorter array is by definition less than a longer array that is equal
+    // up to their shared length.
+    // [folderId, []] upper-bounds all [FolderId, DateTS, ...] because arrays
+    // are always greater than strings/dates/numbers.  So we use this idiom
+    // to simplify our lives for sanity purposes.
+    let folderRange = IDBKeyRange.bound([folderId], [folderId, []],
+                                        true, true);
+    let tuples = await wrapReq(msgIdsStore.getAll(folderRange));
+    logic(this, 'loadFolderMessageIdsAndListen',
+          { msgCount: tuples.length, eventId: retval.eventId });
+
+    // These are sorted in ascending order, but we want them in descending
+    // order.
+    tuples.reverse();
+    retval.idsWithDates = tuples.map(function(x) {
+      return { date: x[1], id: x[2] };
+    });
+    return retval;
   },
 
   async loadConversationMessageIdsAndListen(convId) {
@@ -1368,6 +1413,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
 
   _processMessageAdditions(trans, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
+    let idsStore = trans.objectStore(TBL_MSG_IDS_BY_FOLDER);
     let messageCache = this.messageCache;
     for (let message of valueIterator(messages)) {
       let convId = convIdFromMessageId(message.id);
@@ -1380,18 +1426,28 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       messageCache.set(message.id, message);
 
       this.emit('msg!*!add', message);
-      let eventId = 'conv!' + convId + '!messages!tocChange';
-      this.emit(eventId, message.id, null, message.date, message, true);
-      this.emit(
-        eventId,
-        {
-          id: message.id,
-          preDate: null,
-          postDate: message.date,
-          item: message,
-          freshlyAdded: true,
-          matchInfo: null
-        });
+      const convTocEventId = 'conv!' + convId + '!messages!tocChange';
+      const eventDeltaInfo = {
+        id: message.id,
+        preDate: null,
+        postDate: message.date,
+        item: message,
+        freshlyAdded: true,
+        matchInfo: null
+      };
+      this.emit(convTocEventId, eventDeltaInfo);
+      // emit in all its folders as well
+      for (const folderId of message.folderIds) {
+        this.emit(messageEventForFolderId(folderId), eventDeltaInfo);
+
+        // TODO: As covered elsewhere, we want to remove the redundant value
+        // if possible, although if we end up storing more data in the value,
+        // we may not be able to.
+        idsStore.add(
+          [folderId, message.date, message.id], // value
+          [folderId, message.date, message.id], // key
+        );
+      }
     }
   },
 
@@ -1400,6 +1456,7 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
    */
   _processMessageMutations(trans, preStates, messages) {
     let store = trans.objectStore(TBL_MESSAGES);
+    let idsStore = trans.objectStore(TBL_MSG_IDS_BY_FOLDER);
     let messageCache = this.messageCache;
     for (let [messageId, message] of messages) {
       let convId = convIdFromMessageId(messageId);
@@ -1449,11 +1506,78 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
       let messageEventId = 'msg!' + messageId + '!change';
       this.emit(messageEventId, messageId, message);
 
+      for (const folderId of added) {
+        this.emit(
+          messageEventForFolderId(folderId),
+          {
+            id: messageId,
+            preDate,
+            postDate,
+            item: message,
+            freshlyAdded: true,
+            matchInfo: null
+          });
+      }
+      for (const folderId of kept) {
+        this.emit(
+          messageEventForFolderId(folderId),
+          {
+            id: messageId,
+            preDate,
+            postDate,
+            item: message,
+            freshlyAdded: false,
+            matchInfo: null
+          });
+      }
+      for (const folderId of removed) {
+        this.emit(
+          messageEventForFolderId(folderId),
+          {
+            id: messageId,
+            preDate,
+            postDate,
+            item: message,
+            freshlyAdded: false,
+            matchInfo: null
+          });
+      }
+
       this.emit(
         'msg!*!change', messageId, preInfo, message, added, kept, removed);
       if (!message) {
         this.emit('msg!' + messageId + '!remove', messageId);
         this.emit('msg!*!remove', messageId);
+      }
+
+      // -- Cleanup the by-folder derived quasi-index
+      // Handle deletions and changes in the data payload
+      if (!message ||
+          preDate !== postDate) {
+        for (const folderId of preInfo.folderIds) {
+          idsStore.delete([folderId, preInfo.date, messageId]);
+        }
+        // If this wasn't a deletion, add the updated info back.
+        if (message) {
+          for (const folderId of message.folderIds) {
+            idsStore.add(
+              [folderId, message.date, message.id], // value
+              [folderId, message.date, message.id], // key
+            );
+          }
+        }
+      }
+      // Effect any change in folderIds
+      else {
+        for (const folderId of removed) {
+          idsStore.delete([folderId, message.date, messageId]);
+        }
+        for (const folderId of added) {
+          idsStore.add(
+            [folderId, message.date, message.id], // value
+            [folderId, message.date, message.id], // key
+          );
+        }
       }
     }
   },
@@ -1609,6 +1733,8 @@ MailDB.prototype = evt.mix(/** @lends module:maildb.MailDB.prototype */ {
 
     // Messages: string ordering unicode tricks
     trans.objectStore(TBL_MESSAGES).delete(accountArrayItemPrefix);
+    trans.objectStore(TBL_MSG_IDS_BY_FOLDER).delete(
+      accountArrayItemPrefix);
 
     trans.objectStore(TBL_HEADER_ID_MAP).delete(accountFirstElementArray);
     trans.objectStore(TBL_UMID_LOCATION).delete(accountStringPrefix);

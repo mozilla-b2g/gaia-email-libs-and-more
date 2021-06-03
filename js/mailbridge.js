@@ -363,6 +363,19 @@ MailBridge.prototype = {
     await ctx.acquire(ctx.proxy);
   },
 
+  async _cmd_viewFolderMessages(msg) {
+    let ctx = this.bridgeContext.createNamedContext(msg.handle,
+                                                    'FolderMessagesView');
+    ctx.viewing = {
+      type: 'folder',
+      folderId: msg.folderId
+    };
+    let toc = await this.universe.acquireFolderMessagesTOC(ctx, msg.folderId);
+    ctx.proxy = new WindowedListProxy(toc, ctx);
+    await ctx.acquire(ctx.proxy);
+    this.universe.syncRefreshFolder(msg.folderId, 'viewFolderMessages');
+  },
+
   async _cmd_viewConversationMessages(msg) {
     let ctx = this.bridgeContext.createNamedContext(
       msg.handle, 'ConversationMessagesView');

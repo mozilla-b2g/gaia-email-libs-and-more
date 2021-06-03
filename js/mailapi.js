@@ -1015,7 +1015,7 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
   * @param {Object} spec
   * @param {MailFolder} spec.folder
   *   The folder whose messages we should search.
-  * @param {Object) spec.filter
+  * @param {Object} spec.filter
   * @param {String} [spec.filter.author]
   *   Match against author display name or email address.
   * @param {String} [spec.filter.recipients]
@@ -1059,6 +1059,28 @@ MailAPI.prototype = evt.mix(/** @lends module:mailapi.MailAPI.prototype */ {
       viewDefsWithHandles
     });
     return result;
+  },
+
+  /**
+   * View the conversations in a folder.
+   */
+   viewFolderMessages(folder) {
+    var handle = this._nextHandle++,
+        view = new MessagesListView(this, handle);
+    view.folderId = folder.id;
+    // Hackily save off the folder as a stop-gap measure to make it easier to
+    // describe the contents of the view until we enhance the tocMeta to
+    // better convey this.
+    view.folder = this.getFolderById(view.folderId);
+    this._trackedItemHandles.set(handle, { obj: view });
+
+    this.__bridgeSend({
+      type: 'viewFolderMessages',
+      folderId: folder.id,
+      handle
+    });
+
+    return view;
   },
 
   viewConversationMessages(convOrId) {

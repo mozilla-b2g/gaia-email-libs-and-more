@@ -14,10 +14,10 @@ import { conversationMessageComparator } from './comparators';
  * conversation and maintaining an ordering of all those messages so that if
  * a request comes in for messages by position that we can issue the database
  * requests for them.   There are a lot of similarities between this
- * implementation and FolderConversationsTOC, but significantly our items cannot
- * change their ordering key.  A message's date at the time of creation is fixed
- * and cannot change.  Anything that would result in that behaviour will be
- * implemented as a removal followed by an addition.
+ * implementation and FolderConversationsTOC and some unification may be
+ * possible.  (Originally there was a simplification where we assumed message
+ * dates could not change, but we altered that for drafts whose dates do change
+ * as they are edited and when they are finally sent.)
  *
  * This is a reference-counted object that is created on-demand as soon as a
  * view slice is requested for a given conversation and destroyed once no more

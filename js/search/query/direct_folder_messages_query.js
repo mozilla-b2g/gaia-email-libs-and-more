@@ -4,14 +4,14 @@
  * Basically just normalizes the pre-query implementation so we don't need
  * multiple TOC variants, etc.
  */
-export default function DirectFolderQuery({ db, folderId }) {
+ export default function DirectFolderMessagesQuery({ db, folderId }) {
   this._db = db;
   this.folderId = folderId;
   this._eventId = null;
   this._drainEvents = null;
   this._boundListener = null;
 }
-DirectFolderQuery.prototype = {
+DirectFolderMessagesQuery.prototype = {
   /**
    * Initiate the initial query fill, returning a Promise that will be resolved
    * with the initial set.  Once the set has been processed, the `bind` method
@@ -23,7 +23,7 @@ DirectFolderQuery.prototype = {
     ({ idsWithDates,
       drainEvents: this._drainEvents,
       eventId: this._eventId } =
-        await this._db.loadFolderConversationIdsAndListen(this.folderId));
+        await this._db.loadFolderMessageIdsAndListen(this.folderId));
 
     return idsWithDates;
   },
