@@ -1,7 +1,7 @@
 define(function(require) {
 'use strict';
 
-const tcpSocket = require('tcp-socket');
+//const tcpSocket = require('tcp-socket');
 
 const { AUTOCONFIG_TIMEOUT_MS } = require('../syncbase');
 
@@ -9,6 +9,11 @@ const { Connection, HttpError } = require('activesync/protocol');
 
 function checkServerCertificate(url) {
   return new Promise((resolve) => {
+    // XXX We used to use mozTCPSocket to try and figure out certificate errors
+    // after the fact, but now we don't have TCPSocket and don't really care.
+    resolve(null);
+    return;
+/*
     var match = /^https:\/\/([^:/]+)(?::(\d+))?/.exec(url);
     // probably unit test http case?
     if (!match) {
@@ -51,9 +56,10 @@ function checkServerCertificate(url) {
       }
       reportAndClose(reportErr);
     };
-    sock.ondata = function(/*data*/) {
+    sock.ondata = function(_data) {
       reportAndClose(null);
     };
+*/
   });
 }
 

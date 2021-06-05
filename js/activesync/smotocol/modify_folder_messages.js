@@ -23,7 +23,7 @@ const em = require('activesync/codepages/Email').Tags;
  * @param {Boolean} [permanentDeletion=false]
  *   Should deletions be irrevocable (versus moving to the trash folder)?
  */
-function* modifyFolderMessages(conn, args) {
+async function modifyFolderMessages(conn, args) {
   let { folderServerId, folderSyncKey, permanentDeletion } =
     args;
   let readMap = args.read || new Map();
@@ -76,7 +76,7 @@ function* modifyFolderMessages(conn, args) {
      .etag(as.Collections)
    .etag(as.Sync);
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let newSyncKey, status;

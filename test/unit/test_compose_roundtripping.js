@@ -9,7 +9,7 @@ var help;
  * Verify that we properly address a reply to a message containing a Reply-To
  * header.
  */
-return new GelamTest('compose round-trips correctly', function*(MailAPI) {
+return new GelamTest('compose round-trips correctly', async function(MailAPI) {
   this.group('setup');
 
   // Alternately, we could perhaps just slurp up a bunch of JSON definitions?
@@ -28,9 +28,9 @@ return new GelamTest('compose round-trips correctly', function*(MailAPI) {
 
   // -- create the account, get the inbox
   help = new AccountHelpers(MailAPI);
-  var account = yield help.createAccount(this.options);
+  var account = await help.createAccount(this.options);
   var inboxFolder = help.folders.getFirstFolderWithType('inbox');
-  var inboxView = yield help.viewFolder(inboxFolder);
+  var inboxView = await help.viewFolder(inboxFolder);
 
   for (var iMessage = 0; iMessage < messagesToCompose.length; iMessage++) {
     var messageDef = messagesToCompose[iMessage];
@@ -38,7 +38,7 @@ return new GelamTest('compose round-trips correctly', function*(MailAPI) {
     this.group(messageDef.name);
 
     // - Create the composer
-    var composer = yield new Promise((resolve) => {
+    var composer = await new Promise((resolve) => {
       MailAPI.beginMessageComposition(null, inboxFolder, {}, resolve);
     });
 
@@ -57,10 +57,10 @@ return new GelamTest('compose round-trips correctly', function*(MailAPI) {
     composer.finishCompositionSendMessage();
 
     // - Wait for the message to be show up in the folder view
-    var header = yield help.waitForMessage(inboxView, uniqueSubject);
+    var header = await help.waitForMessage(inboxView, uniqueSubject);
 
     // - Get the body
-    var body = yield help.getBody(header, { withBodyReps: true });
+    var body = await help.getBody(header, { withBodyReps: true });
 
     // - Verify the body matches
     assert.equal(

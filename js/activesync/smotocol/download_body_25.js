@@ -20,7 +20,7 @@ const { Tags: em } = require('activesync/codepages/Email');
  *
  * @return {{ syncKey, bodyContent }}
  */
-function* downloadBody(
+async function downloadBody(
   conn,
   { folderSyncKey, folderServerId, messageServerId, bodyType }) {
 
@@ -43,7 +43,7 @@ function* downloadBody(
      .etag()
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let base = [as.Sync, as.Collections, as.Collection];

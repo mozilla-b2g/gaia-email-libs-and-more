@@ -9,15 +9,15 @@ var help;
  * Verify that we properly address a reply to a message containing a Reply-To
  * header.
  */
-return new GelamTest('Reply-To header is respected', function*(MailAPI) {
+return new GelamTest('Reply-To header is respected', async function(MailAPI) {
   this.group('setup');
 
   help = new AccountHelpers(MailAPI);
-  var account = yield help.createAccount(this.options);
-  var folder = yield help.createFolder(
+  var account = await help.createAccount(this.options);
+  var folder = await help.createFolder(
     'reply_to',
     { count: 1, replyTo: 'Reply <reply@example.com>' });
-  var slice = yield help.viewFolder(folder);
+  var slice = await help.viewFolder(folder);
   var msg = slice.items[0];
 
   // First, make sure the message includes the reply header we specified:
@@ -27,7 +27,7 @@ return new GelamTest('Reply-To header is respected', function*(MailAPI) {
 
   // Then, when we reply to that message, the 'To' address should match the
   // value we provided to the Reply-To header (both name and address).
-  var composer = yield new Promise((resolve) => {
+  var composer = await new Promise((resolve) => {
     var composer = msg.replyToMessage(/* type: */ null, function() {
       resolve(composer);
     });

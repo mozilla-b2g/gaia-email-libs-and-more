@@ -37,7 +37,7 @@ return {
    * numeric gaps and it being an error to explicitly reference a nonexistent
    * UID, it's not a viable option.
    */
-  _probeForDateUsingSequenceNumbers: co.wrap(function*({
+  async _probeForDateUsingSequenceNumbers({
       ctx, account, folderInfo, startSeq, curDate }) {
     let probeStep = Math.ceil(GROWTH_MESSAGE_COUNT_TARGET / 4);
     // Scale factor for the step size after each step.  This must be an
@@ -52,7 +52,7 @@ return {
       seqs.push(curSeq);
     }
 
-    let { result: messages } = yield account.pimap.listMessages(
+    let { result: messages } = await account.pimap.listMessages(
       ctx,
       folderInfo,
       seqs,
@@ -117,6 +117,6 @@ return {
     // Woo, the folder is consistent with our assumptions and highly dubious
     // tests!
     return useDate;
-  }),
+  },
 };
 });

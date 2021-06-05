@@ -1,31 +1,39 @@
-define(function(require) {
-'use strict';
+import ActiveSync_SyncFolderList from './tasks/sync_folder_list';
 
-/**
- * Activesync Tasks.
- */
-return [
-  require('./tasks/sync_folder_list'),
+import ActiveSync_SyncRefresh from './tasks/sync_refresh';
+import ActiveSync_SyncConv from './tasks/sync_conv';
+import ActiveSync_SyncBody from './tasks/sync_body';
 
-  // ActiveSync has no need for refresh.  But maybe we want a stub?
-  //require('./tasks/sync_grow'),
-  require('./tasks/sync_refresh'),
-  require('./tasks/sync_conv'),
-  require('./tasks/sync_body'),
+import ActiveSync_StoreFlags from './tasks/store_flags';
 
-  // TODO XXX implement download
+import CommonDraftSave from '../tasks/draft_save';
+import CommonDraftAttach from '../tasks/draft_attach';
+import CommonDraftDetach from '../tasks/draft_detach';
+import CommonDraftDelete from '../tasks/draft_delete';
+import ActiveSync_OutboxSend from './tasks/outbox_send';
 
-  require('./tasks/store_flags'),
+import CommonAccountModify from '../tasks/account_modify';
+import CommonIdentityModify from '../tasks/identity_modify';
 
-  require('../tasks/draft_save'),
-  require('../tasks/draft_attach'),
-  require('../tasks/draft_detach'),
-  require('../tasks/draft_delete'),
-  require('./tasks/outbox_send'),
+import CommonNewTracking from '../tasks/new_tracking';
 
-  require('../tasks/account_modify'),
-  require('../tasks/identity_modify'),
+export default [
+  ActiveSync_SyncFolderList,
 
-  require('../tasks/new_tracking'),
+  ActiveSync_SyncRefresh,
+  ActiveSync_SyncConv,
+  ActiveSync_SyncBody,
+
+  ActiveSync_StoreFlags,
+
+  CommonDraftSave,
+  CommonDraftAttach,
+  CommonDraftDetach,
+  CommonDraftDelete,
+  ActiveSync_OutboxSend,
+
+  CommonAccountModify,
+  CommonIdentityModify,
+
+  CommonNewTracking,
 ];
-});

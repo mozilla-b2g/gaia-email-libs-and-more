@@ -18,7 +18,7 @@ const ASCP = require('activesync/codepages');
  *
  * @return {{ serverId, folderSyncKey }}
  */
-function* deleteFolder(conn, args) {
+async function deleteFolder(conn, args) {
   const fh = ASCP.FolderHierarchy.Tags;
   const fhStatus = ASCP.FolderHierarchy.Enums.Status;
 
@@ -28,7 +28,7 @@ function* deleteFolder(conn, args) {
      .tag(fh.ServerId, args.serverId)
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let status, serverId, newFolderSyncKey;

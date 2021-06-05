@@ -1,7 +1,6 @@
 define(function(require) {
 'use strict';
 
-const co = require('co');
 const logic = require('logic');
 
 const probe = require('./probe');
@@ -83,12 +82,12 @@ function getFullDetailsFromAutodiscover(userDetails, url) {
  * but we're currently trying to keep the configurator stage offline-only with
  * the validator as the spot the online stuff happens.
  */
-return co.wrap(function* (fragments) {
+return async function(fragments) {
   let { credentials, connInfoFields } = fragments;
   // - Need to run an autodiscover?
   if (connInfoFields.connInfo.autodiscoverEndpoint) {
     let { error, errorDetails, fullConfigInfo } =
-      yield getFullDetailsFromAutodiscover(
+      await getFullDetailsFromAutodiscover(
         credentials, connInfoFields.connInfo.autodiscoverEndpoint);
 
     if (error) {
@@ -107,7 +106,7 @@ return co.wrap(function* (fragments) {
   // (now it's as if we were a fully specified direct creation)
 
   // - Run the probe!
-  let { conn, error, errorDetails } = yield probe({
+  let { conn, error, errorDetails } = await probe({
      connInfo: connInfoFields.connInfo,
      credentials
   });
@@ -123,5 +122,5 @@ return co.wrap(function* (fragments) {
     },
     receiveProtoConn: conn
   };
-});
+};
 });

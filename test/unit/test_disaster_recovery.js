@@ -11,7 +11,7 @@ var help;
 
 return [
   new GelamTest('reportError fails test, does nothing in real life',
-      function*(MailAPI) {
+      async function(MailAPI) {
 
     assert(logic._currentTestRejectFunction, 'reject must be set');
     var rejected = false;
@@ -30,17 +30,17 @@ return [
     assert(rejected === false, 'should not have rejected when not underTest');
   }),
 
-  new GelamTest('Releases mutex during botched sync', function*(MailAPI) {
+  new GelamTest('Releases mutex during botched sync', async function(MailAPI) {
     this.group('setup');
 
     help = new AccountHelpers(MailAPI);
-    var account = yield help.createAccount(this.options);
+    var account = await help.createAccount(this.options);
 
-    var folder = yield help.createFolder(
+    var folder = await help.createFolder(
       'disaster_recovery',
       { count: 5, age: { days: 0 }, age_incr: { days: 1 } });
 
-    yield backend('Tell socket.ondata to do horrible things', ($) => {
+    await backend('Tell socket.ondata to do horrible things', ($) => {
       var acct = $.universe.accounts[0]._receivePiece;
       var conn = acct._ownedConns[0].conn;
       conn.client.socket.ondata = function() {
@@ -50,7 +50,7 @@ return [
 
     this.group('view folder and botch the sync');
 
-    yield Promise.all([
+    await Promise.all([
       help.viewFolder(folder),
       logic
         .match('DisasterRecovery', 'exception', (d) => {
@@ -61,19 +61,19 @@ return [
     ]);
   }),
 
-  new GelamTest('Releases both mutexes and job op during move', function*(MailAPI) {
+  new GelamTest('Releases both mutexes and job op during move', async function(MailAPI) {
     this.group('setup');
 
-    var sourceFolder = yield help.createFolder(
+    var sourceFolder = await help.createFolder(
       'test_move_source',
       { count: 5, age: { days: 1 }, age_incr: { days: 1 } });
 
-    var targetFolder = yield help.createFolder('test_move_target');
+    var targetFolder = await help.createFolder('test_move_target');
 
-    var sourceSlice = yield help.viewFolder(sourceFolder);
-    var targetSlice = yield help.viewFolder(targetFolder);
+    var sourceSlice = await help.viewFolder(sourceFolder);
+    var targetSlice = await help.viewFolder(targetFolder);
 
-    yield backend('Tell socket.ondata to do horrible things', ($) => {
+    await backend('Tell socket.ondata to do horrible things', ($) => {
       var acct = $.universe.accounts[0]._receivePiece;
       var conn = acct._ownedConns[0].conn;
       conn.client.socket.ondata = function() {
@@ -86,7 +86,7 @@ return [
     var headers = sourceSlice.items;
     var headerToMove = headers[1];
 
-    yield Promise.all([
+    await Promise.all([
       logic.async(this, 'move messages', (resolve, reject) => {
         MailAPI.moveMessages([headerToMove], targetFolder, resolve);
       }),

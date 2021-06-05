@@ -22,15 +22,14 @@ const { Tags: fh } = require('activesync/codepages/FolderHierarchy');
  *
  * @return {{ invalidSyncKey, moreToSync }}
  */
-function* enumerateHierarchyChanges(
+async function enumerateHierarchyChanges(
   conn, { hierarchySyncKey, emitter }) {
-
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(fh.FolderSync)
      .tag(fh.SyncKey, hierarchySyncKey)
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let newSyncKey;

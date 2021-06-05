@@ -7,7 +7,6 @@ define(function(require) {
   const transport = require('./transport');
   const imapchew = require('../imap/imapchew');
   const syncbase = require('../syncbase');
-  const co = require('co');
   const mimefuncs = require('mimefuncs');
   const util = require('../util');
   const allback = require('../allback');
@@ -673,11 +672,11 @@ define(function(require) {
    * @param {object} [handlers]
    * @param {function(bodyInfo) => Promise} handlers.flushBodyInfo
    */
-  Pop3Client.prototype.downloadMessage = co.wrap(function*(uidl, handlers) {
+  Pop3Client.prototype.downloadMessage = async function(uidl, handlers) {
     handlers = handlers || {};
     var snippetOnly = handlers.snippetOnly;
     // Ensure we've downloaded UIDLs.
-    yield this._loadMessageList();
+    await this._loadMessageList();
     var number = this.uidlToId[uidl];
 
     // Begin fetching the message, streaming back MimeNode/BodyStream pairs.
@@ -693,7 +692,7 @@ define(function(require) {
     }
 
     try {
-      var ret = yield this.parseMessageFromLineStream(
+      var ret = await this.parseMessageFromLineStream(
         request.dataLineStream, uidl, this.idToSize[number], handlers);
     } catch(e) {
       console.error('Parsing Error:', e, e.stack);
@@ -701,7 +700,7 @@ define(function(require) {
     }
 
     return ret;
-  });
+  };
 
   // via MimeParser
   function unfoldFormatFlowed(content, delsp) {
@@ -729,7 +728,7 @@ define(function(require) {
   }
 
   Pop3Client.prototype.parseMessageFromLineStream =
-  co.wrap(function*(lineStream, srvid, totalExpectedSize, handlers) {
+  async function(lineStream, srvid, totalExpectedSize, handlers) {
     handlers = handlers || {};
     var countingTransform = new ByteCounterTransformStream();
     var mimeReader = lineStream
@@ -741,7 +740,7 @@ define(function(require) {
     for(;;) {
       // For every MIME header, we'll see the corresponding MimeNode here,
       // along with a Stream that represents the in-progress body download.
-      var { value, done } = yield mimeReader.read();
+      var { value, done } = await mimeReader.read();
       if (!done) {
         var { partNum, headers, bodyStream } = value;
 
@@ -763,27 +762,27 @@ define(function(require) {
 
           // XXX broked; need to mesh streaming logic and pre-existing convoy
           // changes.
-          rep.file = yield mimeStreams.readAttachmentStreamWithChunkFlushing(
+          rep.file = await mimeStreams.readAttachmentStreamWithChunkFlushing(
             headers.contentType,
             bodyStream,
-            co.wrap(function*(file) {
+            async function(file) {
               rep.file = file;
               if (handlers.flushBodyInfo) {
                 partBuilder.body =
-                  yield handlers.flushBodyInfo(partBuilder.body);
+                  await handlers.flushBodyInfo(partBuilder.body);
               }
               if (type === 'attachment') {
                 return partBuilder.body.attachments[index].file;
               } else {
                 return partBuilder.body.relatedParts[index].file;
               }
-            })
+            }
           );
           rep.sizeEstimate = rep.file.size;
         }
         // For now, if it's a body, we just concatenate everything to a string.
         else if (type === 'body') {
-          var blobChunks = yield mimeStreams.readAllChunks(bodyStream);
+          var blobChunks = await mimeStreams.readAllChunks(bodyStream);
 
           rep.content =
             mimefuncs.charset.decode(
@@ -889,7 +888,7 @@ define(function(require) {
         return { header, body };
       }
     } // end for
-  });
+  };
 
   return {
     Pop3Client,

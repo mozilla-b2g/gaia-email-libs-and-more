@@ -7,7 +7,7 @@ define(function(require) {
   var utf7 = require('utf7');
   return {
     TextEncoder: function(encoding) {
-      var encoder = new TextEncoder(encoding);
+      var encoder = new globalThis.TextEncoder(encoding);
       this.encode = encoder.encode.bind(encoder);
     },
     TextDecoder: function(encoding) {
@@ -18,8 +18,8 @@ define(function(require) {
           return utf7.decode(mimefuncs.fromTypedArray(buf));
         };
       } else {
-        var decoder = new TextDecoder(encoding);
-        this.decode = decoder.decode.bind(decoder)
+        var decoder = new globalThis.TextDecoder(encoding);
+        this.decode = decoder.decode.bind(decoder);
       }
     }
   };

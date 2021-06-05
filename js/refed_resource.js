@@ -19,7 +19,7 @@ RefedResource.prototype = {
   /**
    * Asynchronously acquire the resource, to be owned by the given context.
    */
-  __acquire: co.wrap(function*(ctx) {
+  async __acquire(ctx) {
     if (this._activeConsumers.indexOf(ctx) !== -1) {
       throw new Error('context already refs this resource!');
     }
@@ -28,14 +28,14 @@ RefedResource.prototype = {
       // Since the activation is async, it's possible for something else to
       // acquire us while
       this._activatePromise = this.__activate();
-      yield this._activatePromise;
+      await this._activatePromise;
       this._valid = true;
       this._activatePromise = null;
     } else if (this._activatePromise) {
-      yield this._activatePromise;
+      await this._activatePromise;
     }
     return this;
-  }),
+  },
 
   __release: function(ctx) {
     let idx = this._activeConsumers.indexOf(ctx);

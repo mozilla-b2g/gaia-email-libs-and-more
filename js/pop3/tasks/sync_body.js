@@ -1,8 +1,6 @@
 define(function(require) {
 'use strict';
 
-const co = require('co');
-
 const TaskDefiner = require('../../task_infra/task_definer');
 
 const churnConversation = require('../../churn_drivers/conv_churn_driver');
@@ -33,16 +31,16 @@ const churnConversation = require('../../churn_drivers/conv_churn_driver');
 return TaskDefiner.defineComplexTask([
   require('../../task_mixins/mix_sync_body'),
   {
-    execute: co.wrap(function*(ctx, persistentState, memoryState, marker) {
+    async execute(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
 
       // -- Acquire the account and establish a connection
-      let account = yield ctx.universe.acquireAccount(ctx, marker.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, marker.accountId);
       let popAccount = account.popAccount;
-      let conn = yield popAccount.ensureConnection();
+      let conn = await popAccount.ensureConnection();
 
       // -- Retrieve the conversation and its messages for mutation
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         conversations: new Map([[req.convId, null]]),
         messagesByConversation: new Map([[req.convId, null]])
       });
@@ -58,12 +56,12 @@ return TaskDefiner.defineComplexTask([
       }
 
       // We need to look up all the umidLocations.
-      yield ctx.read({
+      await ctx.read({
         umidLocations
       });
 
       // -- Make sure the UIDL mapping is active
-      yield conn.loadMessageList(); // we don't care about the return value.
+      await conn.loadMessageList(); // we don't care about the return value.
 
       // -- For each message...
       for (let message of loadedMessages) {
@@ -77,7 +75,7 @@ return TaskDefiner.defineComplexTask([
         let messageNumber = conn.uidlToId[uidl];
 
         let newMessageInfo =
-          yield conn.downloadMessageByNumber(messageNumber);
+          await conn.downloadMessageByNumber(messageNumber);
 
         // Propagate the things that can change across.  Which is all to do with
         // body parts and things derived from body parts.
@@ -99,13 +97,13 @@ return TaskDefiner.defineComplexTask([
       // steal its implementation if the todo is gone.
       memoryState.delete(req.convId);
 
-      yield ctx.finishTask({
+      await ctx.finishTask({
         mutations: {
           conversations: new Map([[req.convId, convInfo]]),
           messages: modifiedMessagesMap
         },
       });
-    })
+    }
   }
 ]);
 

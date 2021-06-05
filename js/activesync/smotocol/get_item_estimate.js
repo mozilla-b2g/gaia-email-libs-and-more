@@ -17,7 +17,7 @@ const { Tags: ie, Enums: ieEnum } =
  * @param {String} args.folderSyncKey
  * @param {String} args.filterType
  */
-function* getItemEstimate(
+async function getItemEstimate(
   conn, { folderSyncKey, folderServerId, filterType }) {
 
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -48,7 +48,7 @@ function* getItemEstimate(
      .etag(ie.Collections)
    .etag(ie.GetItemEstimate);
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let base = [ie.GetItemEstimate, ie.Response];

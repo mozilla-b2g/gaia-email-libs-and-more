@@ -64,9 +64,9 @@ return TaskDefiner.defineAtMostOnceTask([
       });
     },
 
-    helped_execute: co.wrap(function*(ctx, req) {
+    async helped_execute(ctx, req) {
       // -- Exclusively acquire the sync state for the folder
-      let fromDb = yield ctx.beginMutate({
+      let fromDb = await ctx.beginMutate({
         syncStates: new Map([[req.accountId, null]])
       });
       let rawSyncState = fromDb.syncStates.get(req.accountId);
@@ -76,16 +76,16 @@ return TaskDefiner.defineAtMostOnceTask([
 
       // -- Establish the connection
       let syncDate = NOW();
-      let account = yield ctx.universe.acquireAccount(ctx, req.accountId);
+      let account = await ctx.universe.acquireAccount(ctx, req.accountId);
       let popAccount = account.popAccount;
 
-      let conn = yield popAccount.ensureConnection();
+      let conn = await popAccount.ensureConnection();
 
       // -- Infer the UIDLs that are new to us and bin for sync and overflow.
       // Potential enhancement: loadMessageList combines UIDL and LIST.  Our
       // size needs are on-demand enough that we could only issue one-off LIST
       // requests.
-      let allMessages = yield conn.loadMessageList();
+      let allMessages = await conn.loadMessageList();
 
       syncState.deltaCheckUidls(allMessages);
 
@@ -110,7 +110,7 @@ return TaskDefiner.defineAtMostOnceTask([
             ]])
         }
       };
-    })
+    }
   }
 ]);
 });

@@ -6,7 +6,7 @@ var assert = require('./resources/assert');
 var quotechew = require('quotechew');
 var help;
 
-return new GelamTest('reply text generation', { noApi: true }, function*() {
+return new GelamTest('reply text generation', { noApi: true }, async function() {
   var messagesAndReplies = [
     {
       name: 'simple message',

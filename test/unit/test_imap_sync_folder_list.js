@@ -102,7 +102,7 @@ function makeTestForFolderTree(treeDef) {
     {
       folderConfig: treeDef.folderConfig
     },
-    function*(MailAPI) {
+    async function(MailAPI) {
       this.group('setup');
 
       var help = new AccountHelpers(MailAPI);
@@ -118,13 +118,13 @@ function makeTestForFolderTree(treeDef) {
       var matchSyncFolderList = logic
         .match('Account', 'runOp', { mode: 'do', type: 'syncFolderList' });
 
-      var account = yield help.createAccount(this.options);
+      var account = await help.createAccount(this.options);
 
       // wait for the runOp to complete
-      yield matchSyncFolderList;
+      await matchSyncFolderList;
 
       // make sure we hear everything
-      yield help.safetyPing();
+      await help.safetyPing();
 
       var folderScope = {};
       logic.defineScope(folderScope, 'ExpectedFolders');
@@ -142,7 +142,7 @@ function makeTestForFolderTree(treeDef) {
                 depth: folder.depth });
       });
 
-      yield folderMatcher;
+      await folderMatcher;
     });
 }
 

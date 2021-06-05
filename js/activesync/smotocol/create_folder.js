@@ -60,7 +60,7 @@ const ASCP = require('activesync/codepages');
  *
  * @return {{ serverId, folderSyncKey }}
  */
-function* createFolder(conn, args) {
+async function createFolder(conn, args) {
   const fh = ASCP.FolderHierarchy.Tags;
   const fhStatus = ASCP.FolderHierarchy.Enums.Status;
   const folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
@@ -73,7 +73,7 @@ function* createFolder(conn, args) {
      .tag(fh.Type, folderType)
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let status, serverId, newFolderSyncKey;

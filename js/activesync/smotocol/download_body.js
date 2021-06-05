@@ -18,7 +18,7 @@ const { Tags: asb } = require('activesync/codepages/AirSyncBase');
  *
  * @return {{ invalidSyncKey, moreToSync }}
  */
-function* downloadBody(
+async function downloadBody(
   conn, { folderServerId, messageServerId, bodyType, truncationSize }) {
 
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -44,7 +44,7 @@ function* downloadBody(
      .etag()
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   let status, bodyContent;

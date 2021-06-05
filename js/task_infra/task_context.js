@@ -394,25 +394,17 @@ TaskContext.prototype = {
    *
    * @param {Function(TaskContext, argObj)} subtaskFunc
    *   The subtask function that takes a TaskContext and the argument object
-   *   provided to `spawnSubtask` and returns a Promise.   If using tj/co, you
-   *   want to use `co.wrap(function*(ctx, argObj) {...})`, not just
-   *   `co(...)`.  The reason is that co.wrap returns a function that propagates
-   *   the arguments it is called through to an invocation of your generator
-   *   wrapped in co.  In contrast, when you do `co(function*() {...})` your
-   *   generator is invoked during that call; arguments cannot be provided.
-   *   We need to be able to provide arguments since we create the TaskContext
-   *   inside `spawnSubtask`.  As noted above, the `this` for the invocation
-   *   will be the `this` of your task instance, so you can safely do
+   *   provided to `spawnSubtask` and returns a Promise.  tthe `this` for the
+   *   invocation will be the `this` of your task instance, so you can safely do
    *   `this.someOtherHelperOnMyTask` without having to use bind() yourself or
    *   use an arrow function.
    * @param {Object} [argObj]
    *   An optional argument object to pass as the second argument to your
-   *   generator.  This is the second argument because it's assumed that if
+   *   async func.  This is the second argument because it's assumed that if
    *   you are declaring your subtask inline that you will just close over/
    *   capture the arguments you want and won't specify the argument object.
    *   In the case your subtask is a separate helper function, you probably
-   *   would want to provide the object, but it shouldn't be too ugly because
-   *   you won't have a giant inline function* hiding the argument object.
+   *   would want to provide the object.
    * @return {Promise}
    */
   spawnSubtask(subtaskFunc, argObj) {

@@ -16,7 +16,7 @@ const { Tags: cm } = require('activesync/codepages/ComposeMail');
  *   A function to be invoked periodically on progress to help our caller know
  *   that we're still alive and doing things.
  */
-return function* sendMail(conn, { mimeBlob, progress }) {
+return async function sendMail(conn, { mimeBlob, progress }) {
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8', null, 'blob');
   w.stag(cm.SendMail)
      // The ClientId is defined to be for duplicate messages suppression
@@ -29,7 +29,7 @@ return function* sendMail(conn, { mimeBlob, progress }) {
      .etag()
    .etag();
 
-  let response = yield conn.postCommand(
+  let response = await conn.postCommand(
     w,
     {
       uploadProgress: progress

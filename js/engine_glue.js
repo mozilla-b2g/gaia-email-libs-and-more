@@ -29,7 +29,6 @@
  * module requiring them is under ./tasks.
  */
 export const configuratorModules = new Map([
-  /*
   [
     'activesync',
     async function() {
@@ -37,7 +36,6 @@ export const configuratorModules = new Map([
       return mod.default;
     }
   ],
-  */
   [
     'imap+smtp',
     async function() {
@@ -80,19 +78,13 @@ export const configuratorModules = new Map([
  * module requiring them is under ./tasks.
  */
 export const validatorModules = new Map([
-  /*
   [
     'activesync',
     async function() {
-      const mod = await new Promise(function(resolve) {
-        return mod.default;
-        require(['gelam/activesync/validator'], function(mod) {
-          resolve(mod);
-        });
-      });
+      const mod = await import('gelam/activesync/validator');
+      return mod.default;
     }
   ],
-  */
   [
     'imap+smtp',
     async function() {
@@ -135,7 +127,6 @@ export const validatorModules = new Map([
  * module requiring them is ./universe/account_manager.
  */
 export const accountModules = new Map([
-  /*
   [
     'activesync',
     async function() {
@@ -143,7 +134,6 @@ export const accountModules = new Map([
       return mod.default;
     }
   ],
-  */
   [
     'imap+smtp',
     async function() {
@@ -200,7 +190,6 @@ export const engineTaskMappings = new Map([
       return mod.default;
     }
   ],
-  /*
   [
     'activesync',
     async function() {
@@ -208,7 +197,6 @@ export const engineTaskMappings = new Map([
       return mod.default;
     }
   ],
-  */
   [
     'pop3',
     async function() {
@@ -266,14 +254,12 @@ export const engineHacks = new Map([
       unselectableFolderTypes: new Set(),
     }
   ],
-  /*
   [
     'activesync',
     {
       unselectableFolderTypes: new Set()
     }
   ],
-  */
   [
     'pop3',
     {
@@ -323,14 +309,12 @@ export const engineBackEndFacts = new Map([
       syncGranularity: 'folder',
     }
   ],
-  /*
   [
     'activesync',
     {
       syncGranularity: 'folder'
     }
   ],
-  */
   [
     'pop3',
     {
@@ -389,7 +373,6 @@ export const engineFrontEndAccountMeta = new Map([
       usesArchiveMetaphor: false
     }
   ],
-  /*
   [
     'activesync',
     {
@@ -399,7 +382,6 @@ export const engineFrontEndAccountMeta = new Map([
       usesArchiveMetaphor: false
     }
   ],
-  */
   [
     'pop3',
     {
@@ -464,14 +446,12 @@ export const engineFrontEndFolderMeta = new Map([
       syncGranularity: 'folder',
     }
   ],
-  /*
   [
     'activesync',
     {
       syncGranularity: 'folder'
     }
   ],
-  */
   [
     'pop3',
     {

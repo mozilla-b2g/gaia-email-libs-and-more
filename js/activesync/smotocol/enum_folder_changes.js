@@ -42,7 +42,7 @@ const parseChangedMessage = require('./parse_changed_message');
  *
  * @return {{ invalidSyncKey, syncKey, moreToSync }}
  */
-function* enumerateFolderChanges(
+async function enumerateFolderChanges(
   conn, { folderSyncKey, folderServerId, filterType, issueIds, emitter }) {
 
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
@@ -73,7 +73,7 @@ function* enumerateFolderChanges(
    .etag();
 
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   // Blank responses are the server's way of telling us nothing has changed.
   // So just fast-path out and leave the syncState the same.

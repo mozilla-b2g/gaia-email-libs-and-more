@@ -13,7 +13,7 @@ const as = require('activesync/codepages/AirSync').Tags;
  * @param {String} args.folderServerId
  * @param {String} args.filterType
  */
-function* getFolderSyncKey(conn,
+async function getFolderSyncKey(conn,
                            { folderServerId, filterType }) {
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(as.Sync)
@@ -33,7 +33,7 @@ function* getFolderSyncKey(conn,
      .etag()
    .etag();
 
-  let response = yield conn.postCommand(w);
+  let response = await conn.postCommand(w);
 
   let e = new $wbxml.EventParser();
   // Reset the SyncKey, just in case we don't see a sync key in the

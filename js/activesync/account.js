@@ -100,6 +100,7 @@ ActiveSyncAccount.prototype = {
     }
 
     if (!this.conn.connected) {
+      logic(this, 'connecting');
       this.conn.connect(function(error) {
         if (error) {
           this._reportErrorIfNecessary(error);
@@ -113,6 +114,7 @@ ActiveSyncAccount.prototype = {
           errback(failString || 'unknown');
           return;
         }
+        logic(this, 'connected', { connected: this.conn.connected });
         callback();
       }.bind(this));
     } else {
@@ -156,6 +158,8 @@ ActiveSyncAccount.prototype = {
     if (!error) {
       return;
     }
+
+    logic(this, 'reportErrorIfNecessary', { error });
 
     if (this._isBadUserOrPassError(error)) {
       // prompt the user to try a different password
