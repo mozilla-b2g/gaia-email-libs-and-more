@@ -32,42 +32,42 @@ export const configuratorModules = new Map([
   [
     'activesync',
     async function() {
-      const mod = await import('gelam/activesync/configurator');
+      const mod = await import('gelam/accounts/activesync/configurator');
       return mod.default;
     }
   ],
   [
     'imap+smtp',
     async function() {
-      const mod = await import('gelam/composite/configurator');
+      const mod = await import('gelam/accounts/composite/configurator');
       return mod.default;
     }
   ],
   [
     'pop3+smtp',
     async function() {
-      const mod = await import('gelam/composite/configurator');
+      const mod = await import('gelam/accounts/composite/configurator');
       return mod.default;
     }
   ],
   [
     'phabricator',
     async function() {
-      const mod = await import('gelam/extras/phabricator/configurator');
+      const mod = await import('gelam/accounts/phabricator/configurator');
       return mod.default;
     }
   ],
   [
     'bugzilla',
     async function() {
-      const mod = await import('gelam/extras/bugzilla/configurator');
+      const mod = await import('gelam/accounts/bugzilla/configurator');
       return mod.default;
     }
   ],
   [
     'ical',
     async function() {
-      const mod = await import('gelam/extras/ical/configurator');
+      const mod = await import('gelam/accounts/ical/configurator');
       return mod.default;
     }
   ],
@@ -81,42 +81,42 @@ export const validatorModules = new Map([
   [
     'activesync',
     async function() {
-      const mod = await import('gelam/activesync/validator');
+      const mod = await import('gelam/accounts/activesync/validator');
       return mod.default;
     }
   ],
   [
     'imap+smtp',
     async function() {
-      const mod = await import('gelam/composite/validator');
+      const mod = await import('gelam/accounts/composite/validator');
       return mod.default;
     }
   ],
   [
     'pop3+smtp',
     async function() {
-      const mod = await import('gelam/composite/validator');
+      const mod = await import('gelam/accounts/composite/validator');
       return mod.default;
     }
   ],
   [
     'phabricator',
     async function() {
-      const mod = await import('gelam/extras/phabricator/validator');
+      const mod = await import('gelam/accounts/phabricator/validator');
       return mod.default;
     }
   ],
   [
     'bugzilla',
     async function() {
-      const mod = await import('gelam/extras/bugzilla/validator');
+      const mod = await import('gelam/accounts/bugzilla/validator');
       return mod.default;
     }
   ],
   [
     'ical',
     async function() {
-      const mod = await import('gelam/extras/ical/validator');
+      const mod = await import('gelam/accounts/ical/validator');
       return mod.default;
     }
   ],
@@ -130,42 +130,42 @@ export const accountModules = new Map([
   [
     'activesync',
     async function() {
-      const mod = await import('gelam/activesync/account');
+      const mod = await import('gelam/accounts/activesync/account');
       return mod.default;
     }
   ],
   [
     'imap+smtp',
     async function() {
-      const mod = await import('gelam/composite/account');
+      const mod = await import('gelam/accounts/composite/account');
       return mod.default;
     }
   ],
   [
     'pop3+smtp',
     async function() {
-      const mod = await import('gelam/composite/account');
+      const mod = await import('gelam/accounts/composite/account');
       return mod.default;
     }
   ],
   [
     'phabricator',
     async function() {
-      const mod = await import('gelam/extras/phabricator/account');
+      const mod = await import('gelam/accounts/phabricator/account');
       return mod.default;
     }
   ],
   [
     'bugzilla',
     async function() {
-      const mod = await import('gelam/extras/bugzilla/account');
+      const mod = await import('gelam/accounts/bugzilla/account');
       return mod.default;
     }
   ],
   [
     'ical',
     async function() {
-      const mod = await import('gelam/extras/ical/account');
+      const mod = await import('gelam/accounts/ical/account');
       return mod.default;
     }
   ],
@@ -179,49 +179,49 @@ export const engineTaskMappings = new Map([
   [
     'gmailImap',
     async function() {
-      const mod = await import('gelam/imap/gmail_tasks');
+      const mod = await import('gelam/accounts/imap/gmail_tasks');
       return mod.default;
     }
   ],
   [
     'vanillaImap',
     async function() {
-      const mod = await import('gelam/imap/vanilla_tasks');
+      const mod = await import('gelam/accounts/imap/vanilla_tasks');
       return mod.default;
     }
   ],
   [
     'activesync',
     async function() {
-      const mod = await import('gelam/activesync/activesync_tasks');
+      const mod = await import('gelam/accounts/activesync/activesync_tasks');
       return mod.default;
     }
   ],
   [
     'pop3',
     async function() {
-      const mod = await import('gelam/pop3/pop3_tasks');
+      const mod = await import('gelam/accounts/pop3/pop3_tasks');
       return mod.default;
     }
   ],
   [
     'phabricator',
     async function() {
-      const mod = await import('gelam/extras/phabricator/phabricator_tasks');
+      const mod = await import('gelam/accounts/phabricator/phabricator_tasks');
       return mod.default;
     }
   ],
   [
     'bugzilla',
     async function() {
-      const mod = await import('gelam/extras/bugzilla/bugzilla_tasks');
+      const mod = await import('gelam/accounts/bugzilla/bugzilla_tasks');
       return mod.default;
     }
   ],
   [
     'ical',
     async function() {
-      const mod = await import('gelam/extras/ical/ical_tasks');
+      const mod = await import('gelam/accounts/ical/ical_tasks');
       return mod.default;
     }
   ],
