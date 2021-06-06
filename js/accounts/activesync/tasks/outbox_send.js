@@ -1,9 +1,9 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import sendMail from '../smotocol/send_mail';
 import sendMail12x from '../smotocol/send_mail_12x';
 
-import MixOutboxSend from '../../task_mixins/mix_outbox_send';
+import MixOutboxSend from '../../../task_mixins/mix_outbox_send';
 
 /**
  * ActiveSync outbox sending:

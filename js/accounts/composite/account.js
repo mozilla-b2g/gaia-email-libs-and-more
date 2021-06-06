@@ -4,11 +4,11 @@
  **/
 
 import logic from 'logic';
-import $acctmixins from '../accountmixins';
+import $acctmixins from '../../accountmixins';
 import * as $imapacct from '../imap/account';
 import * as $pop3acct from '../pop3/account';
 import * as $smtpacct from '../smtp/account';
-import allback from '../allback';
+import allback from '../../allback';
 
 var PIECE_ACCOUNT_TYPE_TO_CLASS = {
   'imap': $imapacct.ImapAccount,

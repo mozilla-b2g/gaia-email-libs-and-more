@@ -1,6 +1,6 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
+import MixinSyncFolderList from '../../../task_mixins/mix_sync_folder_list';
 
 /**
  * Create the POP3 offline-only folders.

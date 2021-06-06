@@ -1,29 +1,10 @@
-define([
-  'logic',
-  '../errbackoff',
-  '../composite/incoming',
-  '../errorutils',
-  '../disaster-recovery',
-  './pop3',
-  './probe',
-  'module',
-  'require',
-  'exports'],
-function(
-  logic,
-  errbackoff,
-  incoming,
-  errorutils,
-  DisasterRecovery,
-  pop3,
-  pop3probe,
-  module,
-  require,
-  exports
-) {
-'use strict';
-
-var CompositeIncomingAccount = incoming.CompositeIncomingAccount;
+import logic from 'logic';
+import errbackoff from '../../errbackoff';
+import { CompositeIncomingAccount } from '../composite/incoming';
+import errorutils from '../../errorutils';
+import DisasterRecovery from '../../disaster-recovery';
+import * as pop3 from './pop3';
+import * as pop3probe from './probe';
 
 /**
  * Define a POP3 account. Much of the functionality here is similar
@@ -52,7 +33,6 @@ function Pop3Account(universe, compositeAccount, accountId, credentials,
     this._conn = existingProtoConn;
   }
 }
-exports.Account = exports.Pop3Account = Pop3Account;
 Pop3Account.prototype = Object.create(CompositeIncomingAccount.prototype);
 var properties = {
   type: 'pop3',
@@ -254,4 +234,5 @@ for (var k in properties) {
   Object.defineProperty(Pop3Account.prototype, k,
                         Object.getOwnPropertyDescriptor(properties, k));
 }
-}); // end define
+
+export { Pop3Account, Pop3Account as Account };

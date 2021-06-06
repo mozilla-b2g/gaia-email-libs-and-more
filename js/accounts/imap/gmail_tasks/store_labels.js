@@ -1,4 +1,4 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import GmailLabelMapper from '../gmail/gmail_label_mapper';
 

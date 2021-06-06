@@ -1,10 +1,10 @@
-import { numericUidFromMessageId } from '../../id_conversions';
+import { numericUidFromMessageId } from '../../../id_conversions';
 
 import { normalizeAndApplyChanges, applyChanges, mergeChanges } from
-  '../../delta_algebra';
-import { selectMessages } from '../../message_selector';
+  '../../../delta_algebra';
+import { selectMessages } from '../../../message_selector';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
 /**
  * @typedef {} MixStorePersistentState

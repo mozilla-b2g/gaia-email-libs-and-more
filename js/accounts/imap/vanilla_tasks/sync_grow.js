@@ -1,20 +1,20 @@
 import logic from 'logic';
 
-import { shallowClone } from '../../util';
+import { shallowClone } from '../../../util';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import { quantizeDate, NOW } from '../../date';
+import { quantizeDate, NOW } from '../../../date';
 
-import imapchew from '../imapchew';
+import * as imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
 import FolderSyncStateHelper from '../vanilla/folder_sync_state_helper';
 
 import { OLDEST_SYNC_DATE, SYNC_WHOLE_FOLDER_AT_N_MESSAGES,
-        GROWTH_MESSAGE_COUNT_TARGET } from '../../syncbase';
+        GROWTH_MESSAGE_COUNT_TARGET } from '../../../syncbase';
 
-import { syncNormalOverlay } from '../../task_helpers/sync_overlay_helpers';
+import { syncNormalOverlay } from '../../../task_helpers/sync_overlay_helpers';
 
 import MixinImapProbeForDate from '../task_mixins/imap_mix_probe_for_date';
 

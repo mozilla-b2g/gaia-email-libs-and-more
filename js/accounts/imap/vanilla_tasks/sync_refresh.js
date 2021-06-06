@@ -1,16 +1,16 @@
-import { shallowClone } from '../../util';
+import { shallowClone } from '../../../util';
 
-import { NOW } from '../../date';
+import { NOW } from '../../../date';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import FolderSyncStateHelper from '../vanilla/folder_sync_state_helper';
 
-import imapchew from '../imapchew';
+import * as imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
 import { syncNormalOverlay } from
-  '../../task_helpers/sync_overlay_helpers';
+  '../../../task_helpers/sync_overlay_helpers';
 
 /**
  * Steady state vanilla IMAP folder sync.

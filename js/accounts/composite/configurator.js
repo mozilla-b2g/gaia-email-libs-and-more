@@ -2,7 +2,7 @@
  * Configurator for imap+smtp and pop3+smtp.
  **/
 
-import { PERFNOW } from '../date';
+import { PERFNOW } from '../../date';
 
 /**
  * Consuming userDetails and domainInfo, create the account-specific account

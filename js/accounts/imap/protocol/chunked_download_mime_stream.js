@@ -1,7 +1,7 @@
 import mimefuncs from 'mimefuncs';
 import { ReadableStream } from 'streams';
 
-import MimeNodeTransformStream from '../../streamy/mime_node_transform_stream';
+import MimeNodeTransformStream from '../../../streamy/mime_node_transform_stream';
 
 /**
  * Creates a MimeNodeTransformStream fed by a producer stream that fetches

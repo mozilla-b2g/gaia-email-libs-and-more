@@ -1,10 +1,10 @@
 import evt from 'evt';
 import logic from 'logic';
 
-import { shallowClone } from '../../util';
-import { NOW } from '../../date';
+import { shallowClone } from '../../../util';
+import { NOW } from '../../../date';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import FolderSyncStateHelper from '../folder_sync_state_helper';
 
@@ -13,14 +13,14 @@ import inferFilterType from '../smotocol/infer_filter_type';
 import enumerateFolderChanges from '../smotocol/enum_folder_changes';
 
 import { convIdFromMessageId, messageIdComponentFromUmid } from
-  '../../id_conversions';
+  '../../../id_conversions';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
-import { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } from '../../syncbase';
+import { SYNC_WHOLE_FOLDER_AT_N_MESSAGES } from '../../../syncbase';
 
 import { syncNormalOverlay } from
-  '../../task_helpers/sync_overlay_helpers';
+  '../../../task_helpers/sync_overlay_helpers';
 
 /**
  * Sync a folder for the first time and steady-state.  (Compare with our IMAP

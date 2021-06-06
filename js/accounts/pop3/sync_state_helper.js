@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-const logic = require('logic');
-const a64 = require('../a64');
+import logic from 'logic';
+import a64 from '../../a64';
 
 /**
  * POP3 sync state.
@@ -243,5 +240,4 @@ SyncStateHelper.prototype = {
   }
 };
 
-return SyncStateHelper;
-});
+export default SyncStateHelper;

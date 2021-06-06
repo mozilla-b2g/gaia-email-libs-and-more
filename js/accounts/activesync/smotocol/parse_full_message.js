@@ -1,9 +1,9 @@
 import mimetypes from 'mimetypes';
 import { parse as parseAddresses } from 'addressparser';
 
-import { encodeInt as encodeA64 } from '../../a64';
+import { encodeInt as encodeA64 } from '../../../a64';
 
-import mailRep from '../../db/mail_rep';
+import * as mailRep from '../../../db/mail_rep';
 
 import { Tags as asb, Enums as asbEnum }
   from 'activesync/codepages/AirSyncBase';

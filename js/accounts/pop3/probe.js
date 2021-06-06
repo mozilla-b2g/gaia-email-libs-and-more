@@ -1,13 +1,9 @@
-define([
-  './pop3',
-  '../syncbase',
-  'logic',
-  '../errorutils',
-  'exports'
-], function(pop3, syncbase, logic, errorutils, exports) {
+import logic from 'logic';
+import * as pop3 from './pop3';
+import syncbase from '../../syncbase';
+import errorutils from '../../errorutils';
 
-var scope = logic.scope('Pop3Prober');
-
+const scope = logic.scope('Pop3Prober');
 
 /**
  * Validate connection information for an account and verify that the
@@ -17,7 +13,7 @@ var scope = logic.scope('Pop3Prober');
  * If we succeed at logging in, hand off the established connection to
  * our caller so they can reuse the connection.
  */
-exports.probeAccount = function(credentials, connInfo) {
+export function probeAccount(credentials, connInfo) {
   var opts = {
     host: connInfo.hostname,
     port: connInfo.port,
@@ -145,14 +141,14 @@ function analyzePop3LibraryError(err) {
   }
 }
 
-var normalizePop3Error = exports.normalizePop3Error = function(err) {
+export function normalizePop3Error(err) {
   var reportAs = (analyzePop3LibraryError(err) ||
                   errorutils.analyzeException(err) ||
                   'unknown');
 
   logic(scope, 'normalized-error', { error: err, reportAs: reportAs });
   return reportAs;
-};
+}
 
 /**
  * Notes on transient failures:
@@ -175,6 +171,3 @@ var normalizePop3Error = exports.normalizePop3Error = function(err) {
  * retry here with a more extensive back-off strategy. See
  * http://tools.ietf.org/html/rfc2449#section-8.1.2
  */
-
-
-}); // end define

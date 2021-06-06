@@ -1,21 +1,21 @@
 import logic from 'logic';
 
-import { shallowClone } from '../../util';
+import { shallowClone } from '../../../util';
 
-import { prioritizeNewer } from '../../date_priority_adjuster';
+import { prioritizeNewer } from '../../../date_priority_adjuster';
 
 
-import TaskDefiner from '../../task_infra/task_definer';
-import a64 from '../../a64';
+import TaskDefiner from '../../../task_infra/task_definer';
+import a64 from '../../../a64';
 const expandGmailConvId = a64.decodeUI64;
 
-import { encodedGmailConvIdFromConvId } from '../../id_conversions';
+import { encodedGmailConvIdFromConvId } from '../../../id_conversions';
 
 import { chewMessageStructure, parseImapDateTime } from '../imapchew';
 
-import { conversationMessageComparator } from '../../db/comparators';
+import { conversationMessageComparator } from '../../../db/comparators';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
 import SyncStateHelper from '../gmail/sync_state_helper';
 import GmailLabelMapper from '../gmail/gmail_label_mapper';

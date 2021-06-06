@@ -1,4 +1,4 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import MixinStore from './mix_store';
 

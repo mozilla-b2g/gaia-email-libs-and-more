@@ -1,34 +1,58 @@
-define(function(require) {
-'use strict';
-
 /**
  * Standard IMAP.
- */
-return [
-  require('./vanilla_tasks/sync_folder_list'),
+ **/
 
-  require('./vanilla_tasks/sync_grow'),
-  require('./vanilla_tasks/sync_refresh'),
-  require('./vanilla_tasks/sync_message'),
-  require('./vanilla_tasks/sync_conv'),
-  require('./vanilla_tasks/sync_body'),
-  //require('./vanilla_tasks/merge_conversations'),
+ import VanillaSyncFolderList from './vanilla_tasks/sync_folder_list';
 
-  require('./vanilla_tasks/download'),
+ import VanillaSyncGrow from './vanilla_tasks/sync_grow';
+ import VanillaSyncRefresh from './vanilla_tasks/sync_refresh';
+ import VanillaSyncMessage from './vanilla_tasks/sync_message';
+ import VanillaSyncConv from './vanilla_tasks/sync_conv';
+ import VanillaSyncBody from './vanilla_tasks/sync_body';
 
-  require('./vanilla_tasks/store_flags'),
+ import VanillaDownload from './vanilla_tasks/download';
 
-  require('../tasks/draft_save'),
-  require('../tasks/draft_attach'),
-  require('../tasks/draft_detach'),
-  require('../tasks/draft_delete'),
-  require('./vanilla_tasks/outbox_send'),
+ import VanillaStoreFlags from './vanilla_tasks/store_flags';
 
-  require('./vanilla_tasks/append_message'),
+ import CommonDraftSave from '../../tasks/draft_save';
+ import CommonDraftAttach from '../../tasks/draft_attach';
+ import CommonDraftDetach from '../../tasks/draft_detach';
+ import CommonDraftDelete from '../../tasks/draft_delete';
 
-  require('../tasks/account_modify'),
-  require('../tasks/identity_modify'),
+ import VanillaOutboxSend from './vanilla_tasks/outbox_send';
 
-  require('../tasks/new_tracking'),
-];
-});
+ import VanillaAppendMessage from './vanilla_tasks/append_message';
+
+ import CommonAccountModify from '../../tasks/account_modify';
+ import CommonIdentityModify from '../../tasks/identity_modify';
+
+ import CommonNewTracking from '../../tasks/new_tracking';
+
+ export default [
+   VanillaSyncFolderList,
+
+   VanillaSyncGrow,
+   VanillaSyncRefresh,
+   VanillaSyncMessage,
+   VanillaSyncConv,
+   VanillaSyncBody,
+   // TODO: merge_conversations
+
+   VanillaStoreFlags,
+
+   VanillaDownload,
+
+   CommonDraftSave,
+   CommonDraftAttach,
+   CommonDraftDetach,
+   CommonDraftDelete,
+
+   VanillaOutboxSend,
+
+   VanillaAppendMessage,
+
+   CommonAccountModify,
+   CommonIdentityModify,
+ 
+   CommonNewTracking,
+ ];

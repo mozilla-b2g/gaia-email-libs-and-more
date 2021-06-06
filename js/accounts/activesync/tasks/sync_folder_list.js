@@ -1,12 +1,12 @@
 import evt from 'evt';
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import normalizeFolder from '../normalize_folder';
 import AccountSyncStateHelper from '../account_sync_state_helper';
 
 import enumerateHierarchyChanges from '../smotocol/enum_hierarchy_changes';
 
-import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
+import MixinSyncFolderList from '../../../task_mixins/mix_sync_folder_list';
 
 /**
  * Sync the folder list for an ActiveSync account.  We leverage IMAP's mix-in

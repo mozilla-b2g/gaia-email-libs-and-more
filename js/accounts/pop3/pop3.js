@@ -1,20 +1,24 @@
-define(function(require) {
-  'use strict';
+  import logic from 'logic';
+  import * as tcpSocket from 'tcp-socket';
+  import md5 from 'md5';
+  import * as transport from './transport';
+  import * as imapchew from '../imap/imapchew';
+  import syncbase from '../../syncbase';
+  import mimefuncs from 'mimefuncs';
+  import util from '../../util';
+  import allback from '../../allback';
 
-  const logic = require('logic');
-  const tcpSocket = require('tcp-socket');
-  const md5 = require('md5');
-  const transport = require('./transport');
-  const imapchew = require('../imap/imapchew');
-  const syncbase = require('../syncbase');
-  const mimefuncs = require('mimefuncs');
-  const util = require('../util');
-  const allback = require('../allback');
+  import PartBuilder from '../../mime/part_builder';
 
-  const ByteCounterTransformStream =
-    require('../streamy/byte_counter_transform_stream');
-  const MimeNodeTransformStream =
-    require('../streamy/mime_node_transform_stream');
+  import ByteCounterTransformStream
+    from '../../streamy/byte_counter_transform_stream';
+  import MimeNodeTransformStream
+    from '../../streamy/mime_node_transform_stream';
+
+  // TODO: Finish updating this file; there are some uses of this that use
+  // pre-convoy logic, and this is effectively a poison pill for them to throw
+  // when that code gets reached.
+  const mimeStreams = null;
 
   /**
    * The Pop3Client modules and classes are organized according to
@@ -242,7 +246,7 @@ define(function(require) {
         message: err.statusLine,
         response: err,
       });
-    })
+    });
 
     this.requestStream =
       new transport.Pop3RequestStream(this.socket, greetingRequest);
@@ -260,7 +264,7 @@ define(function(require) {
         this.socket.close();
       }
     }
-  }
+  };
 
   Pop3Client.prototype.sendRequest = function(command, args, isMultiline) {
     return new Promise((resolve, reject) => {
@@ -291,7 +295,7 @@ define(function(require) {
         request._respondWithError('closed');
       }
     });
-  }
+  };
 
 
   Pop3Client.prototype.beginRequest = function(command, args, isMultiline) {
@@ -302,7 +306,7 @@ define(function(require) {
       request._respondWithError('closed');
     }
     return request;
-  }
+  };
 
   /**
    * If we're trying to use TLS, upgrade now.
@@ -328,7 +332,7 @@ define(function(require) {
     } else {
       cb();
     }
-  }
+  };
 
   /**
    * Set the current state to 'authorization' and attempts to
@@ -353,7 +357,7 @@ define(function(require) {
     var secret;
     switch(this.authMethod) {
     case 'apop':
-      var match = /<.*?>/.exec(this._greetingLine || "");
+      var match = /<.*?>/.exec(this._greetingLine || '');
       var apopTimestamp = match && match[0];
       if (!apopTimestamp) {
         // if the server doesn't support APOP, try the next method.
@@ -405,7 +409,7 @@ define(function(require) {
         });
       break;
     }
-  }
+  };
 
   /*********************************************************************
    * MESSAGE FETCHING
@@ -443,7 +447,7 @@ define(function(require) {
           response: err,
         });
       });
-  }
+  };
 
   /**
    * Load a mapping of server message numbers to UIDLs, so that we
@@ -513,7 +517,7 @@ define(function(require) {
           });
         });
     });
-  }
+  };
 
   /**
    * XXX MOOT!  Being migrated into SyncStateHelper and sync_* tasks.
@@ -654,9 +658,8 @@ define(function(require) {
 
       // Kick it off, maestro.
       nextBatch();
-
     }, (err) => { cb && cb(err); });
-  }
+  };
 
   // 1. Obtain the root message header. From here, we have enough data to
   // produce a basic message that we can save to disk.
@@ -706,10 +709,10 @@ define(function(require) {
   function unfoldFormatFlowed(content, delsp) {
     var delSp = /^yes$/i.test(delsp);
 
-    return content.split('\n').
+    return content.split('\n')
     // remove soft linebreaks
     // soft linebreaks are added after space symbols
-    reduce(function(previousValue, currentValue, index) {
+    .reduce(function(previousValue, currentValue, index) {
         var body = previousValue;
         if (delSp) {
             // delsp adds spaces to text to be able to fold it
@@ -746,7 +749,7 @@ define(function(require) {
 
         // The first node is the root node; use it to build a header and body.
         if (!partBuilder) {
-          partBuilder = new imapchew.PartBuilder(headers, {
+          partBuilder = new PartBuilder(headers, {
             srvid: srvid,
             size: totalExpectedSize
           });
@@ -890,11 +893,13 @@ define(function(require) {
     } // end for
   };
 
-  return {
+  function setTimeoutFunctions(set, clear) {
+    setTimeout = set;
+    clearTimeout = clear;
+  }
+
+  export {
     Pop3Client,
-    setTimeoutFunctions: function(set, clear) {
-      setTimeout = set;
-      clearTimeout = clear;
-    }
+    setTimeoutFunctions,
   };
-}); // end define
+

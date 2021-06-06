@@ -1,17 +1,17 @@
-import { shallowClone } from '../../util';
-import { prioritizeNewer } from '../../date_priority_adjuster';
+import { shallowClone } from '../../../util';
+import { prioritizeNewer } from '../../../date_priority_adjuster';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import { resolveConversationTaskHelper } from
-  '../../task_mixins/conv_resolver';
+  '../../../task_mixins/conv_resolver';
 
 import { browserboxMessageToMimeHeaders, chewMessageStructure } from
   '../imapchew';
 
-import { conversationMessageComparator } from '../../db/comparators';
+import { conversationMessageComparator } from '../../../db/comparators';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
 /**
  * What to fetch.  Note that we currently re-fetch the flags even though they're

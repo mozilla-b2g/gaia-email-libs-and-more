@@ -1,16 +1,12 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const co = require('co');
-const logic = require('logic');
+import { makeDaysBefore, quantizeDate, DAY_MILLIS, NOW } from '../../../date';
+import { parseImapDateTime } from '../imapchew';
 
-const { makeDaysBefore, quantizeDate, DAY_MILLIS, NOW } = require('../../date');
-const { parseImapDateTime } = require('../imapchew');
+import { INITIAL_SYNC_GROWTH_DAYS, GROWTH_MESSAGE_COUNT_TARGET }
+  from '../../../syncbase';
 
-const { INITIAL_SYNC_GROWTH_DAYS, GROWTH_MESSAGE_COUNT_TARGET } =
-  require('../../syncbase');
-
-return {
+export default {
   /**
    * Figure out the right date to use for date-based sync by investigating
    * the INTERNALDATEs of messages that we ostensibly have not yet
@@ -119,4 +115,3 @@ return {
     return useDate;
   },
 };
-});

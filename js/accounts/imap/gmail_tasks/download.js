@@ -1,8 +1,8 @@
-import { numericUidFromMessageId } from '../../id_conversions';
+import { numericUidFromMessageId } from '../../../id_conversions';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import MixinDownload from '../../task_mixins/mix_download';
+import MixinDownload from '../../../task_mixins/mix_download';
 import MixinImapDownload from '../task_mixins/imap_mix_download';
 
 export default TaskDefiner.defineComplexTask([

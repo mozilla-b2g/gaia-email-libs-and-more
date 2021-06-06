@@ -1,5 +1,3 @@
-'use strict';
-
 // XXX: This is copied from shared/js/mime_mapper.js until the
 // download manager ships.
 
@@ -17,8 +15,7 @@
  * devicestorage.properties
  *
  */
-define(function() {
-return {
+export default {
   // This list only contains the extensions we currently supported
   // We should make it more complete for further usages
   _typeToExtensionMap: {
@@ -99,7 +96,7 @@ return {
   isFilenameMatchesType: function(filename, mimetype) {
     var extension = this._parseExtension(filename);
     var guessedType = this.guessTypeFromExtension(extension);
-    return (guessedType == mimetype);
+    return (guessedType === mimetype);
   },
 
   guessExtensionFromType: function(mimetype) {
@@ -133,4 +130,3 @@ return {
     return filename;
   }
 };
-});

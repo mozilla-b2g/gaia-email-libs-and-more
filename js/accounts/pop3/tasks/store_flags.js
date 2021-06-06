@@ -1,7 +1,6 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-let TaskDefiner = require('../../task_infra/task_definer');
+import MixinStoreFlags from '../../../task_mixins/mix_store_flags';
 
 /**
  * We use the vanilla IMAP store flags implementation without any execute stage
@@ -11,12 +10,11 @@ let TaskDefiner = require('../../task_infra/task_definer');
  *
  * @see MixStoreFlagsMixin
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_store_flags'),
+export default TaskDefiner.defineComplexTask([
+  MixinStoreFlags,
   {
     name: 'store_flags',
 
     execute: null
   }
 ]);
-});

@@ -1,10 +1,10 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import FolderSyncStateHelper from '../folder_sync_state_helper';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
-import { processMessageContent } from '../../bodies/mailchew';
+import { processMessageContent } from '../../../bodies/mailchew';
 
 import downloadBody from '../smotocol/download_body';
 import downloadBody25 from '../smotocol/download_body_25';
@@ -12,9 +12,9 @@ import downloadBody25 from '../smotocol/download_body_25';
 import { Enums as asbEnum } from 'activesync/codepages/AirSyncBase';
 
 
-import { MAX_SNIPPET_BYTES } from '../../syncbase';
+import { MAX_SNIPPET_BYTES } from '../../../syncbase';
 
-import MixinSyncBody from '../../task_mixins/mix_sync_body';
+import MixinSyncBody from '../../../task_mixins/mix_sync_body';
 
 /**
  * The desired number of bytes to fetch when downloading bodies, but the body's

@@ -1,18 +1,14 @@
-define(function(require) {
-'use strict';
+import { shallowClone } from '../../../util';
 
-const co = require('co');
-const { shallowClone } = require('../../util');
+import { NOW } from '../../../date';
 
-const { NOW } = require('../../date');
+import TaskDefiner from '../../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import SyncStateHelper from '../sync_state_helper';
 
-const SyncStateHelper = require('../sync_state_helper');
+import { POP3_MAX_MESSAGES_PER_SYNC } from '../../../syncbase';
 
-const { POP3_MAX_MESSAGES_PER_SYNC } = require('../../syncbase');
-
-return TaskDefiner.defineAtMostOnceTask([
+export default TaskDefiner.defineAtMostOnceTask([
   {
     name: 'sync_refresh',
     binByArg: 'folderId',
@@ -113,4 +109,3 @@ return TaskDefiner.defineAtMostOnceTask([
     }
   }
 ]);
-});

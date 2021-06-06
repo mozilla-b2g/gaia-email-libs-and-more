@@ -3,21 +3,19 @@
  * between connection-related setup in smtp/account.js and
  * smtp/probe.js.
  */
-define(function(require, exports) {
+  import logic from 'logic';
+  import SmtpClient from 'smtpclient';
+  import syncbase from '../../syncbase';
+  import oauth from '../../oauth';
 
-  var logic = require('logic');
-  var SmtpClient = require('smtpclient');
-  var syncbase = require('../syncbase');
-  var oauth = require('../oauth');
-
-  var setTimeout = globalThis.setTimeout;
-  var clearTimeout = globalThis.clearTimeout;
-  exports.setTimeoutFunctions = function(setFn, clearFn) {
+  let setTimeout = globalThis.setTimeout;
+  let clearTimeout = globalThis.clearTimeout;
+  export function setTimeoutFunctions(setFn, clearFn) {
     setTimeout = setFn;
     clearTimeout = clearFn;
-  };
+  }
 
-  var scope = logic.scope('SmtpClient');
+  const scope = logic.scope('SmtpClient');
 
   /**
    * Create an SMTP connection using the given credentials and
@@ -35,14 +33,13 @@ define(function(require, exports) {
    *   resolve => {SmtpClient} connection
    *   reject => {String} normalized error
    */
-  exports.createSmtpConnection = function(credentials, connInfo,
+  export function createSmtpConnection(credentials, connInfo,
                                           credsUpdatedCallback) {
     var conn;
 
     return oauth.ensureUpdatedCredentials(credentials, credsUpdatedCallback)
     .then(function() {
       return new Promise(function(resolve, reject) {
-
         var auth = {
           // Someday, `null` might be a valid value, so be careful here
           user: (credentials.outgoingUsername !== undefined ?
@@ -118,8 +115,7 @@ define(function(require, exports) {
         return oauth.ensureUpdatedCredentials(credentials,
                                               credsUpdatedCallback, true)
         .then(function() {
-          return exports.createImapConnection(credentials, connInfo,
-                                              credsUpdatedCallback);
+          return createSmtpConnection(credentials, connInfo, credsUpdatedCallback);
         });
       } else {
         logic(scope, 'connect-error', {
@@ -129,7 +125,7 @@ define(function(require, exports) {
         throw errorString;
       }
     });
-  };
+  }
 
   //****************************************************************
   // UNFORTUNATE SMTP WORKAROUNDS & SHIMS BEGIN HERE
@@ -181,8 +177,7 @@ define(function(require, exports) {
    *   SmtpClient doesn't maintain any easy-to-grab state about
    *   what mode the connection was in.
    */
-  var analyzeSmtpError = exports.analyzeSmtpError =
-        function(conn, rawError, wasSending) {
+  export function analyzeSmtpError(conn, rawError, wasSending) {
     var err = rawError;
     // If the error object is just an exception with no useful data,
     // try looking at recent SMTP errors.
@@ -292,5 +287,4 @@ define(function(require, exports) {
     });
 
     return normalizedError;
-  };
-});
+  }

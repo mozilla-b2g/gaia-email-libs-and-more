@@ -1,11 +1,11 @@
-import imapchew from '../imapchew';
+import * as imapchew from '../imapchew';
 
-import churnConversation from '../../churn_drivers/conv_churn_driver';
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
 import { SnippetParser } from '../protocol/snippetparser';
 import { TextParser } from '../protocol/textparser';
 
-import { MAX_SNIPPET_BYTES } from '../../syncbase';
+import { MAX_SNIPPET_BYTES } from '../../../syncbase';
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)

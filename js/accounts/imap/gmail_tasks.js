@@ -13,16 +13,16 @@ import GmailStoreLabels from './gmail_tasks/store_labels';
 
 import GmailDownload from './gmail_tasks/download';
 
-import CommonDraftSave from '../tasks/draft_save';
-import CommonDraftAttach from '../tasks/draft_attach';
-import CommonDraftDetach from '../tasks/draft_detach';
-import CommonDraftDelete from '../tasks/draft_delete';
+import CommonDraftSave from '../../tasks/draft_save';
+import CommonDraftAttach from '../../tasks/draft_attach';
+import CommonDraftDetach from '../../tasks/draft_detach';
+import CommonDraftDelete from '../../tasks/draft_delete';
 import GmailOutboxSend from './gmail_tasks/outbox_send';
 
-import CommonAccountModify from '../tasks/account_modify';
-import CommonIdentityModify from '../tasks/identity_modify';
+import CommonAccountModify from '../../tasks/account_modify';
+import CommonIdentityModify from '../../tasks/identity_modify';
 
-import CommonNewTracking from '../tasks/new_tracking';
+import CommonNewTracking from '../../tasks/new_tracking';
 
 export default [
   VanillaSyncFolderList,

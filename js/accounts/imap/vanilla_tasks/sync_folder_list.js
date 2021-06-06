@@ -1,12 +1,12 @@
 import logic from 'logic';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import { makeFolderMeta } from '../../db/folder_info_rep';
+import { makeFolderMeta } from '../../../db/folder_info_rep';
 
 import normalizeFolderType from '../normalize_folder_type';
 
-import MixinSyncFolderList from '../../task_mixins/mix_sync_folder_list';
+import MixinSyncFolderList from '../../../task_mixins/mix_sync_folder_list';
 
 /**
  * Common IMAP folder list syncing logic.

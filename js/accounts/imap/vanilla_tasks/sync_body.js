@@ -1,6 +1,6 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import MixinSyncBody from '../../task_mixins/mix_sync_body';
+import MixinSyncBody from '../../../task_mixins/mix_sync_body';
 import MixinImapSyncBody from '../task_mixins/imap_mix_sync_body';
 
 export default TaskDefiner.defineComplexTask([

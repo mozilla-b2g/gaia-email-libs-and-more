@@ -1,4 +1,4 @@
-import $acctmixins from '../accountmixins';
+import $acctmixins from '../../accountmixins';
 
 /**
  * A base class for IMAP and POP accounts.

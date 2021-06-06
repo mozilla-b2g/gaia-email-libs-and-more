@@ -1,14 +1,8 @@
-define(function(require, exports) {
-'use strict';
-
-var mimefuncs = require('mimefuncs');
-const { ReadableStream, WritableStream } = require('streams');
-const SocketStream = require('../streamy/socket_stream');
-const LineTransformStream = require('../streamy/line_transform_stream');
-const readAllChunks = require('../streamy/read_all_chunks');
-var evt = require('evt');
-var setTimeout = globalThis.setTimeout.bind(window);
-var clearTimeout = globalThis.clearTimeout.bind(window);
+import mimefuncs from 'mimefuncs';
+import { ReadableStream, WritableStream } from 'streams';
+import SocketStream from '../../streamy/socket_stream';
+import LineTransformStream from '../../streamy/line_transform_stream';
+import readAllChunks from '../../streamy/read_all_chunks';
 
 var CR = '\r'.charCodeAt(0);
 var LF = '\n'.charCodeAt(0);
@@ -19,7 +13,7 @@ var SPACE = ' '.charCodeAt(0);
 
 var textEncoder = new TextEncoder('utf-8', { fatal: false });
 
-exports.Pop3RequestStream = function(socket, greetingRequest) {
+export function Pop3RequestStream(socket, greetingRequest) {
   var { readable, writable } = new SocketStream(socket);
 
   var requestsAwaitingResponse = [greetingRequest];
@@ -72,9 +66,9 @@ exports.Pop3RequestStream = function(socket, greetingRequest) {
 
 
   return writableRequestStream;
-};
+}
 
-var Request = exports.Request = function(command, args, expectMultiline) {
+export function Request(command, args, expectMultiline) {
   this.command = command;
   this.args = args || [];
   this.expectMultiline = !!expectMultiline;
@@ -86,7 +80,7 @@ var Request = exports.Request = function(command, args, expectMultiline) {
       this._dataLineStreamController = controller;
     }
   });
-};
+}
 
 Request.prototype = {
   /**
@@ -138,6 +132,8 @@ Request.prototype = {
         }
       }
     }
+
+    return false;
   },
 
   _respondWithError: function(desc) {
@@ -161,4 +157,3 @@ Request.prototype = {
     return this.command + ' => ' + this.getStatusLine();
   },
 };
-});

@@ -1,25 +1,25 @@
 import logic from 'logic';
 
-import { shallowClone } from '../../util';
+import { shallowClone } from '../../../util';
 
-import { NOW } from '../../date';
+import { NOW } from '../../../date';
 
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import GmailLabelMapper from '../gmail/gmail_label_mapper';
 import SyncStateHelper from '../gmail/sync_state_helper';
 
-import imapchew from '../imapchew';
+import * as imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-import a64 from '../../a64';
+import a64 from '../../../a64';
 const parseGmailConvId = a64.parseUI64;
 const parseGmailMsgId = a64.parseUI64;
 
-import { accountIdFromFolderId } from '../../id_conversions';
+import { accountIdFromFolderId } from '../../../id_conversions';
 
 import { syncNormalOverlay, syncPrefixOverlay } from
-  '../../task_helpers/sync_overlay_helpers';
+  '../../../task_helpers/sync_overlay_helpers';
 
 /**
  * This is the steady-state sync task that drives all of our gmail sync.

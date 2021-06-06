@@ -1,7 +1,6 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import MixOutboxSend from '../../../task_mixins/mix_outbox_send';
 
 /**
  * POP3's custom logic is to:
@@ -11,8 +10,8 @@ const TaskDefiner = require('../../task_infra/task_definer');
  * TODO: in the future when the attachments use the download cache we can keep
  * them around.
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_outbox_send'),
+export default TaskDefiner.defineComplexTask([
+  MixOutboxSend,
   {
     shouldIncludeBcc: function(/*account*/) {
       // Never trust the SMTP server to not screw up since by definition a POP3
@@ -42,4 +41,3 @@ return TaskDefiner.defineComplexTask([
     }
   }
 ]);
-});

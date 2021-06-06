@@ -1,15 +1,12 @@
-define(function(require, exports) {
-'use strict';
+import { parseUI64 as parseGmailMsgId } from '../../a64';
 
-const { parseUI64: parseGmailMsgId } = require('../a64');
+import mimefuncs from 'mimefuncs';
+import * as mailRep from '../../db/mail_rep';
+import * as $mailchew from '../../bodies/mailchew';
+import jsmime from 'jsmime';
 
-const mimefuncs = require('mimefuncs');
-const mailRep = require('../db/mail_rep');
-const $mailchew = require('../bodies/mailchew');
-const jsmime = require('jsmime');
-
-const MimeHeaderInfo = require('../mime/mime_header_info');
-const PartBuilder = require('../mime/part_builder');
+import MimeHeaderInfo from '../../mime/mime_header_info';
+import PartBuilder from '../../mime/part_builder';
 
 // parseImapDateTime and formatImapDateTime functions from node-imap;
 // MIT licensed, (c) Brian White.
@@ -47,7 +44,7 @@ var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 * date-time = DQUOTE date-day-fixed "-" date-month "-" date-year
 * SP time SP zone DQUOTE
 */
-var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
+export function parseImapDateTime(dstr) {
   var match = reDateTime.exec(dstr);
   if (!match) {
     throw new Error('Not a good IMAP date-time: ' + dstr);
@@ -72,7 +69,7 @@ var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
   timestamp -= zoneHourDelta * HOUR_MILLIS + zoneMinuteDelta * MINUTE_MILLIS;
 
   return timestamp;
-};
+}
 
 /**
  * Transform a browserbox representation of an item that has a value
@@ -82,7 +79,7 @@ var parseImapDateTime = exports.parseImapDateTime = function(dstr) {
  *   { value: 1 } -> 1
  *   undefined -> null
  */
-var valuesOnly = exports.valuesOnly = function(item) {
+export function valuesOnly(item) {
   if (Array.isArray(item)) {
     return item.map(valuesOnly);
   } else if (item && typeof item === 'object') {
@@ -95,21 +92,17 @@ var valuesOnly = exports.valuesOnly = function(item) {
       }
       return result;
     }
-  } else if (item && typeof item === 'object') {
-    return item;
   } else if (item !== undefined) {
     return item;
   } else {
     return null;
   }
-};
-
-
+}
 
 /**
  * Convert the headers from a FETCH response to a MimeHeaderInfo object.
  */
-function browserboxMessageToMimeHeaders(browserboxMessage) {
+export function browserboxMessageToMimeHeaders(browserboxMessage) {
   var headers = new Map();
   for (var key in browserboxMessage) {
     // We test the key using a regex here because the key name isn't
@@ -139,7 +132,6 @@ function browserboxMessageToMimeHeaders(browserboxMessage) {
   }
   return headers;
 }
-exports.browserboxMessageToMimeHeaders = browserboxMessageToMimeHeaders;
 
 /**
  * Encode a header value (with parameters) into a parameter header.
@@ -186,7 +178,7 @@ function estimatePartSizeInBytes(encoding, size) {
  * Convert a BODYSTRUCTURE response containing MIME metadata into a format
  * suitable for a MailRep (`{ header, body }`).
  */
-exports.chewMessageStructure = function(msg, headers, folderIds, flags, convId,
+export function chewMessageStructure(msg, headers, folderIds, flags, convId,
                                         maybeUmid, explicitMessageId) {
   if (!headers) {
     headers = browserboxMessageToMimeHeaders(msg);
@@ -266,9 +258,7 @@ exports.chewMessageStructure = function(msg, headers, folderIds, flags, convId,
     references: headers.references,
     bodyReps
   });
-};
-
-
+}
 
 /**
  * Fill a given body rep with the content from fetching
@@ -300,7 +290,7 @@ exports.chewMessageStructure = function(msg, headers, folderIds, flags, convId,
  *    //    and set its value.
  *
  */
-exports.updateMessageWithFetch = function(message, req, res) {
+export function updateMessageWithFetch(message, req, res) {
   var bodyRep = message.bodyReps[req.bodyRepIndex];
 
   // check if the request was unbounded or we got back less bytes then we
@@ -335,12 +325,12 @@ exports.updateMessageWithFetch = function(message, req, res) {
       return rep.authoredBodySize + tally;
     }, 0);
   }
-};
+}
 
 /**
  * Selects a desirable snippet body rep if the given header has no snippet.
  */
-exports.selectSnippetBodyRep = function(message) {
+export function selectSnippetBodyRep(message) {
   if (message.snippet) {
     return -1;
   }
@@ -349,13 +339,13 @@ exports.selectSnippetBodyRep = function(message) {
   var len = bodyReps.length;
 
   for (var i = 0; i < len; i++) {
-    if (exports.canBodyRepFillSnippet(bodyReps[i])) {
+    if (canBodyRepFillSnippet(bodyReps[i])) {
       return i;
     }
   }
 
   return -1;
-};
+}
 
 /**
  * Determines if a given body rep can be converted into a snippet. Useful for
@@ -366,20 +356,20 @@ exports.selectSnippetBodyRep = function(message) {
  *    $imapchew.canBodyRepFillSnippet(bodyInfo.bodyReps[0]) // true/false
  *
  */
-exports.canBodyRepFillSnippet = function(bodyRep) {
+export function canBodyRepFillSnippet(bodyRep) {
   return (
     bodyRep &&
     bodyRep.type === 'plain' ||
     bodyRep.type === 'html'
   );
-};
+}
 
 /**
  * Calculates and returns the correct estimate for the number of
  * bytes to download before we can display the body. For IMAP, that
  * includes the bodyReps and related parts. (POP3 is different.)
  */
-exports.calculateBytesToDownloadForImapBodyDisplay = function(body) {
+export function calculateBytesToDownloadForImapBodyDisplay(body) {
   var bytesLeft = 0;
   body.bodyReps.forEach(function(rep) {
     if (!rep.isDownloaded) {
@@ -392,5 +382,4 @@ exports.calculateBytesToDownloadForImapBodyDisplay = function(body) {
     }
   });
   return bytesLeft;
-};
-}); // end define
+}

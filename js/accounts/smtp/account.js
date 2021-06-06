@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
-
-var logic = require('logic');
-var client = require('./client');
-var DisasterRecovery = require('../disaster-recovery');
+import logic from 'logic';
+import * as client from './client';
+import DisasterRecovery from '../../disaster-recovery';
 
 function SmtpAccount(universe, compositeAccount, accountId, credentials,
                      connInfo) {
@@ -284,8 +281,8 @@ SmtpAccount.prototype = {
 
 };
 
-return {
-  Account: SmtpAccount,
-  SmtpAccount: SmtpAccount
+export {
+  SmtpAccount,
+  SmtpAccount as Account,
 };
-}); // end define
+

@@ -1,9 +1,9 @@
 
-import { shallowClone } from '../../util';
+import { shallowClone } from '../../../util';
 
-import  TaskDefiner from '../../task_infra/task_definer';
+import  TaskDefiner from '../../../task_infra/task_definer';
 
-import { Composer } from '../../drafts/composer';
+import { Composer } from '../../../drafts/composer';
 
 /**
  * Perform an IMAP APPEND of the provided message to a folder on the server.

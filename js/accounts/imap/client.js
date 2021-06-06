@@ -8,9 +8,9 @@ import BrowserBox from 'browserbox';
 import ImapClient from 'browserbox-imap';
 import imapHandler from 'imap-handler';
 import logic from 'logic';
-import syncbase from '../syncbase';
-import errorutils from '../errorutils';
-import oauth from '../oauth';
+import syncbase from '../../syncbase';
+import errorutils from '../../errorutils';
+import oauth from '../../oauth';
 
 let setTimeout = window.setTimeout;
 let clearTimeout = window.clearTimeout;

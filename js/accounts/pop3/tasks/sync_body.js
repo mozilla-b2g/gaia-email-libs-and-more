@@ -1,9 +1,8 @@
-define(function(require) {
-'use strict';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-const TaskDefiner = require('../../task_infra/task_definer');
+import churnConversation from '../../../churn_drivers/conv_churn_driver';
 
-const churnConversation = require('../../churn_drivers/conv_churn_driver');
+import MixinSyncBody from '../../../task_mixins/mix_sync_body';
 
 /**
  * A custom execute() implementation building on top of Vanilla IMAP's sync_body
@@ -28,8 +27,8 @@ const churnConversation = require('../../churn_drivers/conv_churn_driver');
  * fetched.  So no-one will try and use us for snippets.  If they do, we'll
  * end up downloading the entirety of the message, which could be bad.
  */
-return TaskDefiner.defineComplexTask([
-  require('../../task_mixins/mix_sync_body'),
+export default TaskDefiner.defineComplexTask([
+  MixinSyncBody,
   {
     async execute(ctx, persistentState, memoryState, marker) {
       let req = memoryState.get(marker.convId);
@@ -107,4 +106,3 @@ return TaskDefiner.defineComplexTask([
   }
 ]);
 
-});

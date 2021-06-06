@@ -1,11 +1,11 @@
 import logic from 'logic';
-import $errbackoff from '../errbackoff';
-import $syncbase from '../syncbase';
+import $errbackoff from '../../errbackoff';
+import $syncbase from '../../syncbase';
 import { CompositeIncomingAccount } from '../composite/incoming';
 import * as $imapclient from './client';
 import ParallelImap from './protocol/parallel_imap';
-import errorutils from '../errorutils';
-import DisasterRecovery from '../disaster-recovery';
+import errorutils from '../../errorutils';
+import DisasterRecovery from '../../disaster-recovery';
 
 
 /**

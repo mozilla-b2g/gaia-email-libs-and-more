@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-return function normalizeFolderType(box, path, namespaces) {
+export default function normalizeFolderType(box, path, namespaces) {
   var attribs = (box.flags || []).map(function(flag) {
     return flag.substr(1).toUpperCase(); // Map "\\Noselect" => "NOSELECT"
   });
@@ -60,6 +57,7 @@ return function normalizeFolderType(box, path, namespaces) {
 
         case 'HASCHILDREN': // 3348
         case 'HASNOCHILDREN': // 3348
+          break;
 
         // - standard bits we don't care about
         case 'MARKED': // 3501
@@ -110,6 +108,8 @@ return function normalizeFolderType(box, path, namespaces) {
           case 'UNSENT MESSAGES':
             type = 'queue';
             break;
+          default:
+            break;
         }
       }
     }
@@ -119,5 +119,4 @@ return function normalizeFolderType(box, path, namespaces) {
     }
   }
   return type;
-};
-});
+}

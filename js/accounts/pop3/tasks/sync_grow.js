@@ -1,8 +1,8 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import SyncStateHelper from '../sync_state_helper';
 
-import { POP3_MAX_MESSAGES_PER_SYNC } from '../../syncbase';
+import { POP3_MAX_MESSAGES_PER_SYNC } from '../../../syncbase';
 
 /**
  * Sync some messages out of the the overflow set.

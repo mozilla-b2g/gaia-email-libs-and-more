@@ -1,4 +1,5 @@
-define(['logic', './client', 'exports'], function(logic, client, exports) {
+import logic from 'logic';
+import * as client from './client';
 
   var scope = logic.scope('SmtpProber');
 
@@ -17,8 +18,7 @@ define(['logic', './client', 'exports'], function(logic, client, exports) {
    * that can't send e-mail, and we currently don't allow them to
    * change their address after setup.
    */
-  exports.probeAccount = function(credentials, connInfo) {
-
+  export function probeAccount(credentials, connInfo) {
     logic(scope, 'connecting', {
       _credentials: credentials,
       connInfo: connInfo
@@ -57,7 +57,7 @@ define(['logic', './client', 'exports'], function(logic, client, exports) {
 
         throw errorString;
       });
-  };
+  }
 
   /**
    * Send the envelope; the server might proactively warn us that we
@@ -81,5 +81,3 @@ define(['logic', './client', 'exports'], function(logic, client, exports) {
       conn.onerror = function(err) { reject(err); };
     });
   }
-
-}); // end define

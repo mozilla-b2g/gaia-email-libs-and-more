@@ -1,10 +1,10 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
 import FolderSyncStateHelper from '../folder_sync_state_helper';
 
 import modifyFolderMessages from '../smotocol/modify_folder_messages';
 
-import MixinStoreFlags from '../../task_mixins/mix_store_flags';
+import MixinStoreFlags from '../../../task_mixins/mix_store_flags';
 
 /**
  * @see MixStoreFlagsMixin

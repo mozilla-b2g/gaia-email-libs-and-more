@@ -1,4 +1,4 @@
-import { makeFolderMeta } from '../db/folder_info_rep';
+import { makeFolderMeta } from '../../db/folder_info_rep';
 
 import { Enums as fhEnum } from 'activesync/codepages/FolderHierarchy';
 var $FolderTypes = fhEnum.Type;

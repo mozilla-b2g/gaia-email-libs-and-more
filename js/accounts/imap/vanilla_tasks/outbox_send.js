@@ -1,6 +1,6 @@
-import TaskDefiner from '../../task_infra/task_definer';
+import TaskDefiner from '../../../task_infra/task_definer';
 
-import MixinOutboxSend from '../../task_mixins/mix_outbox_send';
+import MixinOutboxSend from '../../../task_mixins/mix_outbox_send';
 
 /**
  * Vanilla IMAP conditionally generates an "append_message" job to save the

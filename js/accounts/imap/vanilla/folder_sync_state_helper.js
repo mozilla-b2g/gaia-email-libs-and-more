@@ -1,11 +1,8 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-let logic = require('logic');
+import { convIdFromMessageId } from '../../../id_conversions';
 
-let { convIdFromMessageId } = require('../../id_conversions');
-
-let a64 = require('../../a64');
+import a64 from '../../../a64';
 
 /**
  * Vanilla IMAP helper logic for folder sync state manipulation.
@@ -29,7 +26,7 @@ let a64 = require('../../a64');
  *   messages using that flag-set.
  * - uidInfo: A map from message UID to the { umid, flagSlot }.
  */
-function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId, mode) {
+export default function FolderSyncStateHelper(ctx, rawSyncState, accountId, folderId, mode) {
   if (!rawSyncState) {
     logic(ctx, 'creatingDefaultSyncState', {});
     rawSyncState = {
@@ -299,6 +296,3 @@ FolderSyncStateHelper.prototype = {
     return task;
   }
 };
-
-return FolderSyncStateHelper;
-});

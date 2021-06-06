@@ -4,14 +4,8 @@
  * sustaining an account with.
  */
 
-define([
-  'browserbox',
-  'logic',
-  './client',
-  '../syncbase',
-  'exports'
-], function(BrowserBox, logic, imapclient, syncbase, exports) {
-'use strict';
+import logic from 'logic';
+import * as imapclient from './client';
 
   /**
    * Log in to test credentials and determine sync engine to use, passing the
@@ -32,7 +26,7 @@ define([
    *   resolve => { conn, engine }
    *   reject => String (normalized)
    */
-  exports.probeAccount = function(credentials, connInfo) {
+  export function probeAccount(credentials, connInfo) {
     var scope = logic.scope('ImapProber');
     logic(scope, 'connecting', { connInfo: connInfo });
 
@@ -65,6 +59,4 @@ define([
         }
         throw err;
       });
-  };
-
-}); // end define
+  }

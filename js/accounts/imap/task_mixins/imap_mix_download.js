@@ -1,12 +1,8 @@
-define(function(require) {
-'use strict';
+import messageChunkedPartStream from '../protocol/message_chunked_part_stream';
 
-const messageChunkedPartStream =
-  require('../protocol/message_chunked_part_stream');
+import syncbase from '../../../syncbase';
 
-const syncbase = require('../../syncbase');
-
-return {
+export default {
   async downloadParts(ctx, account, messageInfo, parts) {
     // - Get the folder and UID
     let { folderInfo, uid } =
@@ -24,4 +20,3 @@ return {
     });
   },
 };
-});
