@@ -1,14 +1,11 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
+import probe from './probe';
 
-const probe = require('./probe');
+import { AUTOCONFIG_TIMEOUT_MS } from '../../syncbase';
 
-const { AUTOCONFIG_TIMEOUT_MS } = require('../syncbase');
-
-const { raw_autodiscover, HttpError, AutodiscoverDomainError } =
-  require('activesync/protocol');
+import { raw_autodiscover, HttpError, AutodiscoverDomainError }
+  from 'activesync/protocol';
 
 const scope = logic.scope('ActivesyncConfigurator');
 
@@ -82,7 +79,7 @@ function getFullDetailsFromAutodiscover(userDetails, url) {
  * but we're currently trying to keep the configurator stage offline-only with
  * the validator as the spot the online stuff happens.
  */
-return async function(fragments) {
+export default async function(fragments) {
   let { credentials, connInfoFields } = fragments;
   // - Need to run an autodiscover?
   if (connInfoFields.connInfo.autodiscoverEndpoint) {
@@ -122,5 +119,4 @@ return async function(fragments) {
     },
     receiveProtoConn: conn
   };
-};
-});
+}

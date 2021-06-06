@@ -1,7 +1,5 @@
-define(function(require, exports) {
-
-var streams = require('streams');
-var util = require('util');
+import streams from 'streams';
+import util from 'util';
 
 /**
  * ActiveSync allows us to download attachments in one of two ways: either
@@ -17,7 +15,7 @@ var util = require('util');
  * https://msdn.microsoft.com/en-us/library/jj663270%28v=exchg.80%29.aspx
  * https://msdn.microsoft.com/en-us/library/jj663353%28v=exchg.80%29.aspx
  */
-exports.MultipartStream = function() {
+export default function MultipartStream() {
   var self = this;
   var out;
   var offset = 0;
@@ -82,7 +80,7 @@ exports.MultipartStream = function() {
           console.log('grabbed', bytesToGrab, buffer.length);
 
           if (currentPartLengthRemaining === 0) {
-            console.log('done with part')
+            console.log('done with part');
             // We're done with this part.
             currentPartStreamController.close();
             currentPartStreamController = null;
@@ -105,6 +103,3 @@ exports.MultipartStream = function() {
     }
   });
 }
-
-
-}); // end define

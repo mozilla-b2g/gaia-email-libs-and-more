@@ -1,16 +1,13 @@
-define(function(require) {
-'use strict';
+import mimetypes from 'mimetypes';
+import { parse as parseAddresses } from 'addressparser';
 
-const mimetypes = require('mimetypes');
-const parseAddresses = require('addressparser').parse;
+import { encodeInt as encodeA64 } from '../../a64';
 
-const { encodeInt: encodeA64 } = require('../../a64');
+import mailRep from '../../db/mail_rep';
 
-const mailRep = require('../../db/mail_rep');
-
-const { Tags: asb, Enums: asbEnum } =
-  require('activesync/codepages/AirSyncBase');
-const em = require('activesync/codepages/Email').Tags;
+import { Tags as asb, Enums as asbEnum }
+  from 'activesync/codepages/AirSyncBase';
+import { Tags as em } from 'activesync/codepages/Email';
 
 /**
  * Parse the given WBXML server representation of a message into a GELAM backend
@@ -23,7 +20,7 @@ const em = require('activesync/codepages/Email').Tags;
  *
  * @param {WBXML.Element} node
  */
-function parseFullMessage(node, { messageId, umid, folderId }) {
+export default function parseFullMessage(node, { messageId, umid, folderId }) {
   // The representation we mutate into shape.  This will eventually be passed
   // through `makeMessageInfo` in mail_rep.js.
   let scratchMsg = {
@@ -203,6 +200,3 @@ function parseFullMessage(node, { messageId, umid, folderId }) {
 
   return mailRep.makeMessageInfo(scratchMsg);
 }
-
-return parseFullMessage;
-});

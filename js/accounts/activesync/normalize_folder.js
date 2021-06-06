@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import { makeFolderMeta } from '../db/folder_info_rep';
 
-const { makeFolderMeta } = require('../db/folder_info_rep');
-
-const { Enums: fhEnum } = require('activesync/codepages/FolderHierarchy');
+import { Enums as fhEnum } from 'activesync/codepages/FolderHierarchy';
 var $FolderTypes = fhEnum.Type;
 
 
@@ -61,10 +58,9 @@ function getFirstFolderWithType(folderIdToFolderInfo, type) {
  *   care about this kind of folder, or null if we need to wait until later
  *   (e.g. if we haven't added the folder's parent yet)
  */
-return function normalizeFolder(
+export default function normalizeFolder(
   { idMaker, serverIdToFolderId, folderIdToFolderInfo },
   { serverId, parentServerId, displayName, typeNum, forceType }) {
-
   if (!forceType && !(typeNum in folderTypes)) {
     return true; // Not a folder type we care about.
   }
@@ -130,5 +126,4 @@ return function normalizeFolder(
   });
 
   return folderInfo;
-};
-});
+}

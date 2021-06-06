@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-const $wbxml = require('wbxml');
-const ASCP = require('activesync/codepages');
+import $wbxml from 'wbxml';
+import ASCP from 'activesync/codepages';
 
 /**
  * ORPHANED COMMENT FROM ActiveSyncAccount.  Repurpose when hooking this up.
@@ -60,7 +57,7 @@ const ASCP = require('activesync/codepages');
  *
  * @return {{ serverId, folderSyncKey }}
  */
-async function createFolder(conn, args) {
+export default async function createFolder(conn, args) {
   const fh = ASCP.FolderHierarchy.Tags;
   const fhStatus = ASCP.FolderHierarchy.Enums.Status;
   const folderType = ASCP.FolderHierarchy.Enums.Type.Mail;
@@ -107,6 +104,3 @@ async function createFolder(conn, args) {
     throw 'unknown';
   }
 }
-
-return createFolder;
-});

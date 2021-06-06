@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-const $wbxml = require('wbxml');
-const ASCP = require('activesync/codepages');
+import $wbxml from 'wbxml';
+import ASCP from 'activesync/codepages';
 
 /**
  * Delete a folder.
@@ -18,7 +15,7 @@ const ASCP = require('activesync/codepages');
  *
  * @return {{ serverId, folderSyncKey }}
  */
-async function deleteFolder(conn, args) {
+export default async function deleteFolder(conn, args) {
   const fh = ASCP.FolderHierarchy.Tags;
   const fhStatus = ASCP.FolderHierarchy.Enums.Status;
 
@@ -56,6 +53,3 @@ async function deleteFolder(conn, args) {
     throw 'unknown';
   }
 }
-
-return deleteFolder;
-});

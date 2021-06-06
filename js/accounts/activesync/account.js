@@ -1,35 +1,20 @@
 /**
  * Implements the ActiveSync protocol for Hotmail and Exchange.
  **/
-// XXX update the AMD idiom used
-define(
-  [
-    'logic',
-    '../a64',
-    '../accountmixins',
-    '../searchfilter',
-    // We potentially create the synthetic inbox while offline, so this can't be
-    // lazy-loaded.
-    'activesync/codepages/FolderHierarchy',
-    '../util',
-    '../db/folder_info_rep',
-    'wbxml',
-    'activesync/protocol',
-    'activesync/codepages'
-  ],
-  function(
-    logic,
-    $a64,
-    $acctmixins,
-    $searchfilter,
-    $FolderHierarchy,
-    $util,
-    $folder_info,
-    $wbxml,
-    $asproto,
-    ASCP
-  ) {
-'use strict';
+
+import logic from 'logic';
+import $a64 from '../../a64';
+import $acctmixins from '../../accountmixins';
+import $searchfilter from '../../searchfilter';
+// We potentially create the synthetic inbox while offline, so this can't be
+// lazy-loaded.
+import $FolderHierarchy from 'activesync/codepages/FolderHierarchy';
+import $util from '../../util';
+import $folder_info from '../../db/folder_info_rep';
+import $wbxml from 'wbxml';
+import $asproto from 'activesync/protocol';
+import ASCP from 'activesync/codepages';
+
 
 // XXX pull out of syncbase instead
 var DEFAULT_TIMEOUT_MS = 30 * 1000;
@@ -303,5 +288,5 @@ ActiveSyncAccount.prototype = {
   allOperationsCompleted: function() {
   }
 };
-return ActiveSyncAccount;
-}); // end define
+
+export default ActiveSyncAccount;

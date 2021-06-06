@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const em = require('activesync/codepages/Email').Tags;
+import { Tags as em } from 'activesync/codepages/Email';
 
 /**
  * Parse the given WBXML server representation of a changed message into a
@@ -9,7 +6,7 @@ const em = require('activesync/codepages/Email').Tags;
  *
  * @param {WBXML.Element} node
  */
-function parseChangedMessage(node) {
+export default function parseChangedMessage(node) {
   let flagChanges = {
     add: null,
     remove: null
@@ -45,11 +42,10 @@ function parseChangedMessage(node) {
           }
         }
         break;
+      default:
+        break;
     }
   }
 
   return { flagChanges };
 }
-
-return parseChangedMessage;
-});

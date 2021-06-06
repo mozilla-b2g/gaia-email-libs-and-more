@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Randomly create a unique device id so that multiple devices can independently
  * synchronize without interfering with each other.  Our only goals are to avoid
@@ -22,7 +19,7 @@ function makeUniqueDeviceId() {
  * much going on in here.  The main tricky thing is that we still might need
  * to run autodiscover; see the validator for more details on that.
  */
-return function(userDetails, domainInfo) {
+export default function(userDetails, domainInfo) {
   let deviceId = makeUniqueDeviceId();
 
   let credentials;
@@ -58,5 +55,4 @@ return function(userDetails, domainInfo) {
       connInfo
     }
   };
-};
-}); // end define
+}

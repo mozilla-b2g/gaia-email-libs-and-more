@@ -1,8 +1,5 @@
-define(function(require) {
-'use strict';
-
-const $wbxml = require('wbxml');
-const { Tags: fh } = require('activesync/codepages/FolderHierarchy');
+import $wbxml from 'wbxml';
+import { Tags as fh } from 'activesync/codepages/FolderHierarchy';
 
 /**
  * High-level synchronization of the contents of a folder.  This routine
@@ -22,7 +19,7 @@ const { Tags: fh } = require('activesync/codepages/FolderHierarchy');
  *
  * @return {{ invalidSyncKey, moreToSync }}
  */
-async function enumerateHierarchyChanges(
+export default async function enumerateHierarchyChanges(
   conn, { hierarchySyncKey, emitter }) {
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(fh.FolderSync)
@@ -68,6 +65,3 @@ async function enumerateHierarchyChanges(
 
   return { hierarchySyncKey: newSyncKey };
 }
-
-return enumerateHierarchyChanges;
-});

@@ -1,10 +1,6 @@
-define(function(require) {
-'use strict';
-
-const $wbxml = require('wbxml');
-const { Tags: as }= require('activesync/codepages/AirSync');
-const { Tags: ie, Enums: ieEnum } =
-  require('activesync/codepages/ItemEstimate');
+import $wbxml from 'wbxml';
+import { Tags as $as }from 'activesync/codepages/AirSync';
+import { Tags as ie, Enums as ieEnum } from 'activesync/codepages/ItemEstimate';
 
 /**
  * Get an estimate of the number of messages to be synced.
@@ -17,31 +13,30 @@ const { Tags: ie, Enums: ieEnum } =
  * @param {String} args.folderSyncKey
  * @param {String} args.filterType
  */
-async function getItemEstimate(
+export default async function getItemEstimate(
   conn, { folderSyncKey, folderServerId, filterType }) {
-
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(ie.GetItemEstimate)
      .stag(ie.Collections)
        .stag(ie.Collection);
 
   if (conn.currentVersion.gte('14.0')) {
-        w.tag(as.SyncKey, folderSyncKey)
+        w.tag($as.SyncKey, folderSyncKey)
          .tag(ie.CollectionId, folderServerId)
-         .stag(as.Options)
-           .tag(as.FilterType, filterType)
+         .stag($as.Options)
+           .tag($as.FilterType, filterType)
          .etag();
   }
   else if (conn.currentVersion.gte('12.0')) {
         w.tag(ie.CollectionId, folderServerId)
-         .tag(as.FilterType, filterType)
-         .tag(as.SyncKey, folderSyncKey);
+         .tag($as.FilterType, filterType)
+         .tag($as.SyncKey, folderSyncKey);
   }
   else {
         w.tag(ie.Class, 'Email')
-         .tag(as.SyncKey, folderSyncKey)
+         .tag($as.SyncKey, folderSyncKey)
          .tag(ie.CollectionId, folderServerId)
-         .tag(as.FilterType, filterType);
+         .tag($as.FilterType, filterType);
   }
 
       w.etag(ie.Collection)
@@ -78,6 +73,3 @@ async function getItemEstimate(
     return { estimate };
   }
 }
-
-return getItemEstimate;
-});

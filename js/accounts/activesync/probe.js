@@ -1,11 +1,9 @@
-define(function(require) {
-'use strict';
+// XXX see below about us not having tcp-socket and the moot-ish feature.
+//import tcpSocket from 'tcp-socket';
 
-//const tcpSocket = require('tcp-socket');
+import { AUTOCONFIG_TIMEOUT_MS } from '../../syncbase';
 
-const { AUTOCONFIG_TIMEOUT_MS } = require('../syncbase');
-
-const { Connection, HttpError } = require('activesync/protocol');
+import { Connection, HttpError } from 'activesync/protocol';
 
 function checkServerCertificate(url) {
   return new Promise((resolve) => {
@@ -63,7 +61,7 @@ function checkServerCertificate(url) {
   });
 }
 
-return function probe({ connInfo, credentials }) {
+export default function probe({ connInfo, credentials }) {
   return new Promise((resolve) => {
     var conn = new Connection(connInfo.deviceId);
     conn.open(connInfo.server, credentials.username,
@@ -117,5 +115,4 @@ return function probe({ connInfo, credentials }) {
       resolve({ conn, error: null, errorDetails: null });
     });
   });
-};
-});
+}

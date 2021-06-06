@@ -1,11 +1,8 @@
-define(function(require) {
-'use strict';
-
-const $wbxml = require('wbxml');
-const { Tags: io, Enums: ioEnum } =
-  require('activesync/codepages/ItemOperations');
-const { Tags: as } = require('activesync/codepages/AirSync');
-const { Tags: asb } = require('activesync/codepages/AirSyncBase');
+import $wbxml from 'wbxml';
+import { Tags as io, Enums as ioEnum } from
+  'activesync/codepages/ItemOperations';
+import { Tags as $as } from 'activesync/codepages/AirSync';
+import { Tags as $asb } from 'activesync/codepages/AirSyncBase';
 
 /**
  * Download a possibly truncated message body for 12.0 and higher servers.
@@ -18,25 +15,24 @@ const { Tags: asb } = require('activesync/codepages/AirSyncBase');
  *
  * @return {{ invalidSyncKey, moreToSync }}
  */
-async function downloadBody(
+export default async function downloadBody(
   conn, { folderServerId, messageServerId, bodyType, truncationSize }) {
-
   let w = new $wbxml.Writer('1.3', 1, 'UTF-8');
   w.stag(io.ItemOperations)
      .stag(io.Fetch)
        .tag(io.Store, 'Mailbox')
-       .tag(as.CollectionId, folderServerId)
-       .tag(as.ServerId, messageServerId)
+       .tag($as.CollectionId, folderServerId)
+       .tag($as.ServerId, messageServerId)
        .stag(io.Options)
          // Only get the AirSyncBase:Body element to minimize bandwidth.
          .stag(io.Schema)
-           .tag(asb.Body)
+           .tag($asb.Body)
          .etag()
-         .stag(asb.BodyPreference)
-           .tag(asb.Type, bodyType);
+         .stag($asb.BodyPreference)
+           .tag($asb.Type, bodyType);
 
   if (truncationSize) {
-          w.tag(asb.TruncationSize, truncationSize);
+          w.tag($asb.TruncationSize, truncationSize);
   }
 
         w.etag()
@@ -52,7 +48,7 @@ async function downloadBody(
     status = node.children[0].textContent;
   });
   e.addEventListener([io.ItemOperations, io.Response, io.Fetch,
-                      io.Properties, asb.Body, asb.Data], function(node) {
+                      io.Properties, $asb.Body, $asb.Data], function(node) {
     bodyContent = node.children[0].textContent;
   });
 
@@ -71,6 +67,3 @@ async function downloadBody(
 
   return { bodyContent };
 }
-
-return downloadBody;
-});

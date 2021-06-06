@@ -1,6 +1,3 @@
-define(function() {
-'use strict';
-
 /**
  * Send a mail message for v12.x and lower ActiveSync servers.
  *
@@ -13,7 +10,7 @@ define(function() {
  *   A function to be invoked periodically on progress to help our caller know
  *   that we're still alive and doing things.
  */
-return async function sendMail(conn, { mimeBlob, progress }) {
+export default async function sendMail(conn, { mimeBlob, progress }) {
   await conn.postData(
     'SendMail', 'message/rfc822', mimeBlob,
     {
@@ -22,5 +19,4 @@ return async function sendMail(conn, { mimeBlob, progress }) {
       },
       uploadProgress: progress,
     });
-};
-});
+}

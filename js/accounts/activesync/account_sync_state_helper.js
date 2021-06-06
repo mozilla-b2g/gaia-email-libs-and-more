@@ -1,9 +1,6 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-const logic = require('logic');
-
-const a64 = require('../a64');
+import a64 from '../../a64';
 
 /**
  * Account global sync state.  Which is really just the FolderSync syncKey
@@ -29,7 +26,7 @@ const a64 = require('../a64');
  * - The default filterType.  This is a user setting and as such needs to be
  *   stored on the accountDef so it propagates through upgrades, etc.
  */
-function AccountSyncStateHelper(ctx, rawSyncState, accountId) {
+export default function AccountSyncStateHelper(ctx, rawSyncState, accountId) {
   if (!rawSyncState) {
     logic(ctx, 'creatingDefaultSyncState', {});
     rawSyncState = {
@@ -66,6 +63,3 @@ AccountSyncStateHelper.prototype = {
     this.serverIdToFolderId.delete(serverId);
   }
 };
-
-return AccountSyncStateHelper;
-});

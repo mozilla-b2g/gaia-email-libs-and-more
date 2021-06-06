@@ -1,12 +1,9 @@
-define(function(require) {
-'use strict';
+import logic from 'logic';
 
-let logic = require('logic');
+import { convIdFromMessageId } from '../../id_conversions';
+import { shallowClone } from '../../util';
 
-let { convIdFromMessageId } = require('../id_conversions');
-let { shallowClone } = require('../util');
-
-let a64 = require('../a64');
+import a64 from '../../a64';
 
 /**
  * ActiveSync helper logic for folder sync state manipulation.
@@ -201,5 +198,4 @@ FolderSyncStateHelper.prototype = {
   }
 };
 
-return FolderSyncStateHelper;
-});
+export default FolderSyncStateHelper;
