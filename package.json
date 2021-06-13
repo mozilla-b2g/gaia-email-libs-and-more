@@ -3,9 +3,6 @@
   "version": "0.0.0",
   "description": "Gaia's [FirefoxOS's] email backend",
   "main": "index.js",
-  "engines": {
-    "node": "^4 || ^5"
-  },
   "private": true,
   "scripts": {
     "test": "make test-all"
@@ -35,7 +32,7 @@
     "slugid": "~1.0.3"
   },
   "volo": {
-    "baseDir": "js/ext",
+    "baseDir": "src/vendored",
     "dependencies": {
       "browserbox": "github:whiteout-io/browserbox/gm-labels",
       "browserbox-imap": "github:whiteout-io/browserbox/gm-labels#src/browserbox-imap.js",
