@@ -1,6 +1,3 @@
-[submodule "js/ext/activesync-lib"]
-	path = src/vendored/activesync-lib
-	url = git://github.com/mozilla-b2g/jsas.git
 [submodule "js/ext/bleach.js"]
 	path = src/vendored/bleach.js
 	url = git://github.com/mozilla-b2g/bleach.js.git
