@@ -26,7 +26,7 @@
             return factory(TCPSocket, imapHandler, mimefuncs, compression, axe);
         });
     } else if (typeof exports === 'object') {
-        module.exports = factory(require('tcp-socket'), require('wo-imap-handler'), require('mimefuncs'), require('./browserbox-compression'), require('axe-logger'), null);
+        module.exports = factory(require('tcp-socket'), require('imap-handler'), require('mimefuncs'), require('browserbox-compression'), require('axe'), null);
     } else {
         root.BrowserboxImapClient = factory(navigator.TCPSocket, root.imapHandler, root.mimefuncs, root.BrowserboxCompressor, root.axe);
     }

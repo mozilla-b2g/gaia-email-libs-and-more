@@ -28,17 +28,10 @@
         define(['stringencoding'], function(encoding) {
             return factory(encoding.TextEncoder, encoding.TextDecoder, root.btoa);
         });
-    } else if (typeof exports === 'object' && typeof navigator !== 'undefined') {
-        // common.js for browser
-        encoding = require('wo-stringencoding');
-        module.exports = factory(encoding.TextEncoder, encoding.TextDecoder, root.btoa);
     } else if (typeof exports === 'object') {
-        // common.js for node.js
-        encoding = require('wo-stringencoding');
-        module.exports = factory(encoding.TextEncoder, encoding.TextDecoder, function(str) {
-            var NodeBuffer = require('buffer').Buffer;
-            return new NodeBuffer(str, 'binary').toString("base64");
-        });
+        // common.js for browser
+        encoding = require('stringencoding');
+        module.exports = factory(encoding.TextEncoder, encoding.TextDecoder, root.btoa);
     } else {
         // global for browser
         root.mimefuncs = factory(root.TextEncoder, root.TextDecoder, root.btoa);
