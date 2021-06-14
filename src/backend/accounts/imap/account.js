@@ -1,6 +1,6 @@
 import logic from 'logic';
 import $errbackoff from '../../errbackoff';
-import $syncbase from '../../syncbase';
+import { KILL_CONNECTIONS_WHEN_JOBLESS, STALE_CONNECTION_TIMEOUT_MS } from '../../syncbase';
 import { CompositeIncomingAccount } from '../composite/incoming';
 import * as $imapclient from './client';
 import ParallelImap from './protocol/parallel_imap';
@@ -268,7 +268,7 @@ var properties = {
     // long time, particularly on cell networks. NB: This will
     // close the connection we just used, unless someone else is
     // waiting for a connection.
-    if ($syncbase.KILL_CONNECTIONS_WHEN_JOBLESS &&
+    if (KILL_CONNECTIONS_WHEN_JOBLESS &&
         !this._demandedConns.length &&
         !this.universe.areServerJobsWaiting(this)) {
       this.closeUnusedConnections();
@@ -395,7 +395,7 @@ var properties = {
 
   _bindConnectionDeathHandlers: function(conn) {
     conn.breakIdle(function() {
-      conn.client.TIMEOUT_ENTER_IDLE = $syncbase.STALE_CONNECTION_TIMEOUT_MS;
+      conn.client.TIMEOUT_ENTER_IDLE = STALE_CONNECTION_TIMEOUT_MS;
       conn.client.onidle = function() {
         console.warn('Killing stale IMAP connection.');
         conn.client.close();

@@ -6,8 +6,8 @@ import { prioritizeNewer } from '../../../date_priority_adjuster';
 
 
 import TaskDefiner from '../../../task_infra/task_definer';
-import a64 from 'shared/a64';
-const expandGmailConvId = a64.decodeUI64;
+
+import { decodeUI64 as expandGmailConvId } from 'shared/a64';
 
 import { encodedGmailConvIdFromConvId } from 'shared/id_conversions';
 

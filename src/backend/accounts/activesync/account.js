@@ -4,11 +4,6 @@
 
 import logic from 'logic';
 import $acctmixins from '../../accountmixins';
-// We potentially create the synthetic inbox while offline, so this can't be
-// lazy-loaded.
-import $FolderHierarchy from 'activesync/codepages/FolderHierarchy';
-import $util from 'shared/util';
-import $folder_info from '../../db/folder_info_rep';
 import $wbxml from 'wbxml';
 import $asproto from 'activesync/protocol';
 import ASCP from 'activesync/codepages';

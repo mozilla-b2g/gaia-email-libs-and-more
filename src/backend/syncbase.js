@@ -1,13 +1,4 @@
-define(
-  [
-    'shared/date',
-    'exports'
-  ],
-  function(
-    $date,
-    exports
-  ) {
-'use strict';
+import { DAY_MILLIS } from 'shared/date';
 
 ////////////////////////////////////////////////////////////////////////////////
 // Autoconfig stuff
@@ -18,13 +9,13 @@ define(
  * fairly large so that we don't abort an XHR just because the network is
  * spotty.
  */
-exports.AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
+export let AUTOCONFIG_TIMEOUT_MS = 30 * 1000;
 
 /**
  * The root of the ISPDB.  This must be HTTPS.  Okay to clobber for automated
  * tests, but should generally never be changed.
  */
-exports.ISPDB_AUTOCONFIG_ROOT =
+export let ISPDB_AUTOCONFIG_ROOT =
   'https://live.mozillamessaging.com/autoconfig/v1.1/';
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -38,7 +29,7 @@ exports.ISPDB_AUTOCONFIG_ROOT =
  * As we're syncing with POP3, pause every N messages to save state to disk.
  * This value was chosen somewhat arbitrarily.
  */
-exports.POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
+export let POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
 
 /**
  * The maximum number of messages to retrieve during a single POP3
@@ -53,18 +44,18 @@ exports.POP3_SAVE_STATE_EVERY_N_MESSAGES = 50;
  * small enough that we won't get completely overwhelmed that we have
  * to download this many headers.
  */
-exports.POP3_MAX_MESSAGES_PER_SYNC = 100;
+export let POP3_MAX_MESSAGES_PER_SYNC = 100;
 
 /**
  * If a message is larger than INFER_ATTACHMENTS_SIZE bytes, guess
  * that it has an attachment.
  */
-exports.POP3_INFER_ATTACHMENTS_SIZE = 512 * 1024;
+export let POP3_INFER_ATTACHMENTS_SIZE = 512 * 1024;
 
 /**
  * Attempt to fetch this many bytes of messages during snippet fetching.
  */
-exports.POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
+export let POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
 
 ////////////////////////////////////////////////////////////////////////////////
 // General Sync Constants
@@ -77,26 +68,26 @@ exports.POP3_SNIPPET_SIZE_GOAL = 4 * 1024; // in bytes
  * TODO: This is dead, but we are probably a bit too overzealous with folder
  * list syncing now.
  */
-exports.SYNC_FOLDER_LIST_EVERY_MS = $date.DAY_MILLIS;
+export let SYNC_FOLDER_LIST_EVERY_MS = DAY_MILLIS;
 
 /**
  * How many days in the past should we first look for messages.
  *
  * IMAP only.
  */
-exports.INITIAL_SYNC_DAYS = 3;
+export let INITIAL_SYNC_DAYS = 3;
 
 /**
  * When growing our synchronization range, what should be the initial number of
  * days we should scan?
  */
-exports.INITIAL_SYNC_GROWTH_DAYS = 3;
+export let INITIAL_SYNC_GROWTH_DAYS = 3;
 
 /**
  * When growing in a folder, what's the approximate number of messages we should
  * target to synchronize?  Note that this is in messages, not conversations.
  */
-exports.GROWTH_MESSAGE_COUNT_TARGET = 32;
+export let GROWTH_MESSAGE_COUNT_TARGET = 32;
 
 /**
  * What is the furthest back in time we are willing to go?  This is an
@@ -108,7 +99,7 @@ exports.GROWTH_MESSAGE_COUNT_TARGET = 32;
  *
  * IMAP only.
  */
-exports.OLDEST_SYNC_DATE = Date.UTC(1990, 0, 1);
+export let OLDEST_SYNC_DATE = Date.UTC(1990, 0, 1);
 
 /**
  * Don't bother with iterative deepening if a folder has less than this many
@@ -125,7 +116,7 @@ exports.OLDEST_SYNC_DATE = Date.UTC(1990, 0, 1);
  *
  * IMAP only.
  */
-exports.SYNC_WHOLE_FOLDER_AT_N_MESSAGES = 40;
+export let SYNC_WHOLE_FOLDER_AT_N_MESSAGES = 40;
 
 ////////////////////////////////////////////////////////////////////////////////
 // MIME Size / Parsing / Streaming Constants
@@ -134,13 +125,13 @@ exports.SYNC_WHOLE_FOLDER_AT_N_MESSAGES = 40;
  * How many bytes-worth of typed array data should we accumulate before
  * condensing it into a Blob? Arbitrarily chosen.
  */
-exports.BYTES_PER_BLOB_CHUNK = 1024 * 1024;
+export let BYTES_PER_BLOB_CHUNK = 1024 * 1024;
 
 /**
  * How many bytes should we request for each IMAP FETCH chunk request?
  * (Currently used only by attachment downloading, not body fetching).
  */
-exports.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST = 1024 * 1024;
+export let BYTES_PER_IMAP_FETCH_CHUNK_REQUEST = 1024 * 1024;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Download Stuff
@@ -155,7 +146,7 @@ exports.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST = 1024 * 1024;
  * devicestorage implementation does use disparate places unless in testing
  * mode.)
  */
-exports.DEVICE_STORAGE_NAME = 'sdcard';
+export let DEVICE_STORAGE_NAME = 'sdcard';
 
 ////////////////////////////////////////////////////////////////////////////////
 // General defaults
@@ -164,7 +155,7 @@ exports.DEVICE_STORAGE_NAME = 'sdcard';
  * We use an enumerated set of sync values for UI localization reasons; time
  * is complex and we don't have/use a helper library for this.
  */
-exports.CHECK_INTERVALS_ENUMS_TO_MS = {
+export let CHECK_INTERVALS_ENUMS_TO_MS = {
   'manual': 0, // 0 disables; no infinite checking!
   '3min': 3 * 60 * 1000,
   '5min': 5 * 60 * 1000,
@@ -179,7 +170,7 @@ exports.CHECK_INTERVALS_ENUMS_TO_MS = {
  * degrading the phone experience until we are more confident about our resource
  * usage, etc.
  */
-exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
+export let DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
 
 /**
  * How many milliseconds should we wait before giving up on the
@@ -196,7 +187,7 @@ exports.DEFAULT_CHECK_INTERVAL_ENUM = 'manual';
  * unresponsive server, it's far worse to fail to connect to a real
  * server on a bad network, etc.
  */
-exports.CONNECT_TIMEOUT_MS = 30000;
+export let CONNECT_TIMEOUT_MS = 30000;
 
 /**
  * When an IMAP connection has been left in the connection pool for
@@ -205,7 +196,7 @@ exports.CONNECT_TIMEOUT_MS = 30000;
  * constantly spin up new connections, but short enough that we might
  * actually have connections open for that length of time.
  */
-exports.STALE_CONNECTION_TIMEOUT_MS = 30000;
+export let STALE_CONNECTION_TIMEOUT_MS = 30000;
 
 /**
  * Kill any open IMAP connections if there are no jobs pending and there are no
@@ -214,17 +205,14 @@ exports.STALE_CONNECTION_TIMEOUT_MS = 30000;
  * This gets disabled by default in testing; tests that care should turn this
  * back on.
  */
-exports.KILL_CONNECTIONS_WHEN_JOBLESS = true;
-
-
-var DAY_MILLIS = 24 * 60 * 60 * 1000;
+export let KILL_CONNECTIONS_WHEN_JOBLESS = true;
 
 /**
  * Map the ActiveSync-limited list of sync ranges to milliseconds.  Do NOT
  * add additional values to this mapping unless you make sure that our UI
  * properly limits ActiveSync accounts to what the protocol supports.
  */
-exports.SYNC_RANGE_ENUMS_TO_MS = {
+export let SYNC_RANGE_ENUMS_TO_MS = {
   // This choice is being made for IMAP.
   'auto': 30 * DAY_MILLIS,
     '1d': 1 * DAY_MILLIS,
@@ -240,13 +228,13 @@ exports.SYNC_RANGE_ENUMS_TO_MS = {
  * we want two lines worth, so we're bumping a little bit.  But this should
  * really just be parametrized by the consumer.
  */
-exports.DESIRED_SNIPPET_LENGTH = 160;
+export let DESIRED_SNIPPET_LENGTH = 160;
 
 /**
  * These values were arbitrarily chosen during v1.0 development and haven't
  * posed a problem yet.  So, eh.
  */
-exports.DEFAULT_SEARCH_EXCERPT_SETTINGS = {
+export let DEFAULT_SEARCH_EXCERPT_SETTINGS = {
   charsBefore: 16,
   charsAfter: 40
 };
@@ -265,7 +253,7 @@ exports.DEFAULT_SEARCH_EXCERPT_SETTINGS = {
  * This seems reasonable given goals of not requiring the GC to run after every
  * block and not having us tie up the CPU too long during our encoding.
  */
-exports.BLOB_BASE64_BATCH_CONVERT_SIZE = 9198 * 57;
+export let BLOB_BASE64_BATCH_CONVERT_SIZE = 9198 * 57;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Cronsync/periodic sync stuff
@@ -277,42 +265,17 @@ exports.BLOB_BASE64_BATCH_CONVERT_SIZE = 9198 * 57;
  *
  * While ideally this would be shorter than valid sync intervals
  */
-exports.CRONSYNC_MAX_DURATION_MS = 60 * 1000;
+export let CRONSYNC_MAX_DURATION_MS = 60 * 1000;
 
 ////////////////////////////////////////////////////////////////////////////////
 // Unit test support
 
-/**
- * Override individual syncbase values for unit testing. Any key in
- * syncbase can be overridden.
- */
-exports.TEST_adjustSyncValues = function TEST_adjustSyncValues(syncValues) {
-  // Legacy values: This function used to accept a mapping that didn't
-  // match one-to-one with constant names, but was changed to map
-  // directly to constant names for simpler grepping.
-  var legacyKeys = {
-    days: 'INITIAL_SYNC_DAYS',
-    growDays: 'INITIAL_SYNC_GROWTH_DAYS',
-    wholeFolderSync: 'SYNC_WHOLE_FOLDER_AT_N_MESSAGES',
-    bisectThresh: 'BISECT_DATE_AT_N_MESSAGES',
-    tooMany: 'TOO_MANY_MESSAGES',
-    scaleFactor: 'TIME_SCALE_FACTOR_ON_NO_MESSAGES',
-    openRefreshThresh: 'OPEN_REFRESH_THRESH_MS',
-    growRefreshThresh: 'GROW_REFRESH_THRESH_MS',
-  };
-
-  for (var key in syncValues) {
-    if (syncValues.hasOwnProperty(key)) {
-      var outKey = legacyKeys[key] || key;
-      if (exports.hasOwnProperty(outKey)) {
-        exports[outKey] = syncValues[key];
-      } else {
-        // In the future (after we have a chance to review all calls to
-        // this function), we could make this throw an exception
-        // instead.
-        console.warn('Invalid key for TEST_adjustSyncValues: ' + key);
-      }
-    }
-  }
-};
-}); // end define
+// TODO: Bring the test support mechanism back if it's needed.  exports should
+// be live, but I think this might end up needing a big switch statement since
+// it's not clear there's just a dictionary we can index.  (It might have made
+// more sense to have just a single default export that's a dictionary and
+// which the importers could destructure.  This could still happen.)
+//
+// Originally there was a method TEST_adjustSyncValues here which took a
+// dictionary of values which it would potentially map from camelCase to
+// DEFINE_CASE as we use above, clobbering our exported values.

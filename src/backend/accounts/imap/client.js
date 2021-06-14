@@ -8,7 +8,7 @@ import BrowserBox from 'browserbox';
 import ImapClient from 'browserbox-imap';
 import imapHandler from 'imap-handler';
 import logic from 'logic';
-import syncbase from '../../syncbase';
+import { CONNECT_TIMEOUT_MS } from '../../syncbase';
 import errorutils from '../../errorutils';
 import oauth from '../../oauth';
 
@@ -78,7 +78,7 @@ export function createImapConnection (credentials, connInfo,
       var connectTimeout = setTimeout(function() {
         conn.onerror('unresponsive-server');
         conn.close();
-      }, syncbase.CONNECT_TIMEOUT_MS);
+      }, CONNECT_TIMEOUT_MS);
 
       conn.onauth = function() {
         clearTimeout(connectTimeout);

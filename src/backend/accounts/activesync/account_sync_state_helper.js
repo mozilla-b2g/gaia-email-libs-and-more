@@ -1,6 +1,6 @@
 import logic from 'logic';
 
-import a64 from 'shared/a64';
+import { encodeInt } from 'shared/a64';
 
 /**
  * Account global sync state.  Which is really just the FolderSync syncKey
@@ -52,7 +52,7 @@ AccountSyncStateHelper.prototype = {
 
   issueFolderId: function() {
     return (
-      this._accountId + '.' + a64.encodeInt(this.rawSyncState.nextFolderNum++));
+      this._accountId + '.' + encodeInt(this.rawSyncState.nextFolderNum++));
   },
 
   addedFolder: function(serverId, folderInfo) {

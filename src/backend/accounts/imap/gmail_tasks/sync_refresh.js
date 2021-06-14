@@ -12,9 +12,7 @@ import SyncStateHelper from '../gmail/sync_state_helper';
 import * as imapchew from '../imapchew';
 const parseImapDateTime = imapchew.parseImapDateTime;
 
-import a64 from 'shared/a64';
-const parseGmailConvId = a64.parseUI64;
-const parseGmailMsgId = a64.parseUI64;
+import { parseUI64 as parseGmailConvId, parseUI64 as parseGmailMsgId } from 'shared/a64';
 
 import { accountIdFromFolderId } from 'shared/id_conversions';
 

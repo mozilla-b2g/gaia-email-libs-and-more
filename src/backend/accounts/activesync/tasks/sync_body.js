@@ -12,7 +12,7 @@ import downloadBody25 from '../smotocol/download_body_25';
 import { Enums as asbEnum } from 'activesync/codepages/AirSyncBase';
 
 
-import { MAX_SNIPPET_BYTES } from '../../../syncbase';
+import { DESIRED_SNIPPET_LENGTH } from '../../../syncbase';
 
 import MixinSyncBody from '../../../task_mixins/mix_sync_body';
 
@@ -93,7 +93,7 @@ export default TaskDefiner.defineComplexTask([
       // whole thing.
       let truncationSize = 0;
       if (req.amount === 'snippet') {
-        truncationSize = MAX_SNIPPET_BYTES;
+        truncationSize = DESIRED_SNIPPET_LENGTH;
       } else if (req.amount) {
         truncationSize = req.amount;
       }

@@ -1,7 +1,4 @@
-define(function(require) {
-'use strict';
-
-const { NOW } = require('shared/date');
+import { NOW } from 'shared/date';
 
 /**
  * Our tasks currently support relative priorities of -100k to +100k.
@@ -24,15 +21,10 @@ const ONE_HOUR_IN_MSECS = 60 * 60 * 1000;
  * save precision for newer stuff where quantization collisions are more
  * undesirable.
  */
-function prioritizeNewer(dateTS) {
+export function prioritizeNewer(dateTS) {
   return Math.max(
     -MAX_PRIORITY_BOOST,
     MAX_PRIORITY_BOOST -
     (NOW() - dateTS) / ONE_HOUR_IN_MSECS
   );
 }
-
-return {
-  prioritizeNewer
-};
-});

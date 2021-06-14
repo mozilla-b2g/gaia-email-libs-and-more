@@ -5,7 +5,7 @@ import churnConversation from '../../../churn_drivers/conv_churn_driver';
 import { SnippetParser } from '../protocol/snippetparser';
 import { TextParser } from '../protocol/textparser';
 
-import { MAX_SNIPPET_BYTES } from '../../../syncbase';
+import { DESIRED_SNIPPET_LENGTH } from '../../../syncbase';
 
 /**
  * Maximum bytes to request from server in a fetch request (max uint32)
@@ -34,7 +34,7 @@ export default {
     // entirety and do nothing else for the other messages.
     let maxBytesPerMessage = 0;
     if (req.amount === 'snippet') {
-      maxBytesPerMessage = MAX_SNIPPET_BYTES;
+      maxBytesPerMessage = DESIRED_SNIPPET_LENGTH;
     } else if (req.amount) {
       maxBytesPerMessage = req.amount;
     }

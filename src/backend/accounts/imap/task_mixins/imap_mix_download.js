@@ -1,6 +1,6 @@
 import messageChunkedPartStream from '../protocol/message_chunked_part_stream';
 
-import syncbase from '../../../syncbase';
+import { BYTES_PER_IMAP_FETCH_CHUNK_REQUEST, BYTES_PER_BLOB_CHUNK } from '../../../syncbase';
 
 export default {
   async downloadParts(ctx, account, messageInfo, parts) {
@@ -15,8 +15,8 @@ export default {
       folderInfo,
       uid,
       parts,
-      downloadChunkSize: syncbase.BYTES_PER_IMAP_FETCH_CHUNK_REQUEST,
-      saveChunkSize: syncbase.BYTES_PER_BLOB_CHUNK
+      downloadChunkSize: BYTES_PER_IMAP_FETCH_CHUNK_REQUEST,
+      saveChunkSize: BYTES_PER_BLOB_CHUNK
     });
   },
 };

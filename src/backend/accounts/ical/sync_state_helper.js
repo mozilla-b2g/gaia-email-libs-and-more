@@ -1,5 +1,5 @@
 import logic from 'logic';
-import a64 from 'shared/a64';
+import { encodeInt } from 'shared/a64';
 
 import { makeDaysAgo, makeDaysBefore } from 'shared/date';
 
@@ -52,7 +52,7 @@ export default class ICalSyncStateHelper {
 
   _issueUniqueConvId() {
     return (this._accountId + '.' +
-            a64.encodeInt(this.rawSyncState.nextConvId++));
+            encodeInt(this.rawSyncState.nextConvId++));
   }
 
   /**

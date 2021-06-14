@@ -1,17 +1,4 @@
-/**
- *
- **/
-
-define(
-  [
-    'exports',
-    'evt'
-  ],
-  function(
-    exports,
-    evt
-  ) {
-'use strict';
+import evt from 'evt';
 
 /**
  * Header info comparator that orders messages in order of numerically
@@ -19,7 +6,7 @@ define(
  * and messages with higher UIDs (newer-ish) before those with lower UIDs
  * (when the date is the same.)
  */
-exports.cmpHeaderYoungToOld = function cmpHeaderYoungToOld(a, b) {
+export function cmpHeaderYoungToOld(a, b) {
   var delta = b.date - a.date;
   if (delta) {
     return delta;
@@ -38,7 +25,7 @@ exports.cmpHeaderYoungToOld = function cmpHeaderYoungToOld(a, b) {
  *   range [0, arr.length].
  * }
  */
-exports.bsearchForInsert = function bsearchForInsert(list, seekVal, cmpfunc) {
+export function bsearchForInsert(list, seekVal, cmpfunc) {
   if (!list.length) {
     return 0;
   }
@@ -64,8 +51,7 @@ exports.bsearchForInsert = function bsearchForInsert(list, seekVal, cmpfunc) {
   }
 };
 
-exports.bsearchMaybeExists = function bsearchMaybeExists(list, seekVal, cmpfunc,
-                                                         aLow, aHigh) {
+export function bsearchMaybeExists(list, seekVal, cmpfunc, aLow, aHigh) {
   var low  = ((aLow === undefined)  ? 0                 : aLow),
       high = ((aHigh === undefined) ? (list.length - 1) : aHigh),
       mid, cmpval;
@@ -83,7 +69,7 @@ exports.bsearchMaybeExists = function bsearchMaybeExists(list, seekVal, cmpfunc,
   return null;
 };
 
-exports.formatAddresses = function(nameAddrPairs) {
+export function formatAddresses(nameAddrPairs) {
   var addrstrings = [];
   for (var i = 0; i < nameAddrPairs.length; i++) {
     var pair = nameAddrPairs[i];
@@ -111,7 +97,7 @@ exports.formatAddresses = function(nameAddrPairs) {
  * it easier to work with mozTCPSocket, which does not currently inherit
  * from EventEmitter per <https://bugzil.la/882123>.
  */
-exports.makeEventTarget = function makeEventTarget(obj) {
+export function makeEventTarget(obj) {
   if (!obj.addEventListener) {
     var emitter = new evt.Emitter();
     obj.addEventListener = (type, fn) => {
@@ -133,7 +119,7 @@ exports.makeEventTarget = function makeEventTarget(obj) {
 /**
  * Concatenate multiple ArrayBuffers, returning the result.
  */
-exports.concatBuffers = function() {
+export function concatBuffers() {
   var totalLength = 0;
   for (var i = 0; i < arguments.length; i++) {
     totalLength += arguments[i].byteLength;
@@ -151,7 +137,7 @@ exports.concatBuffers = function() {
  * Strip surrounding angle brackets from the given string/array.
  * If null, return null.
  */
-exports.stripArrows = function(s) {
+export function stripArrows(s) {
   if (Array.isArray(s)) {
     return s.map(exports.stripArrows);
   } else if (s && s[0] === '<') {
@@ -166,12 +152,10 @@ exports.stripArrows = function(s) {
  * keys/values of a simple data-only JS object with only Object.prototype in
  * its prototype chain.
  */
-exports.shallowClone = function(sourceObj) {
+export function shallowClone(sourceObj) {
   var destObj = {};
   for (var key in sourceObj) {
     destObj[key] = sourceObj[key];
   }
   return destObj;
 };
-
-}); // end define

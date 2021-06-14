@@ -1,6 +1,3 @@
-define(function(require) {
-'use strict';
-
 /**
  * Helper functions for dealing with add/remove changes to a value.
  **/
@@ -12,7 +9,7 @@ define(function(require) {
  * of values or remove something that's not in the list are filtered out in
  * the resulting lists that are generated.
  */
-function normalizeAndApplyChanges(values, toAdd, toRemove) {
+export function normalizeAndApplyChanges(values, toAdd, toRemove) {
   if (!Array.isArray(values)) {
     return normalizeAndApplyChangesToSet(values, toAdd, toRemove);
   }
@@ -50,7 +47,7 @@ function normalizeAndApplyChanges(values, toAdd, toRemove) {
  * and flags (list).  We of course desire to normalize these things, but it's
  * easier at this time to do this than to deal with more cascading fallout.
  */
-function normalizeAndApplyChangesToSet(values, toAdd, toRemove) {
+export function normalizeAndApplyChangesToSet(values, toAdd, toRemove) {
   let actuallyAdded = null;
   let actuallyRemoved = null;
   if (toAdd) {
@@ -83,7 +80,7 @@ function normalizeAndApplyChangesToSet(values, toAdd, toRemove) {
  * Apply the { add, remove } changes in `changes` to `value` by mutating
  * `value`.
  */
-function applyChanges(value, changes) {
+export function applyChanges(value, changes) {
   if (!Array.isArray(value)) {
     return applyChangesToSet(value, changes);
   }
@@ -108,7 +105,7 @@ function applyChanges(value, changes) {
  * Same deal as normalizeAndApplyChangesToSet; for consistency we have a
  * Set-aware version that gets automatically deferred to by applyChanges.
  */
-function applyChangesToSet(value, changes) {
+export function applyChangesToSet(value, changes) {
   if (changes.add) {
     for (let addend of changes.add) {
       if (!value.has(addend)) {
@@ -143,7 +140,7 @@ function concatLists(a, b) {
  * pattern is assumed and conformed to.  We will not mutate any of the lists
  * passed in, but may reuse them if we have no changes to make.
  */
-function mergeChanges(existingChanges, newChanges) {
+export function mergeChanges(existingChanges, newChanges) {
   let derivedAdd;
   let derivedRemove;
 
@@ -197,10 +194,3 @@ function mergeChanges(existingChanges, newChanges) {
     remove: derivedRemove
   };
 }
-
-return {
-  normalizeAndApplyChanges,
-  applyChanges,
-  mergeChanges
-};
-});

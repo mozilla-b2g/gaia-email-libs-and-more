@@ -14,7 +14,7 @@
 
 import logic from 'logic';
 
-import $util from 'shared/util';
+import { formatAddresses } from 'shared/util';
 import * as $mailchewStrings from './mailchew_strings';
 import * as $quotechew from './quotechew';
 import * as $htmlchew from './htmlchew';
@@ -306,22 +306,22 @@ export async function generateForwardParts(sourceMessage, identity) {
     new Date(sourceMessage.date) + '\n';
   // : from
   textMsg += l10n_forward_header_labels['from'] + ': ' +
-               $util.formatAddresses([sourceMessage.author]) + '\n';
+               formatAddresses([sourceMessage.author]) + '\n';
   // : reply-to
   if (sourceMessage.replyTo) {
     textMsg += l10n_forward_header_labels['replyTo'] + ': ' +
-                 $util.formatAddresses([sourceMessage.replyTo]) + '\n';
+                 formatAddresses([sourceMessage.replyTo]) + '\n';
   }
   // : organization
   // : to
   if (sourceMessage.to && sourceMessage.to.length) {
     textMsg += l10n_forward_header_labels['to'] + ': ' +
-                 $util.formatAddresses(sourceMessage.to) + '\n';
+                 formatAddresses(sourceMessage.to) + '\n';
   }
   // : cc
   if (sourceMessage.cc && sourceMessage.cc.length) {
     textMsg += l10n_forward_header_labels['cc'] + ': ' +
-                 $util.formatAddresses(sourceMessage.cc) + '\n';
+                 formatAddresses(sourceMessage.cc) + '\n';
   }
   // (bcc should never be forwarded)
   // : newsgroups

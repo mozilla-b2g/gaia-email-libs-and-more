@@ -1,5 +1,5 @@
 import logic from 'logic';
-import a64 from 'shared/a64';
+import { encodeInt } from 'shared/a64';
 
 /**
  * POP3 sync state.
@@ -68,7 +68,7 @@ SyncStateHelper.prototype = {
 
   issueUniqueMessageId: function() {
     return (this._accountId + '.' +
-            a64.encodeInt(this.rawSyncState.nextUmidSuffix++));
+            encodeInt(this.rawSyncState.nextUmidSuffix++));
   },
 
   /**

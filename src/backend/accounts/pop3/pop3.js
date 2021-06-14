@@ -3,9 +3,9 @@
   import md5 from 'md5';
   import * as transport from './transport';
   import * as imapchew from '../imap/imapchew';
-  import syncbase from '../../syncbase';
+  import { POP3_SNIPPET_SIZE_GOAL, POP3_INFER_ATTACHMENTS_SIZE } from '../../syncbase';
   import mimefuncs from 'mimefuncs';
-  import util from 'shared/util';
+  import { makeEventTarget } from 'shared/util';
   import allback from 'shared/allback';
 
   import PartBuilder from '../../mime/part_builder';
@@ -149,7 +149,7 @@
     this._messageList = null;
     this._greetingLine = null; // contains APOP auth info, if available
 
-    this.socket = util.makeEventTarget(
+    this.socket = makeEventTarget(
       tcpSocket.open(options.host, options.port, {
         useSecureTransport: (options.crypto === 'ssl' ||
                              options.crypto === true)
@@ -688,7 +688,7 @@
       // Based on SNIPPET_SIZE_GOAL, calculate approximately how many
       // lines we'll need to fetch in order to roughly retrieve
       // SNIPPET_SIZE_GOAL bytes.
-      var numLines = Math.floor(syncbase.POP3_SNIPPET_SIZE_GOAL / 80);
+      var numLines = Math.floor(POP3_SNIPPET_SIZE_GOAL / 80);
       request = this.beginRequest('TOP', [number, numLines], true);
     } else {
       request = this.beginRequest('RETR', [number], true);
@@ -831,7 +831,7 @@
         if (partiallyDownloaded &&
             (rootHeaders.getStringHeader('x-ms-has-attach') ||
              rootHeaders.contentType === 'multipart/mixed' ||
-             totalExpectedSize > syncbase.POP3_INFER_ATTACHMENTS_SIZE)) {
+             totalExpectedSize > POP3_INFER_ATTACHMENTS_SIZE)) {
           header.hasAttachments = true;
         }
 

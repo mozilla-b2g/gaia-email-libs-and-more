@@ -1,5 +1,3 @@
-// asuth.
-
 /**
  * ASCII-encoding tricks, particularly ordered-base64 encoding for
  * lexicographically ordered things like IndexedDB or 64-bit number support that
@@ -9,15 +7,6 @@
  *
  * @module
  **/
-
-define(
-  [
-    'exports'
-  ],
-  function(
-    exports
-  ) {
-'use strict';
 
 /**
  * A lexicographically ordered base64 encoding.  Our two extra characters are {
@@ -45,7 +34,7 @@ var ZERO_PADDING = '0000000000000000';
  * taking a JS Number (which is only valid up to 2^53), whereas parseUI64 takes
  * a String that is a decimal-encoded 64-bit integer.
  */
-function encodeInt(v, padTo) {
+export function encodeInt(v, padTo) {
   var sbits = [];
   do {
     // note: bitwise ops are 32-bit only.
@@ -61,13 +50,12 @@ function encodeInt(v, padTo) {
   }
   return estr;
 }
-exports.encodeInt = encodeInt;
 
 /**
  * Get a JS Number back from a prior call to encodeInt.  This is not
  * particularly optimized; we just use decodeUI64 and call parseInt on that.
  */
-exports.decodeA64Int = function(es) {
+export function decodeA64Int(es) {
   return parseInt(exports.decodeUI64(es), 10);
 };
 
@@ -98,7 +86,7 @@ var E10_14_RSH_14 = Math.pow(10, 14) / Math.pow(2, 14),
  * multiply by 10 we don't go floating point, as it were.  (We also need to add
  * in the relevant bits from the lower parse appropriately shifted.)
  */
-exports.parseUI64 = function p(s, padTo) {
+export function parseUI64(s, padTo) {
   // 2^53 is 16 digits long, so any string shorter than that can be handled
   // by the built-in logic.
   if (s.length < 16) {
@@ -136,7 +124,7 @@ exports.parseUI64 = function p(s, padTo) {
 /**
  * Compare a64-encoded values.
  */
-exports.cmpUI64 = function(a, b) {
+export function cmpUI64(a, b) {
   // longer equals bigger!
   var c = a.length - b.length;
   if (c !== 0) {
@@ -155,7 +143,7 @@ exports.cmpUI64 = function(a, b) {
 /**
  * Return the max of the two provided a64-encoded values.
  */
-exports.maxUI64 = function(a, b) {
+export function maxUI64(a, b) {
   if (exports.cmpUI64(a, b) === 1) {
     return a;
   } else {
@@ -173,18 +161,18 @@ exports.maxUI64 = function(a, b) {
  * for clarity for readers as things relate to types.  (Note that we may need
  * to actually duplicate the code if we get into static analyzers.)
  */
-exports.cmpDecimal64Strings = exports.cmpUI64;
+export { cmpUI64 as cmpDecimal64Strings };
 
 /**
  * Given two decimal-string-encoded 64-bit numbers, return the larger of the
  * two.  Builds on cmpDecimal64Strings.
  */
-exports.maxDecimal64Strings = exports.maxUI64;
+export { maxUI64 as maxDecimal64Strings };
 
 /**
  * Convert the output of `parseUI64` back into a decimal string.
  */
-exports.decodeUI64 = function d(es) {
+export function decodeUI64(es) {
   var iNonZero = 0;
   for (;es.charCodeAt(iNonZero) === 48; iNonZero++) {
     // intentionally clever/footgunny loop
@@ -234,7 +222,4 @@ exports.decodeUI64 = function d(es) {
 
   return uds + lds;
 };
-//d(p('10000000000000000'));
-//d(p('18014398509481984'));
-//d(p('1171221845949812801'));
-}); // end define
+

@@ -2,7 +2,7 @@ import logic from 'logic';
 
 import { convIdFromMessageId } from 'shared/id_conversions';
 
-import a64 from 'shared/a64';
+import { encodeInt } from 'shared/a64';
 
 /**
  * Vanilla IMAP helper logic for folder sync state manipulation.
@@ -84,7 +84,7 @@ FolderSyncStateHelper.prototype = {
 
   issueUniqueMessageId: function() {
     return (this._folderId + '.' +
-            a64.encodeInt(this.rawSyncState.nextUmidSuffix++));
+            encodeInt(this.rawSyncState.nextUmidSuffix++));
   },
 
   /**

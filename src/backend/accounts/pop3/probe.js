@@ -1,6 +1,6 @@
 import logic from 'logic';
 import * as pop3 from './pop3';
-import syncbase from '../../syncbase';
+import { CONNECT_TIMEOUT_MS } from '../../syncbase';
 import errorutils from '../../errorutils';
 
 const scope = logic.scope('Pop3Prober');
@@ -20,7 +20,7 @@ export function probeAccount(credentials, connInfo) {
     crypto: connInfo.crypto,
     username: credentials.username,
     password: credentials.password,
-    connTimeout: syncbase.CONNECT_TIMEOUT_MS
+    connTimeout: CONNECT_TIMEOUT_MS
   };
 
   logic(scope, 'connecting', { connInfo: connInfo });

@@ -5,7 +5,7 @@
  */
   import logic from 'logic';
   import SmtpClient from 'smtpclient';
-  import syncbase from '../../syncbase';
+  import { CONNECT_TIMEOUT_MS } from '../../syncbase';
   import oauth from '../../oauth';
 
   let setTimeout = globalThis.setTimeout;
@@ -74,7 +74,7 @@
         var connectTimeout = setTimeout(function() {
           conn.onerror('unresponsive-server');
           conn.close();
-        }, syncbase.CONNECT_TIMEOUT_MS);
+        }, CONNECT_TIMEOUT_MS);
 
         function clearConnectTimeout() {
           if (connectTimeout) {
